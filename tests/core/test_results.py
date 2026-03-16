@@ -228,6 +228,32 @@ def test_result_verify():
     assert records[0]["confidence"] == "high"
 
 
+def test_result_verify_supports_full_contract_binding_set():
+    state: dict = {}
+    result_add(state, result_id="R-01")
+
+    result = result_verify(
+        state,
+        "R-01",
+        verifier="gpd-verifier",
+        claim_id="claim-benchmark",
+        deliverable_id="deliv-figure",
+        acceptance_test_id="test-benchmark",
+        reference_id="ref-benchmark",
+        forbidden_proxy_id="fp-benchmark",
+    )
+
+    record = result.verification_records[0]
+    assert record.claim_id == "claim-benchmark"
+    assert record.deliverable_id == "deliv-figure"
+    assert record.acceptance_test_id == "test-benchmark"
+    assert record.reference_id == "ref-benchmark"
+    assert record.forbidden_proxy_id == "fp-benchmark"
+
+    listed = result_list(state, verified=True)
+    assert listed[0].verification_records[0].forbidden_proxy_id == "fp-benchmark"
+
+
 def test_result_add_with_verification_records_sets_verified():
     state: dict = {}
     result = result_add(

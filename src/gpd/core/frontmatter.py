@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -23,6 +24,7 @@ from gpd.core.constants import (
     STANDALONE_SUMMARY,
     SUMMARY_SUFFIX,
 )
+from gpd.core.contract_validation import _sanitize_contract_scalars
 from gpd.core.errors import GPDError
 from gpd.core.observability import instrument_gpd_function
 from gpd.core.utils import safe_read_file
@@ -191,25 +193,55 @@ def deep_merge_frontmatter(content: str, merge_data: dict) -> str:
     return f"---{eol}{yaml_str}{eol}---{eol}{eol}" + clean
 
 
+@dataclass(slots=True)
+class _PlanContractResolution:
+    contract: ResearchContract | None = None
+    errors: list[str] = field(default_factory=list)
+
+
+def _validate_contract_mapping(
+    contract_data: object,
+    *,
+    enforce_plan_semantics: bool,
+) -> _PlanContractResolution:
+    """Return validated contract data plus explicit scalar/schema/semantic errors."""
+
+    if not isinstance(contract_data, dict):
+        return _PlanContractResolution(errors=["expected an object"])
+
+    scalar_errors: list[str] = []
+    sanitized_contract_data = _sanitize_contract_scalars(contract_data, errors=scalar_errors)
+    if not isinstance(sanitized_contract_data, dict):
+        return _PlanContractResolution(errors=["expected an object"])
+    if scalar_errors:
+        return _PlanContractResolution(errors=scalar_errors)
+
+    try:
+        contract = ResearchContract.model_validate(sanitized_contract_data)
+    except PydanticValidationError as exc:
+        return _PlanContractResolution(errors=[str(exc)])
+
+    if not enforce_plan_semantics:
+        return _PlanContractResolution(contract=contract)
+
+    semantic_errors = _validate_plan_contract(contract)
+    if semantic_errors:
+        return _PlanContractResolution(errors=semantic_errors)
+    return _PlanContractResolution(contract=contract)
+
+
 def parse_contract_block(content: str) -> ResearchContract | None:
     """Extract and validate the optional ``contract`` block from frontmatter."""
 
     meta, _ = extract_frontmatter(content)
     if "contract" not in meta:
         return None
-    contract_data = meta.get("contract")
-    if not isinstance(contract_data, dict):
-        raise FrontmatterValidationError("Invalid contract frontmatter: expected an object")
-    try:
-        contract = ResearchContract.model_validate(contract_data)
-    except PydanticValidationError as exc:
-        raise FrontmatterValidationError(f"Invalid contract frontmatter: {exc}") from exc
-    issues = _validate_plan_contract(contract)
-    if issues:
+    resolution = _validate_contract_mapping(meta.get("contract"), enforce_plan_semantics=True)
+    if resolution.errors:
         raise FrontmatterValidationError(
-            "Invalid contract frontmatter: " + "; ".join(issues)
+            "Invalid contract frontmatter: " + "; ".join(resolution.errors)
         )
-    return contract
+    return resolution.contract
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +613,10 @@ def _summary_contract_errors(
                 )
             if evidence.reference_id is not None and evidence.reference_id not in reference_ids:
                 errors.append(f"{label} {entry_id} evidence references unknown reference_id {evidence.reference_id}")
+            if evidence.forbidden_proxy_id is not None and evidence.forbidden_proxy_id not in forbidden_proxy_ids:
+                errors.append(
+                    f"{label} {entry_id} evidence references unknown forbidden_proxy_id {evidence.forbidden_proxy_id}"
+                )
 
     _unknown(set(contract_results.claims), claim_ids, "claim")
     _unknown(set(contract_results.deliverables), deliverable_ids, "deliverable")
@@ -875,13 +911,44 @@ def _frontmatter_identity_matches(candidate_meta: dict[str, object], artifact_me
     return True
 
 
-def _find_matching_plan_contract(summary_dir: Path, summary_meta: dict) -> ResearchContract | None:
+def _resolve_plan_contract_candidate(
+    candidate: Path,
+    artifact_meta: dict[str, object],
+) -> tuple[bool, _PlanContractResolution]:
+    """Inspect one PLAN candidate and return whether its identity matches."""
+
+    content = safe_read_file(candidate)
+    if content is None:
+        return True, _PlanContractResolution(errors=[f"could not read referenced PLAN {candidate.as_posix()}"])
+
+    try:
+        meta, _body = extract_frontmatter(content)
+    except FrontmatterParseError as exc:
+        return True, _PlanContractResolution(
+            errors=[f"referenced PLAN frontmatter YAML parse error: {exc}"]
+        )
+
+    if not _frontmatter_identity_matches(meta, artifact_meta):
+        return False, _PlanContractResolution()
+
+    if "contract" not in meta:
+        return True, _PlanContractResolution(errors=["referenced PLAN is missing contract frontmatter"])
+
+    resolution = _validate_contract_mapping(meta.get("contract"), enforce_plan_semantics=True)
+    if resolution.errors:
+        return True, _PlanContractResolution(
+            errors=[f"referenced PLAN contract: {error}" for error in resolution.errors]
+        )
+    return True, resolution
+
+
+def _find_matching_plan_contract(summary_dir: Path, summary_meta: dict) -> _PlanContractResolution:
     """Return the sibling plan contract for a summary when one can be resolved."""
 
     plan_contract_ref = summary_meta.get("plan_contract_ref")
     if isinstance(plan_contract_ref, str):
         if _plan_contract_ref_fragment_error(plan_contract_ref) is not None:
-            return None
+            return _PlanContractResolution()
         plan_ref_path = plan_contract_ref.split("#", 1)[0].strip()
         if plan_ref_path:
             relative_plan_path = Path(plan_ref_path[2:] if plan_ref_path.startswith("./") else plan_ref_path)
@@ -895,28 +962,13 @@ def _find_matching_plan_contract(summary_dir: Path, summary_meta: dict) -> Resea
             for candidate in candidates:
                 if not candidate.exists():
                     continue
-                content = safe_read_file(candidate)
-                if content is None:
+                matched, resolution = _resolve_plan_contract_candidate(candidate, summary_meta)
+                if not matched:
                     continue
-                try:
-                    meta, _body = extract_frontmatter(content)
-                except FrontmatterParseError:
-                    continue
-                if not _frontmatter_identity_matches(meta, summary_meta):
-                    continue
-                contract_data = meta.get("contract")
-                if isinstance(contract_data, dict):
-                    try:
-                        return ResearchContract.model_validate(contract_data)
-                    except PydanticValidationError:
-                        return None
-                return None
-            return None
+                return resolution
+            return _PlanContractResolution()
 
-    summary_plan = summary_meta.get("plan")
-    if summary_plan is None:
-        return None
-
+    matching_candidates: list[_PlanContractResolution] = []
     for candidate in sorted(summary_dir.iterdir()):
         if not candidate.is_file() or not (candidate.name.endswith(PLAN_SUFFIX) or candidate.name == STANDALONE_PLAN):
             continue
@@ -929,16 +981,28 @@ def _find_matching_plan_contract(summary_dir: Path, summary_meta: dict) -> Resea
             continue
         if not _frontmatter_identity_matches(meta, summary_meta):
             continue
-        if str(meta.get("plan", "")).strip() != str(summary_plan).strip():
+        if "contract" not in meta:
             continue
-        contract_data = meta.get("contract")
-        if not isinstance(contract_data, dict):
+        resolution = _validate_contract_mapping(meta.get("contract"), enforce_plan_semantics=True)
+        if resolution.errors:
+            matching_candidates.append(
+                _PlanContractResolution(
+                    errors=[f"referenced PLAN contract: {error}" for error in resolution.errors]
+                )
+            )
             continue
-        try:
-            return ResearchContract.model_validate(contract_data)
-        except PydanticValidationError:
-            return None
-    return None
+        matching_candidates.append(resolution)
+
+    valid_candidates = [resolution for resolution in matching_candidates if resolution.contract is not None]
+    if len(valid_candidates) == 1:
+        return valid_candidates[0]
+    if len(valid_candidates) > 1:
+        return _PlanContractResolution(
+            errors=["multiple matching sibling PLAN contracts found; add plan_contract_ref"]
+        )
+    if matching_candidates:
+        return matching_candidates[0]
+    return _PlanContractResolution()
 
 
 @instrument_gpd_function("frontmatter.validate")
@@ -964,13 +1028,10 @@ def validate_frontmatter(content: str, schema_name: str, source_path: Path | Non
     errors.extend(_unsupported_frontmatter_errors(schema_name, meta))
 
     if isinstance(meta.get("contract"), dict):
-        try:
-            contract = ResearchContract.model_validate(meta["contract"])
-        except PydanticValidationError as exc:
-            errors.append(f"contract: {exc}")
-        else:
-            if schema_name == "plan":
-                errors.extend(f"contract: {issue}" for issue in _validate_plan_contract(contract))
+        resolution = _validate_contract_mapping(meta["contract"], enforce_plan_semantics=(schema_name == "plan"))
+        errors.extend(f"contract: {issue}" for issue in resolution.errors)
+    elif "contract" in meta:
+        errors.append("contract: expected an object")
 
     if schema_name in {"summary", "verification"}:
         plan_contract_ref = meta.get("plan_contract_ref")
@@ -1006,11 +1067,14 @@ def validate_frontmatter(content: str, schema_name: str, source_path: Path | Non
                 errors.append(f"suggested_contract_checks: {exc}")
 
         if source_path is not None:
-            plan_contract = _find_matching_plan_contract(Path(source_path).parent, meta)
+            plan_contract_resolution = _find_matching_plan_contract(Path(source_path).parent, meta)
+            plan_contract = plan_contract_resolution.contract
+            errors.extend(f"plan_contract_ref: {issue}" for issue in plan_contract_resolution.errors)
             if (
                 isinstance(plan_contract_ref, str)
                 and plan_contract_ref_fragment_error is None
                 and plan_contract is None
+                and not plan_contract_resolution.errors
             ):
                 errors.append("plan_contract_ref: could not resolve matching plan contract")
             if plan_contract is not None:
@@ -1226,11 +1290,14 @@ def verify_summary(
         plan_contract_ref_fragment_error = _plan_contract_ref_fragment_error(plan_contract_ref)
         if plan_contract_ref_fragment_error is not None:
             errors.append(plan_contract_ref_fragment_error)
-    plan_contract = _find_matching_plan_contract(full_path.parent, meta)
+    plan_contract_resolution = _find_matching_plan_contract(full_path.parent, meta)
+    plan_contract = plan_contract_resolution.contract
+    errors.extend(f"plan_contract_ref: {issue}" for issue in plan_contract_resolution.errors)
     if (
         isinstance(plan_contract_ref, str)
         and plan_contract_ref_fragment_error is None
         and plan_contract is None
+        and not plan_contract_resolution.errors
     ):
         errors.append("plan_contract_ref: could not resolve matching plan contract")
     if plan_contract is not None:
@@ -1340,14 +1407,9 @@ def verify_plan_structure(cwd: Path, file_path: Path) -> PlanValidation:
             errors.append(f"Missing required frontmatter field: {fname}")
 
     # Contract-backed validation
-    contract: ResearchContract | None = None
     if isinstance(meta.get("contract"), dict):
-        try:
-            contract = ResearchContract.model_validate(meta["contract"])
-        except PydanticValidationError as exc:
-            errors.append(f"Invalid contract: {exc}")
-        else:
-            errors.extend(f"Invalid contract: {issue}" for issue in _validate_plan_contract(contract))
+        resolution = _validate_contract_mapping(meta["contract"], enforce_plan_semantics=True)
+        errors.extend(f"Invalid contract: {issue}" for issue in resolution.errors)
     elif "contract" in meta:
         errors.append("Invalid contract: expected an object")
 

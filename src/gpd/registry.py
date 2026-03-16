@@ -150,7 +150,7 @@ def _parse_str_list(raw: object, *, field_name: str, command_name: str) -> list[
     if raw is None:
         return []
     if isinstance(raw, str):
-        return [raw]
+        return [_parse_required_str_field(raw, field_name=field_name, command_name=command_name)]
     if not isinstance(raw, list):
         raise ValueError(f"{field_name} for {command_name} must be a string or list of strings")
 
@@ -158,7 +158,7 @@ def _parse_str_list(raw: object, *, field_name: str, command_name: str) -> list[
     for item in raw:
         if not isinstance(item, str):
             raise ValueError(f"{field_name} for {command_name} must contain only strings")
-        values.append(item)
+        values.append(_parse_required_str_field(item, field_name=field_name, command_name=command_name))
     return values
 
 
@@ -170,6 +170,15 @@ def _parse_required_str_field(raw: object, *, field_name: str, command_name: str
     if not value:
         raise ValueError(f"{field_name} for {command_name} must be a non-empty string")
     return value
+
+
+def _parse_optional_str_field(raw: object, *, field_name: str, command_name: str) -> str:
+    """Normalize optional review-contract string fields without coercing other types."""
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise ValueError(f"{field_name} for {command_name} must be a string")
+    return raw.strip()
 
 
 def _parse_bool_field(raw: object, *, field_name: str, command_name: str, default: bool = False) -> bool:
@@ -217,6 +226,16 @@ VALID_AGENT_SURFACES: tuple[str, ...] = ("public", "internal")
 VALID_AGENT_ROLE_FAMILIES: tuple[str, ...] = ("worker", "analysis", "verification", "review", "coordination")
 VALID_AGENT_ARTIFACT_WRITE_AUTHORITIES: tuple[str, ...] = ("scoped_write", "read_only")
 VALID_AGENT_SHARED_STATE_AUTHORITIES: tuple[str, ...] = ("return_only", "direct")
+VALID_REVIEW_MODES: tuple[str, ...] = ("publication", "review")
+VALID_REVIEW_PREFLIGHT_CHECKS: tuple[str, ...] = (
+    "project_state",
+    "roadmap",
+    "conventions",
+    "research_artifacts",
+    "manuscript",
+    "phase_artifacts",
+)
+VALID_REVIEW_REQUIRED_STATES: tuple[str, ...] = ("phase_executed",)
 
 
 def _parse_context_mode(raw: object, *, command_name: str) -> str:
@@ -265,6 +284,57 @@ def _parse_agent_metadata_enum(
     if value not in valid_values:
         valid = ", ".join(valid_values)
         raise ValueError(f"Invalid {field_name} {value!r} for {agent_name}; expected one of: {valid}")
+    return value
+
+
+def _parse_review_contract_enum_field(
+    raw: object,
+    *,
+    field_name: str,
+    command_name: str,
+    valid_values: tuple[str, ...],
+) -> str:
+    """Normalize review-contract enum fields without coercing unsupported values."""
+    value = _parse_required_str_field(raw, field_name=field_name, command_name=command_name)
+    if value not in valid_values:
+        valid = ", ".join(valid_values)
+        raise ValueError(f"{field_name} for {command_name} must be one of: {valid}; got {value!r}")
+    return value
+
+
+def _parse_review_contract_enum_list(
+    raw: object,
+    *,
+    field_name: str,
+    command_name: str,
+    valid_values: tuple[str, ...],
+) -> list[str]:
+    """Normalize review-contract enum lists without accepting unknown runtime checks."""
+    values = [
+        _parse_required_str_field(value, field_name=field_name, command_name=command_name)
+        for value in _parse_str_list(raw, field_name=field_name, command_name=command_name)
+    ]
+    invalid_values = [value for value in values if value not in valid_values]
+    if invalid_values:
+        valid = ", ".join(valid_values)
+        formatted = ", ".join(repr(value) for value in invalid_values)
+        raise ValueError(f"{field_name} for {command_name} must contain only: {valid}; got {formatted}")
+    return values
+
+
+def _parse_review_contract_required_state(raw: object, *, command_name: str) -> str:
+    """Normalize optional required_state values to the states the CLI evaluates."""
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise ValueError(f"required_state for {command_name} must be a string")
+
+    value = raw.strip()
+    if not value:
+        return ""
+    if value not in VALID_REVIEW_REQUIRED_STATES:
+        valid = ", ".join(VALID_REVIEW_REQUIRED_STATES)
+        raise ValueError(f"required_state for {command_name} must be one of: {valid}; got {value!r}")
     return value
 
 
@@ -427,20 +497,21 @@ def _parse_review_contract(raw: object, command_name: str, requires: dict[str, o
     if not merged:
         return None
 
-    required_state = str(merged.get("required_state", "")).strip()
+    required_state = _parse_review_contract_required_state(merged.get("required_state"), command_name=command_name)
     if not required_state:
         raw_requires_state = requires.get("state")
-        required_state = str(raw_requires_state).strip() if raw_requires_state is not None else ""
+        required_state = _parse_review_contract_required_state(raw_requires_state, command_name=command_name)
 
     raw_review_mode = merged.get("review_mode")
     if raw_review_mode is None:
         if raw is None:
             return None
         raise ValueError(f"review-contract for {command_name} must set review_mode")
-    review_mode = _parse_required_str_field(
+    review_mode = _parse_review_contract_enum_field(
         raw_review_mode,
         field_name="review_mode",
         command_name=command_name,
+        valid_values=VALID_REVIEW_MODES,
     )
     schema_version = _parse_review_contract_schema_version(merged.get("schema_version"), command_name=command_name)
 
@@ -461,10 +532,11 @@ def _parse_review_contract(raw: object, command_name: str, requires: dict[str, o
             field_name="blocking_conditions",
             command_name=command_name,
         ),
-        preflight_checks=_parse_str_list(
+        preflight_checks=_parse_review_contract_enum_list(
             merged.get("preflight_checks"),
             field_name="preflight_checks",
             command_name=command_name,
+            valid_values=VALID_REVIEW_PREFLIGHT_CHECKS,
         ),
         stage_ids=_parse_str_list(
             merged.get("stage_ids"),
@@ -476,7 +548,11 @@ def _parse_review_contract(raw: object, command_name: str, requires: dict[str, o
             field_name="stage_artifacts",
             command_name=command_name,
         ),
-        final_decision_output=str(merged.get("final_decision_output", "")).strip(),
+        final_decision_output=_parse_optional_str_field(
+            merged.get("final_decision_output"),
+            field_name="final_decision_output",
+            command_name=command_name,
+        ),
         requires_fresh_context_per_stage=_parse_bool_field(
             merged.get("requires_fresh_context_per_stage"),
             field_name="requires_fresh_context_per_stage",

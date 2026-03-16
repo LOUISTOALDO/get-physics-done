@@ -257,6 +257,20 @@ class TestParseContractBlock:
         with pytest.raises(FrontmatterValidationError, match="missing acceptance_tests"):
             parse_contract_block(content)
 
+    def test_rejects_coercive_reference_must_surface_scalar(self):
+        content = _valid_plan_contract_frontmatter().replace("must_surface: true", 'must_surface: "yes"', 1) + "Body.\n"
+
+        with pytest.raises(FrontmatterValidationError, match=r"references\.0\.must_surface must be a boolean"):
+            parse_contract_block(content)
+
+    def test_rejects_coercive_schema_version_scalar(self):
+        content = _valid_plan_contract_frontmatter(
+            extra_contract_lines="  schema_version: true",
+        ) + "Body.\n"
+
+        with pytest.raises(FrontmatterValidationError, match="schema_version must be the integer 1"):
+            parse_contract_block(content)
+
 
 # ---------------------------------------------------------------------------
 # validate_frontmatter
@@ -270,6 +284,24 @@ class TestValidateFrontmatter:
         assert isinstance(result, FrontmatterValidation)
         assert result.valid is True
         assert result.missing == []
+
+    def test_plan_rejects_coercive_reference_must_surface_scalar(self):
+        content = _valid_plan_contract_frontmatter().replace("must_surface: true", 'must_surface: "yes"', 1) + "Body.\n"
+
+        result = validate_frontmatter(content, "plan")
+
+        assert result.valid is False
+        assert "contract: references.0.must_surface must be a boolean" in result.errors
+
+    def test_plan_rejects_coercive_schema_version_scalar(self):
+        content = _valid_plan_contract_frontmatter(
+            extra_contract_lines="  schema_version: true",
+        ) + "Body.\n"
+
+        result = validate_frontmatter(content, "plan")
+
+        assert result.valid is False
+        assert "contract: schema_version must be the integer 1" in result.errors
 
     def test_missing_fields(self):
         content = "---\nphase: 01-test\n---\n\nBody."

@@ -832,11 +832,18 @@ class TestSkillsServer:
         from gpd.mcp.servers.skills_server import get_skill
 
         result = get_skill("gpd-peer-review")
+        schema_documents = {Path(entry["path"]).name: entry for entry in result["schema_documents"]}
+        contract_documents = {Path(entry["path"]).name: entry for entry in result["contract_documents"]}
 
         assert "error" not in result
         assert any(path.endswith("review-ledger-schema.md") for path in result["schema_references"])
         assert any(path.endswith("referee-decision-schema.md") for path in result["schema_references"])
-        assert "Load schema_references" in result["loading_hint"]
+        assert "review-ledger-schema.md" in schema_documents
+        assert "Review Ledger Schema" in schema_documents["review-ledger-schema.md"]["body"]
+        assert "referee-decision-schema.md" in schema_documents
+        assert "Referee Decision Schema" in schema_documents["referee-decision-schema.md"]["body"]
+        assert "review-ledger-schema.md" in contract_documents
+        assert "schema_documents and contract_documents already include" in result["loading_hint"]
         assert result["context_mode"] == "project-required"
         assert result["review_contract"] is not None
         assert result["review_contract"]["review_mode"] == "publication"
@@ -1853,6 +1860,60 @@ class TestVerificationServer:
 
         assert result == {"error": expected_error, "schema_version": 1}
 
+    @pytest.mark.parametrize(
+        ("request_payload", "expected_error"),
+        [
+            (
+                {
+                    "check_key": "contract.benchmark_reproduction",
+                    "binding": {"claim_ids": ["claim-benchmark", 9]},
+                    "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+                },
+                "binding.claim_ids[1] must be a non-empty string",
+            ),
+            (
+                {
+                    "check_key": "contract.limit_recovery",
+                    "binding": {"reference_ids": ["ref-benchmark", "   "]},
+                    "metadata": {
+                        "regime_label": "large-k",
+                        "expected_behavior": "approaches the asymptotic limit",
+                    },
+                    "observed": {"limit_passed": True, "observed_limit": "large-k"},
+                },
+                "binding.reference_ids[1] must be a non-empty string",
+            ),
+            (
+                {
+                    "check_key": "contract.fit_family_mismatch",
+                    "metadata": {"allowed_families": ["power_law", None]},
+                    "observed": {"selected_family": "power_law", "competing_family_checked": True},
+                },
+                "metadata.allowed_families[1] must be a non-empty string",
+            ),
+            (
+                {
+                    "check_key": "contract.estimator_family_mismatch",
+                    "metadata": {"forbidden_families": ["", "jackknife"]},
+                    "observed": {
+                        "selected_family": "bootstrap",
+                        "bias_checked": True,
+                        "calibration_checked": True,
+                    },
+                },
+                "metadata.forbidden_families[0] must be a non-empty string",
+            ),
+        ],
+    )
+    def test_run_contract_check_rejects_malformed_binding_and_metadata_list_members(
+        self, request_payload, expected_error
+    ):
+        from gpd.mcp.servers.verification_server import run_contract_check
+
+        result = run_contract_check(request_payload)
+
+        assert result == {"error": expected_error, "schema_version": 1}
+
     def test_run_contract_check_salvages_mildly_drifted_contract_payload(self):
         from gpd.mcp.servers.verification_server import run_contract_check
 
@@ -1925,6 +1986,14 @@ class TestVerificationServer:
 
         assert "error" not in result
         assert any(entry["check_key"] == "contract.benchmark_reproduction" for entry in result["suggested_checks"])
+
+    @pytest.mark.parametrize("payload", ["not-a-dict", ["claim-benchmark"], 3])
+    def test_suggest_contract_checks_rejects_non_mapping_payloads(self, payload):
+        from gpd.mcp.servers.verification_server import suggest_contract_checks
+
+        result = suggest_contract_checks(payload)
+
+        assert result == {"error": "contract must be an object", "schema_version": 1}
 
     # --- get_checklist ---
 

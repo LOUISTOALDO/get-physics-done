@@ -422,6 +422,32 @@ class TestParseCommandFile:
         with pytest.raises(ValueError, match=rf"Invalid review-contract in .*{field_name}-invalid-scalar\.md.*{field_name}"):
             _parse_command_file(f, source="commands")
 
+    @pytest.mark.parametrize(
+        "field_name",
+        [
+            "required_outputs",
+            "required_evidence",
+            "blocking_conditions",
+            "preflight_checks",
+            "stage_ids",
+            "stage_artifacts",
+        ],
+    )
+    def test_command_review_contract_list_fields_reject_blank_members(self, tmp_path: Path, field_name: str) -> None:
+        f = _write_review_contract_command(
+            tmp_path,
+            f"{field_name}-blank-member.md",
+            f"  {field_name}:\n"
+            "    - valid\n"
+            '    - "   "\n',
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=rf"Invalid review-contract in .*{field_name}-blank-member\.md.*{field_name}",
+        ):
+            _parse_command_file(f, source="commands")
+
     def test_command_review_contract_bool_max_rounds_is_rejected(self, tmp_path: Path) -> None:
         f = _write_review_contract_command(
             tmp_path,
@@ -430,6 +456,22 @@ class TestParseCommandFile:
         )
 
         with pytest.raises(ValueError, match=r"Invalid review-contract in .*review-rounds-bool\.md.*max_review_rounds"):
+            _parse_command_file(f, source="commands")
+
+    @pytest.mark.parametrize("raw_value", ["7", "true"])
+    def test_command_review_contract_final_decision_output_requires_string(
+        self, tmp_path: Path, raw_value: str
+    ) -> None:
+        f = _write_review_contract_command(
+            tmp_path,
+            f"final-decision-output-{raw_value}.md",
+            f"  final_decision_output: {raw_value}\n",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=rf"Invalid review-contract in .*final-decision-output-{raw_value}\.md.*final_decision_output",
+        ):
             _parse_command_file(f, source="commands")
 
     @pytest.mark.parametrize("raw_value", ["7", "true"])
@@ -446,6 +488,74 @@ class TestParseCommandFile:
         )
 
         with pytest.raises(ValueError, match=rf"Invalid review-contract in .*review-mode-{raw_value}\.md.*review_mode"):
+            _parse_command_file(f, source="commands")
+
+    def test_command_review_contract_review_mode_rejects_unsupported_value(self, tmp_path: Path) -> None:
+        f = tmp_path / "review-mode-unsupported.md"
+        f.write_text(
+            "---\n"
+            "name: gpd:review-mode-unsupported\n"
+            "review-contract:\n"
+            "  review_mode: draft\n"
+            "---\n"
+            "Body.",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=r"Invalid review-contract in .*review-mode-unsupported\.md.*review_mode.*draft",
+        ):
+            _parse_command_file(f, source="commands")
+
+    def test_command_review_contract_preflight_checks_reject_unsupported_value(self, tmp_path: Path) -> None:
+        f = _write_review_contract_command(
+            tmp_path,
+            "preflight-checks-unsupported.md",
+            "  preflight_checks:\n"
+            "    - project_state\n"
+            "    - review_queue\n",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=r"Invalid review-contract in .*preflight-checks-unsupported\.md.*preflight_checks.*review_queue",
+        ):
+            _parse_command_file(f, source="commands")
+
+    def test_command_review_contract_required_state_rejects_unsupported_value(self, tmp_path: Path) -> None:
+        f = _write_review_contract_command(
+            tmp_path,
+            "required-state-unsupported.md",
+            "  required_state: milestone_complete\n",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=r"Invalid review-contract in .*required-state-unsupported\.md.*required_state.*milestone_complete",
+        ):
+            _parse_command_file(f, source="commands")
+
+    def test_command_review_contract_required_state_from_requires_rejects_unsupported_value(
+        self, tmp_path: Path
+    ) -> None:
+        f = tmp_path / "required-state-from-requires-unsupported.md"
+        f.write_text(
+            "---\n"
+            "name: gpd:required-state-from-requires-unsupported\n"
+            "requires:\n"
+            "  state: milestone_complete\n"
+            "review-contract:\n"
+            "  review_mode: review\n"
+            "---\n"
+            "Body.",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=r"Invalid review-contract in .*required-state-from-requires-unsupported\.md.*required_state.*milestone_complete",
+        ):
             _parse_command_file(f, source="commands")
 
     @pytest.mark.parametrize("schema_version", ['"v1"', "2"])

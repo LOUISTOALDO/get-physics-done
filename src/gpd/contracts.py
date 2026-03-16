@@ -116,8 +116,16 @@ class VerificationEvidence(BaseModel):
     deliverable_id: str | None = None
     acceptance_test_id: str | None = None
     reference_id: str | None = None
+    forbidden_proxy_id: str | None = None
 
-    @field_validator("claim_id", "deliverable_id", "acceptance_test_id", "reference_id", mode="before")
+    @field_validator(
+        "claim_id",
+        "deliverable_id",
+        "acceptance_test_id",
+        "reference_id",
+        "forbidden_proxy_id",
+        mode="before",
+    )
     @classmethod
     def _normalize_optional_contract_id(cls, value: object) -> object:
         return _normalize_optional_str(value)

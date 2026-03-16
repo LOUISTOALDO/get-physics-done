@@ -71,6 +71,7 @@ Routes to the write-paper workflow which handles all logic including:
 <execution_context>
 @{GPD_INSTALL_DIR}/workflows/write-paper.md
 @{GPD_INSTALL_DIR}/templates/paper/paper-config-schema.md
+@{GPD_INSTALL_DIR}/templates/paper/reproducibility-manifest.md
 </execution_context>
 
 <context>
@@ -96,6 +97,8 @@ cat .gpd/research-map/FORMALISM.md 2>/dev/null
 
 <process>
 **Follow the write-paper workflow** from `@{GPD_INSTALL_DIR}/workflows/write-paper.md`.
+
+When the workflow asks for constrained JSON artifacts such as `paper/reproducibility-manifest.json`, use the inline schema body it surfaces there rather than inventing keys from memory.
 
 The workflow handles all logic including:
 

@@ -15,6 +15,7 @@ from gpd.core.frontmatter import (
     _find_matching_plan_contract,
     _parse_comparison_verdicts,
     _summary_contract_errors,
+    _validate_contract_mapping,
     extract_frontmatter,
 )
 from gpd.core.paper_quality import (
@@ -113,11 +114,8 @@ def _plan_contract_for_artifact(path: Path, meta: dict[str, object]) -> Research
 
     contract_data = meta.get("contract")
     if isinstance(contract_data, dict):
-        try:
-            return ResearchContract.model_validate(contract_data)
-        except PydanticValidationError:
-            return None
-    return _find_matching_plan_contract(path.parent, meta)
+        return _validate_contract_mapping(contract_data, enforce_plan_semantics=True).contract
+    return _find_matching_plan_contract(path.parent, meta).contract
 
 
 def _collect_tex_content(paper_dir: Path) -> tuple[list[Path], str]:

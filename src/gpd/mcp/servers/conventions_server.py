@@ -39,6 +39,7 @@ from gpd.core.conventions import (
 )
 from gpd.core.errors import ConventionError
 from gpd.core.observability import gpd_span
+from gpd.mcp.servers import stable_mcp_error, stable_mcp_response
 
 T = TypeVar("T")
 
@@ -243,17 +244,21 @@ def convention_lock_status(project_dir: str) -> dict:
             unset_fields = [k for k in KNOWN_CONVENTIONS if k not in set_fields]
             custom = {k: e.value for k, e in result.conventions.items() if not e.canonical and e.is_set}
 
-            return {
-                "lock": lock.model_dump(exclude_none=True),
-                "set_count": result.set_count,
-                "total_standard_fields": result.canonical_total,
-                "set_fields": set_fields,
-                "unset_fields": unset_fields,
-                "custom_conventions": custom,
-                "completeness_percent": round(len(set_fields) / max(result.canonical_total, 1) * 100, 1),
-            }
-        except (ConventionError, OSError, ValueError, TimeoutError) as e:
-            return {"error": str(e)}
+            return stable_mcp_response(
+                {
+                    "lock": lock.model_dump(exclude_none=True),
+                    "set_count": result.set_count,
+                    "total_standard_fields": result.canonical_total,
+                    "set_fields": set_fields,
+                    "unset_fields": unset_fields,
+                    "custom_conventions": custom,
+                    "completeness_percent": round(len(set_fields) / max(result.canonical_total, 1) * 100, 1),
+                }
+            )
+        except (ConventionError, OSError, ValueError, TimeoutError) as exc:
+            return stable_mcp_error(exc)
+        except Exception as exc:  # pragma: no cover - defensive envelope
+            return stable_mcp_error(exc)
 
 
 @mcp.tool()
@@ -286,17 +291,22 @@ def convention_set(
 
             # Atomic read-modify-write under file lock to prevent TOCTOU races.
             _lock, result = _update_lock_in_project(project_dir, _mutate)
-        except (ConventionError, OSError, ValueError, TimeoutError) as e:
-            return {"error": str(e)}
+        except (ConventionError, OSError, ValueError, TimeoutError) as exc:
+            return stable_mcp_error(exc)
+        except Exception as exc:  # pragma: no cover - defensive envelope
+            return stable_mcp_error(exc)
 
         if not result.updated:
-            return {
-                "status": "already_set",
-                "key": result.key,
-                "current_value": result.previous,
-                "requested_value": result.value,
-                "message": result.hint or f"Convention '{result.key}' already set. Use force=True to override.",
-            }
+            return stable_mcp_response(
+                {
+                    "status": "already_set",
+                    "key": result.key,
+                    "current_value": result.previous,
+                    "requested_value": result.value,
+                    "message": result.hint
+                    or f"Convention '{result.key}' already set. Use force=True to override.",
+                }
+            )
 
         response: dict[str, object] = {
             "status": "set",
@@ -316,7 +326,7 @@ def convention_set(
             if result.value not in options and result.value not in normalized_options:
                 response["warning"] = f"Non-standard value '{result.value}' for '{canonical}'. Known options: {options}"
 
-        return response
+        return stable_mcp_response(response)
 
 
 @mcp.tool()
@@ -357,17 +367,21 @@ def convention_check(lock: dict) -> dict:
                     "Renormalization scheme set without regularization scheme. These are typically specified together."
                 )
 
-            return {
-                "valid": len(missing_critical) == 0,
-                "completeness_percent": round(result.set_count / max(result.total, 1) * 100, 1),
-                "set_fields": [s.key for s in result.set_conventions],
-                "unset_fields": [m.key for m in result.missing],
-                "missing_critical": missing_critical,
-                "issues": issues,
-                "total_standard_fields": result.total,
-            }
-        except (ConventionError, OSError, ValueError, TimeoutError) as e:
-            return {"error": str(e)}
+            return stable_mcp_response(
+                {
+                    "valid": len(missing_critical) == 0,
+                    "completeness_percent": round(result.set_count / max(result.total, 1) * 100, 1),
+                    "set_fields": [s.key for s in result.set_conventions],
+                    "unset_fields": [m.key for m in result.missing],
+                    "missing_critical": missing_critical,
+                    "issues": issues,
+                    "total_standard_fields": result.total,
+                }
+            )
+        except (ConventionError, OSError, ValueError, TimeoutError) as exc:
+            return stable_mcp_error(exc)
+        except Exception as exc:  # pragma: no cover - defensive envelope
+            return stable_mcp_error(exc)
 
 
 @mcp.tool()
@@ -382,8 +396,10 @@ def convention_diff(lock_a: dict, lock_b: dict) -> dict:
             parsed_a = ConventionLock(**lock_a)
             parsed_b = ConventionLock(**lock_b)
             result = _convention_diff(parsed_a, parsed_b)
-        except (ConventionError, OSError, ValueError, TimeoutError) as e:
-            return {"error": str(e)}
+        except (ConventionError, OSError, ValueError, TimeoutError) as exc:
+            return stable_mcp_error(exc)
+        except Exception as exc:  # pragma: no cover - defensive envelope
+            return stable_mcp_error(exc)
 
     critical_fields = {"metric_signature", "fourier_convention", "natural_units"}
     diffs: list[dict[str, object]] = []
@@ -416,12 +432,14 @@ def convention_diff(lock_a: dict, lock_b: dict) -> dict:
             }
         )
 
-    return {
-        "identical": len(diffs) == 0,
-        "diff_count": len(diffs),
-        "diffs": diffs,
-        "critical_diffs": [d for d in diffs if d["severity"] == "critical"],
-    }
+    return stable_mcp_response(
+        {
+            "identical": len(diffs) == 0,
+            "diff_count": len(diffs),
+            "diffs": diffs,
+            "critical_diffs": [d for d in diffs if d["severity"] == "critical"],
+        }
+    )
 
 
 @mcp.tool()
@@ -442,32 +460,41 @@ def assert_convention_validate(file_content: str, lock: dict) -> dict:
             parsed_lock = ConventionLock(**lock)
             assertions = parse_assert_conventions(file_content)
             mismatches = validate_assertions(file_content, parsed_lock, filename="<mcp_input>")
-        except (ConventionError, OSError, ValueError, TimeoutError) as e:
-            return {"error": str(e)}
+        except (ConventionError, OSError, ValueError, TimeoutError) as exc:
+            return stable_mcp_error(exc)
+        except Exception as exc:  # pragma: no cover - defensive envelope
+            return stable_mcp_error(exc)
 
     if not assertions:
-        return {
-            "valid": False,
-            "assertions_found": 0,
-            "message": "No ASSERT_CONVENTION lines found. Every derivation file must include at least one.",
-            "mismatches": [],
-            "assertions": [],
-        }
-
-    return {
-        "valid": len(mismatches) == 0,
-        "assertions_found": len(assertions),
-        "assertions": [{"key": k, "value": v} for k, v in assertions],
-        "mismatches": [
+        return stable_mcp_response(
             {
-                "key": m.key,
-                "file_value": m.file_value,
-                "lock_value": m.lock_value,
-                "message": f"Convention mismatch: file declares {m.key}={m.file_value} but lock has {m.key}={m.lock_value}",
+                "valid": False,
+                "assertions_found": 0,
+                "message": "No ASSERT_CONVENTION lines found. Every derivation file must include at least one.",
+                "mismatches": [],
+                "assertions": [],
             }
-            for m in mismatches
-        ],
-    }
+        )
+
+    return stable_mcp_response(
+        {
+            "valid": len(mismatches) == 0,
+            "assertions_found": len(assertions),
+            "assertions": [{"key": k, "value": v} for k, v in assertions],
+            "mismatches": [
+                {
+                    "key": m.key,
+                    "file_value": m.file_value,
+                    "lock_value": m.lock_value,
+                    "message": (
+                        f"Convention mismatch: file declares {m.key}={m.file_value} "
+                        f"but lock has {m.key}={m.lock_value}"
+                    ),
+                }
+                for m in mismatches
+            ],
+        }
+    )
 
 
 @mcp.tool()
@@ -485,23 +512,28 @@ def subfield_defaults(domain: str) -> dict:
     with gpd_span("mcp.conventions.subfield_defaults", domain=domain):
         defaults = SUBFIELD_DEFAULTS.get(domain)
     if defaults is None:
-        return {
-            "found": False,
-            "domain": domain,
-            "available_domains": sorted(SUBFIELD_DEFAULTS.keys()),
-            "message": f"No defaults for domain '{domain}'.",
-        }
+        return stable_mcp_response(
+            {
+                "found": False,
+                "domain": domain,
+                "available_domains": sorted(SUBFIELD_DEFAULTS.keys()),
+                "message": f"No defaults for domain '{domain}'.",
+            }
+        )
 
-    return {
-        "found": True,
-        "domain": domain,
-        "defaults": defaults,
-        "field_count": len(defaults),
-        "unset_fields": [f for f in KNOWN_CONVENTIONS if f not in defaults],
-        "message": (
-            f"Recommended conventions for {domain}. Sets {len(defaults)} of {len(KNOWN_CONVENTIONS)} standard fields."
-        ),
-    }
+    return stable_mcp_response(
+        {
+            "found": True,
+            "domain": domain,
+            "defaults": defaults,
+            "field_count": len(defaults),
+            "unset_fields": [f for f in KNOWN_CONVENTIONS if f not in defaults],
+            "message": (
+                f"Recommended conventions for {domain}. "
+                f"Sets {len(defaults)} of {len(KNOWN_CONVENTIONS)} standard fields."
+            ),
+        }
+    )
 
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────

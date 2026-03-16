@@ -827,6 +827,9 @@ Use the canonical schema:
 
 - `{GPD_INSTALL_DIR}/templates/paper/reproducibility-manifest.md`
 
+Canonical schema for `paper/reproducibility-manifest.json`:
+@{GPD_INSTALL_DIR}/templates/paper/reproducibility-manifest.md
+
 Create or update:
 
 - `paper/reproducibility-manifest.json`

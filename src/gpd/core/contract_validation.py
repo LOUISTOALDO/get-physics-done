@@ -114,6 +114,69 @@ def _schema_error_result(
     return ProjectContractValidationResult(valid=False, errors=errors, mode=mode)
 
 
+def _sanitize_contract_scalars(
+    value: object,
+    *,
+    path_prefix: str = "",
+    errors: list[str] | None = None,
+) -> object:
+    """Remove malformed coercive scalars so callers can reject them explicitly.
+
+    Pydantic intentionally accepts a few coercions that are convenient for loose
+    inputs but brittle for contract authority data, notably:
+
+    - ``schema_version: true`` -> ``1``
+    - ``must_surface: "yes"`` -> ``True``
+
+    Validation entrypoints should reject those values rather than quietly
+    canonicalizing them.
+    """
+
+    sink = errors if errors is not None else []
+
+    if isinstance(value, dict):
+        cleaned: dict[object, object] = {}
+        for raw_key, raw_item in value.items():
+            key = str(raw_key)
+            location = f"{path_prefix}.{key}" if path_prefix else key
+
+            if key == "schema_version":
+                if type(raw_item) is not int:
+                    sink.append("schema_version must be the integer 1")
+                    continue
+                if raw_item != 1:
+                    sink.append("schema_version: Input should be 1")
+                    continue
+                cleaned[raw_key] = raw_item
+                continue
+
+            if key == "must_surface":
+                if type(raw_item) is not bool:
+                    sink.append(f"{location} must be a boolean")
+                    continue
+                cleaned[raw_key] = raw_item
+                continue
+
+            cleaned[raw_key] = _sanitize_contract_scalars(
+                raw_item,
+                path_prefix=location,
+                errors=sink,
+            )
+        return cleaned
+
+    if isinstance(value, list):
+        return [
+            _sanitize_contract_scalars(
+                item,
+                path_prefix=f"{path_prefix}.{index}" if path_prefix else str(index),
+                errors=sink,
+            )
+            for index, item in enumerate(value)
+        ]
+
+    return copy.deepcopy(value)
+
+
 def _strip_unknown_model_keys(
     value: dict[str, object],
     *,
@@ -210,7 +273,11 @@ def _salvage_contract_collection(
 
 def salvage_project_contract(contract: dict[str, object]) -> tuple[ResearchContract | None, list[str]]:
     errors: list[str] = []
-    working = _strip_unknown_model_keys(contract, path_prefix="", model=ResearchContract, errors=errors)
+    scalar_sanitized = _sanitize_contract_scalars(contract, errors=errors)
+    if not isinstance(scalar_sanitized, dict):
+        return None, errors
+
+    working = _strip_unknown_model_keys(scalar_sanitized, path_prefix="", model=ResearchContract, errors=errors)
     normalized_contract = copy.deepcopy(working)
 
     collection_models: dict[str, type[BaseModel]] = {

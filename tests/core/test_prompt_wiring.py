@@ -280,6 +280,14 @@ def _assert_contains_tokens(path: Path, tokens: list[str]) -> None:
     assert missing == [], f"{path.relative_to(REPO_ROOT)} missing {missing}"
 
 
+def _expand_prompt_surface(path: Path) -> str:
+    return expand_at_includes(
+        path.read_text(encoding="utf-8"),
+        REPO_ROOT / "src/gpd/specs",
+        "/runtime/",
+    )
+
+
 def test_planner_templates_exist():
     planner_prompt = TEMPLATES_DIR / "planner-subagent-prompt.md"
     phase_prompt = TEMPLATES_DIR / "phase-prompt.md"
@@ -985,6 +993,9 @@ def test_review_and_verification_prompts_explicitly_surface_schema_sources_and_c
     sync_state = (WORKFLOWS_DIR / "sync-state.md").read_text(encoding="utf-8")
     review_reader = (AGENTS_DIR / "gpd-review-reader.md").read_text(encoding="utf-8")
     review_literature = (AGENTS_DIR / "gpd-review-literature.md").read_text(encoding="utf-8")
+    review_math = (AGENTS_DIR / "gpd-review-math.md").read_text(encoding="utf-8")
+    review_physics = (AGENTS_DIR / "gpd-review-physics.md").read_text(encoding="utf-8")
+    review_significance = (AGENTS_DIR / "gpd-review-significance.md").read_text(encoding="utf-8")
     referee = (AGENTS_DIR / "gpd-referee.md").read_text(encoding="utf-8")
 
     assert "Project Contract:\n{project_contract}" in peer_review
@@ -994,10 +1005,18 @@ def test_review_and_verification_prompts_explicitly_surface_schema_sources_and_c
     assert "references/publication/peer-review-panel.md" in peer_review
     assert "templates/verification-report.md" in verify_command
     assert "templates/contract-results-schema.md" in verify_command
+    assert "Canonical schema for `paper/reproducibility-manifest.json`:" in write_paper
+    assert "Canonical reconciliation contract:" in sync_state
     assert "state-json-schema.md` itself" in sync_state
     assert "Keep the current `project_contract` and `active_reference_context` visible throughout that staged review" in write_paper
     assert "peer-review-panel.md` directly" in review_reader
     assert "peer-review-panel.md` directly" in review_literature
+    assert "Required schema for `STAGE-math.json` (`StageReviewReport`, mirroring the staged-review contract):" in review_math
+    assert "Required schema for `STAGE-physics.json` (`StageReviewReport`, mirroring the staged-review contract):" in review_physics
+    assert (
+        "Required schema for `STAGE-interestingness.json` (`StageReviewReport`, mirroring the staged-review contract):"
+        in review_significance
+    )
     assert "re-open `@{GPD_INSTALL_DIR}/references/publication/peer-review-panel.md`" in referee
 
 
@@ -1006,6 +1025,8 @@ def test_skill_surface_exposes_contract_references_for_paper_and_review_workflow
 
     write_paper = get_skill("gpd-write-paper")
     peer_review = get_skill("gpd-peer-review")
+    write_paper_schema_documents = {Path(entry["path"]).name: entry for entry in write_paper["schema_documents"]}
+    peer_review_contract_documents = {Path(entry["path"]).name: entry for entry in peer_review["contract_documents"]}
 
     assert "error" not in write_paper
     assert "error" not in peer_review
@@ -1013,7 +1034,9 @@ def test_skill_surface_exposes_contract_references_for_paper_and_review_workflow
     assert any(path.endswith("reproducibility-manifest.md") for path in write_paper["contract_references"])
     assert any(path.endswith("peer-review-panel.md") for path in write_paper["contract_references"])
     assert any(path.endswith("peer-review-panel.md") for path in peer_review["contract_references"])
-    assert "Load schema_references, contract_references" in write_paper["loading_hint"]
+    assert "Paper Config Schema" in write_paper_schema_documents["paper-config-schema.md"]["body"]
+    assert "Peer Review Panel Protocol" in peer_review_contract_documents["peer-review-panel.md"]["body"]
+    assert "schema_documents and contract_documents already include" in write_paper["loading_hint"]
 
 
 def test_review_and_execution_prompts_expand_required_schema_sources() -> None:
@@ -1045,6 +1068,20 @@ def test_review_and_execution_prompts_expand_required_schema_sources() -> None:
     assert "Review Ledger Schema" in referee
     assert "Referee Decision Schema" in referee
     assert "Summary Template" in executor
+
+
+def test_sync_state_and_write_paper_command_prompts_expand_required_schema_bodies() -> None:
+    sync_state = _expand_prompt_surface(COMMANDS_DIR / "sync-state.md")
+    write_paper = _expand_prompt_surface(COMMANDS_DIR / "write-paper.md")
+
+    assert "# state.json Schema" in sync_state
+    assert "Authoritative vs Derived" in sync_state
+    assert "`project_contract`" in sync_state
+    assert "`convention_lock`" in sync_state
+    assert "Reproducibility Manifest Template" in write_paper
+    assert '"execution_steps"' in write_paper
+    assert "random_seeds[].computation" in write_paper
+    assert "resource_requirements[].step" in write_paper
 
 
 def test_non_adapter_sources_do_not_hardcode_runtime_names() -> None:

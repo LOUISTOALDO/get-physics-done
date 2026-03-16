@@ -15,6 +15,7 @@ import dataclasses
 import logging
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -22,6 +23,7 @@ from mcp.server.fastmcp import FastMCP
 from gpd import registry as content_registry
 from gpd.core.errors import GPDError
 from gpd.core.observability import gpd_span
+from gpd.mcp.servers import parse_frontmatter_safe, stable_mcp_error, stable_mcp_response
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(name)s %(levelname)s: %(message)s")
 logger = logging.getLogger("gpd-skills")
@@ -136,6 +138,43 @@ def _is_contract_reference(path: str) -> bool:
     return _is_schema_reference(path) or name in _CONTRACT_REFERENCE_NAMES
 
 
+def _load_reference_document(path: str, *, kind: str) -> dict[str, object]:
+    document: dict[str, object] = {
+        "path": path,
+        "name": Path(path).name,
+        "kind": kind,
+    }
+    reference_path = Path(path)
+    if not reference_path.is_file():
+        document["error"] = "Reference file not found"
+        return document
+
+    try:
+        content = _resolve_skill_content(reference_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        document["error"] = str(exc)
+        return document
+
+    frontmatter, body = parse_frontmatter_safe(content)
+    document["content"] = content
+    document["body"] = body
+    if frontmatter:
+        document["frontmatter"] = frontmatter
+    return document
+
+
+def _expanded_reference_documents(
+    referenced_files: list[dict[str, str]],
+    *,
+    predicate: Callable[[str], bool],
+) -> tuple[list[str], list[dict[str, object]]]:
+    selected = [entry for entry in referenced_files if predicate(entry["path"])]
+    return (
+        [entry["path"] for entry in selected],
+        [_load_reference_document(entry["path"], kind=entry["kind"]) for entry in selected],
+    )
+
+
 @mcp.tool()
 def list_skills(category: str | None = None) -> dict:
     """List canonical GPD skills with optional category filter.
@@ -154,13 +193,17 @@ def list_skills(category: str | None = None) -> dict:
                 skills = [s for s in skills if s["category"] == category]
 
             categories = all_categories
-            return {
-                "skills": skills,
-                "count": len(skills),
-                "categories": categories,
-            }
+            return stable_mcp_response(
+                {
+                    "skills": skills,
+                    "count": len(skills),
+                    "categories": categories,
+                }
+            )
         except (GPDError, OSError, ValueError, TimeoutError) as e:
-            return {"error": str(e)}
+            return stable_mcp_error(e)
+        except Exception as e:  # pragma: no cover - defensive envelope
+            return stable_mcp_error(e)
 
 
 @mcp.tool()
@@ -176,16 +219,22 @@ def get_skill(name: str) -> dict:
         try:
             skill = _resolve_skill(name)
             if skill is None:
-                return {
-                    "error": f"Skill {name!r} not found",
-                    "available": [entry.name for entry in _load_skill_index()[:10]],
-                }
+                return stable_mcp_response(
+                    {"available": [entry.name for entry in _load_skill_index()[:10]]},
+                    error=f"Skill {name!r} not found",
+                )
 
             content = _resolve_skill_content(skill.content)
             referenced_files = _extract_referenced_files(content)
             template_references = [entry["path"] for entry in referenced_files if entry["kind"] == "template"]
-            schema_references = [path for path in template_references if _is_schema_reference(path)]
-            contract_references = [entry["path"] for entry in referenced_files if _is_contract_reference(entry["path"])]
+            schema_references, schema_documents = _expanded_reference_documents(
+                referenced_files,
+                predicate=_is_schema_reference,
+            )
+            contract_references, contract_documents = _expanded_reference_documents(
+                referenced_files,
+                predicate=_is_contract_reference,
+            )
             payload = {
                 "name": skill.name,
                 "category": skill.category,
@@ -195,9 +244,11 @@ def get_skill(name: str) -> dict:
                 "reference_count": len(referenced_files),
                 "template_references": template_references,
                 "schema_references": schema_references,
+                "schema_documents": schema_documents,
                 "contract_references": contract_references,
+                "contract_documents": contract_documents,
                 "loading_hint": (
-                    "Load schema_references, contract_references, and other referenced_files before asking a model to emit validated artifacts."
+                    "schema_documents and contract_documents already include the expanded canonical bodies. Use referenced_files for any additional workflow/context docs."
                     if referenced_files
                     else "No external markdown dependencies detected in the canonical skill body."
                 ),
@@ -214,9 +265,11 @@ def get_skill(name: str) -> dict:
                         ),
                     }
                 )
-            return payload
+            return stable_mcp_response(payload)
         except (GPDError, OSError, ValueError, TimeoutError) as e:
-            return {"error": str(e)}
+            return stable_mcp_error(e)
+        except Exception as e:  # pragma: no cover - defensive envelope
+            return stable_mcp_error(e)
 
 
 @mcp.tool()
@@ -233,7 +286,7 @@ def route_skill(task_description: str) -> dict:
         try:
             skills = _load_skill_index()
             if not skills:
-                return {"error": "No skills available", "suggestion": None}
+                return stable_mcp_response({"suggestion": None}, error="No skills available")
             available_names = {skill.name for skill in skills}
             normalized_task = re.sub(r"[^a-z0-9\s-]", "", task_description.lower()).strip()
 
@@ -247,12 +300,16 @@ def route_skill(task_description: str) -> dict:
                     "next steps",
                 )
             ):
-                return {
-                    "suggestion": "gpd-suggest-next",
-                    "confidence": 0.95,
-                    "alternatives": [name for name in ("gpd-progress", "gpd-plan-phase") if name in available_names],
-                    "task_description": task_description,
-                }
+                return stable_mcp_response(
+                    {
+                        "suggestion": "gpd-suggest-next",
+                        "confidence": 0.95,
+                        "alternatives": [
+                            name for name in ("gpd-progress", "gpd-plan-phase") if name in available_names
+                        ],
+                        "task_description": task_description,
+                    }
+                )
 
             # Keyword scoring
             words = set(normalized_task.split())
@@ -305,24 +362,30 @@ def route_skill(task_description: str) -> dict:
             if scored:
                 best = scored[0][1]
                 alternatives = [s for _, s in scored[1:4]]
-                return {
-                    "suggestion": best,
-                    "confidence": min(scored[0][0] / 3.0, 1.0),
-                    "alternatives": alternatives,
-                    "task_description": task_description,
-                }
+                return stable_mcp_response(
+                    {
+                        "suggestion": best,
+                        "confidence": min(scored[0][0] / 3.0, 1.0),
+                        "alternatives": alternatives,
+                        "task_description": task_description,
+                    }
+                )
 
             fallback = "gpd-help" if "gpd-help" in available_names else skills[0].name
 
-            return {
-                "suggestion": fallback,
-                "confidence": 0.1,
-                "alternatives": [name for name in ("gpd-progress", "gpd-discover") if name in available_names],
-                "task_description": task_description,
-                "note": "No strong match found — try your runtime's GPD help command for available commands",
-            }
+            return stable_mcp_response(
+                {
+                    "suggestion": fallback,
+                    "confidence": 0.1,
+                    "alternatives": [name for name in ("gpd-progress", "gpd-discover") if name in available_names],
+                    "task_description": task_description,
+                    "note": "No strong match found — try your runtime's GPD help command for available commands",
+                }
+            )
         except (GPDError, OSError, ValueError, TimeoutError) as e:
-            return {"error": str(e)}
+            return stable_mcp_error(e)
+        except Exception as e:  # pragma: no cover - defensive envelope
+            return stable_mcp_error(e)
 
 
 @mcp.tool()
@@ -349,13 +412,17 @@ def get_skill_index() -> dict:
                     lines.append(f"- {name}")
                 lines.append("")
 
-            return {
-                "index_text": "\n".join(lines),
-                "total_skills": len(skills),
-                "categories": sorted(by_category),
-            }
+            return stable_mcp_response(
+                {
+                    "index_text": "\n".join(lines),
+                    "total_skills": len(skills),
+                    "categories": sorted(by_category),
+                }
+            )
         except (GPDError, OSError, ValueError, TimeoutError) as e:
-            return {"error": str(e)}
+            return stable_mcp_error(e)
+        except Exception as e:  # pragma: no cover - defensive envelope
+            return stable_mcp_error(e)
 
 
 # ---------------------------------------------------------------------------

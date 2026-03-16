@@ -118,8 +118,10 @@ def test_ingest_reference_artifacts_parses_literature_and_reference_map(tmp_path
     ids = {ref.id for ref in result.references}
     assert ids
     assert "ref-benchmark" in ids
+    ref_benchmark = next(ref for ref in result.references if ref.id == "ref-benchmark")
     assert any(ref.role == "benchmark" for ref in result.references)
     assert any(ref.locator == "Benchmark Paper" for ref in result.references)
+    assert ref_benchmark.applies_to == ["claim-anchor"]
     assert any(".gpd/phases/00-baseline/00-SUMMARY.md" in item for item in result.intake.must_include_prior_outputs)
     assert any("critical exponent" in item for item in result.intake.known_good_baselines)
     assert "ref-benchmark" in result.intake.must_read_refs
@@ -234,12 +236,46 @@ def test_ingest_reference_artifacts_accepts_bullet_registries_and_direct_intake_
     ref = next(ref for ref in result.references if ref.id == "ref-benchmark-2025")
     assert ref.role == "benchmark"
     assert ref.locator == "Benchmark Ref 2025, J. Phys. 2025"
+    assert ref.applies_to == ["claim-anchor"]
     assert ref.required_actions == ["read", "compare", "cite"]
     assert "ref-benchmark-2025" in result.intake.must_read_refs
     assert ".gpd/phases/00-baseline/00-SUMMARY.md" in result.intake.must_include_prior_outputs
     assert "notes/reference-intake.md" in result.intake.crucial_inputs
     assert "Need the definitive normalization note" in result.intake.context_gaps
     assert "Control window from the accepted benchmark run" in result.intake.known_good_baselines
+
+
+def test_ingest_reference_artifacts_preserves_repeated_bullet_detail_values(tmp_path: Path) -> None:
+    _bootstrap_project(tmp_path)
+    literature_dir = tmp_path / ".gpd" / "literature"
+    literature_dir.mkdir(parents=True)
+    (literature_dir / "REPEATED-DETAILS.md").write_text(
+        "# Review\n\n"
+        "## Active References\n\n"
+        "- Benchmark Ref 2026\n"
+        "  - Anchor ID: ref-benchmark-2026\n"
+        "  - Source / Locator: Benchmark Ref 2026, J. Phys. 2026\n"
+        "  - Type: benchmark target\n"
+        "  - Contract Subject IDs: claim-anchor\n"
+        "  - Contract Subject IDs: deliv-note\n"
+        "  - Required Action: read/use\n"
+        "  - Required Action: compare\n"
+        "  - Carry Forward To: planning/verification\n"
+        "  - Carry Forward To: writing\n",
+        encoding="utf-8",
+    )
+
+    result = ingest_reference_artifacts(
+        tmp_path,
+        literature_review_files=[".gpd/literature/REPEATED-DETAILS.md"],
+        research_map_reference_files=[],
+    )
+
+    ref = next(ref for ref in result.references if ref.id == "ref-benchmark-2026")
+    assert ref.applies_to == ["claim-anchor", "deliv-note"]
+    assert ref.required_actions == ["read", "use", "compare"]
+    assert ref.carry_forward_to == ["planning", "verification", "writing"]
+    assert "ref-benchmark-2026" in result.intake.must_read_refs
 
 
 def test_context_discovers_additional_research_map_reference_artifacts(tmp_path: Path) -> None:

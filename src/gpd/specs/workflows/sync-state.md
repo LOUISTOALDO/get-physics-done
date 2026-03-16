@@ -7,6 +7,9 @@ Read all files referenced by the invoking prompt's execution_context before star
 
 **Schema reference:** `{GPD_INSTALL_DIR}/templates/state-json-schema.md` — Canonical schema for state.json fields, types, defaults, and authoritative-vs-derived status. Consult when resolving conflicts between STATE.md and state.json.
 Before deciding any merge or repair, read `{GPD_INSTALL_DIR}/templates/state-json-schema.md` itself and use its authoritative-vs-derived rules as the reconciliation contract rather than guessing from the current file contents.
+
+Canonical reconciliation contract:
+@{GPD_INSTALL_DIR}/templates/state-json-schema.md
 </required_reading>
 
 <process>

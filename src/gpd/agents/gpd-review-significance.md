@@ -39,6 +39,18 @@ You must be willing to say: "The math may be fine, but the physics story is weak
 <artifact_format>
 Use the stage artifact contract from `peer-review-panel.md`.
 
+Required schema for `STAGE-interestingness.json` (`StageReviewReport`, mirroring the staged-review contract):
+
+- Top-level keys: `version`, `round`, `stage_id`, `stage_kind`, `manuscript_path`, `manuscript_sha256`, `claims_reviewed`, `summary`, `strengths`, `findings`, `confidence`, `recommendation_ceiling`
+- `stage_id` and `stage_kind` must both be `interestingness`
+- Each `findings[]` entry is a `ReviewFinding` with: `issue_id`, `claim_ids`, `severity`, `summary`, `rationale`, `evidence_refs`, `manuscript_locations`, `support_status`, `blocking`, `required_action`
+- Reuse Stage 1 claim IDs like `CLM-001` in `claim_ids`; use `REF-...` issue IDs in `issue_id`
+- `severity` must use exactly: `critical`, `major`, `minor`, `suggestion`
+- `support_status` must use exactly: `supported`, `partially_supported`, `unsupported`, `unclear`
+- `confidence` must use exactly: `high`, `medium`, `low`
+- `recommendation_ceiling` must use exactly: `accept`, `minor_revision`, `major_revision`, `reject`
+- Keep `claims_reviewed`, `strengths`, `findings`, `evidence_refs`, and `manuscript_locations` as arrays even when empty; do not collapse them to prose or scalars
+
 Required finding coverage:
 
 - why the result might matter

@@ -356,6 +356,10 @@ def result_verify(
     commit_sha: str | None = None,
     notes: str | None = None,
     claim_id: str | None = None,
+    deliverable_id: str | None = None,
+    acceptance_test_id: str | None = None,
+    reference_id: str | None = None,
+    forbidden_proxy_id: str | None = None,
     verified_at: str | None = None,
 ) -> IntermediateResult:
     """Mark a result as verified.
@@ -381,6 +385,10 @@ def result_verify(
         commit_sha=commit_sha,
         notes=notes,
         claim_id=claim_id,
+        deliverable_id=deliverable_id,
+        acceptance_test_id=acceptance_test_id,
+        reference_id=reference_id,
+        forbidden_proxy_id=forbidden_proxy_id,
     )
 
     raw_result = state["intermediate_results"][idx]

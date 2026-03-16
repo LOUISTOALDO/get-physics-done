@@ -30,6 +30,7 @@ from gpd.core.verification_checks import (
     get_verification_check,
     list_verification_checks,
 )
+from gpd.mcp.servers import stable_mcp_error, stable_mcp_response
 
 # MCP stdio uses stdout for JSON-RPC — redirect logging to stderr
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(name)s %(levelname)s: %(message)s")
@@ -146,13 +147,122 @@ _CONTRACT_CHECK_REQUEST_HINTS: dict[str, dict[str, object]] = {
 }
 
 
-def _contract_check_request_hint(check_key: str) -> dict[str, object]:
+def _contract_check_request_hint(check_key: str, *, contract: ResearchContract | None = None) -> dict[str, object]:
     hint = _CONTRACT_CHECK_REQUEST_HINTS.get(check_key, {})
-    return {
+    request_template = copy.deepcopy(hint.get("request_template", {}))
+    enriched_hint = {
         "required_request_fields": list(hint.get("required_request_fields", [])),
         "optional_request_fields": list(hint.get("optional_request_fields", [])),
-        "request_template": copy.deepcopy(hint.get("request_template", {})),
+        "request_template": request_template,
     }
+
+    if contract is None:
+        return enriched_hint
+
+    binding = request_template.setdefault("binding", {})
+    metadata = request_template.setdefault("metadata", {})
+
+    if check_key == "contract.benchmark_reproduction":
+        benchmark_reference_ids = [
+            reference.id
+            for reference in contract.references
+            if reference.role == "benchmark" or "compare" in reference.required_actions
+        ]
+        candidates, _ = _benchmark_reference_candidates(contract, {}, binding_supplied=False)
+        if len(candidates) == 1:
+            metadata["source_reference_id"] = candidates[0]
+            binding.setdefault("reference_ids", [candidates[0]])
+        benchmark_tests = _matching_acceptance_tests(
+            contract,
+            kinds=("benchmark",),
+            keywords=("benchmark", "baseline", "reference"),
+            evidence_ids=benchmark_reference_ids,
+        )
+        benchmark_test = _apply_single_acceptance_test_binding(binding, contract, benchmark_tests)
+        if benchmark_test is not None:
+            _set_single_binding_value(
+                binding,
+                "reference_ids",
+                [reference_id for reference_id in benchmark_test.evidence_required if reference_id in benchmark_reference_ids],
+            )
+
+    elif check_key == "contract.limit_recovery":
+        regime_candidates, _ = _limit_regime_candidates(contract, {}, binding_supplied=False)
+        if len(regime_candidates) == 1:
+            metadata["regime_label"] = regime_candidates[0]
+            _set_single_binding_value(
+                binding,
+                "observable_ids",
+                [observable.id for observable in contract.observables if observable.regime == regime_candidates[0]],
+            )
+            _set_single_binding_value(binding, "claim_ids", _claim_ids_for_regime(contract, regime_candidates[0]))
+        limit_tests = _matching_acceptance_tests(
+            contract,
+            kinds=("limiting_case",),
+            keywords=("limit", "asymptotic", "boundary", "scaling"),
+        )
+        limit_test = _apply_single_acceptance_test_binding(
+            binding,
+            contract,
+            limit_tests,
+            include_observable_binding=True,
+        )
+        if limit_test is not None and limit_test.pass_condition:
+            metadata["expected_behavior"] = limit_test.pass_condition
+
+    elif check_key == "contract.direct_proxy_consistency":
+        if len(contract.forbidden_proxies) == 1:
+            forbidden_proxy = contract.forbidden_proxies[0]
+            binding["forbidden_proxy_ids"] = [forbidden_proxy.id]
+            _apply_subject_binding(binding, contract, forbidden_proxy.subject)
+        proxy_tests = _matching_acceptance_tests(
+            contract,
+            kinds=("proxy",),
+            keywords=("proxy", "surrogate"),
+        )
+        _apply_single_acceptance_test_binding(binding, contract, proxy_tests)
+
+    elif check_key == "contract.fit_family_mismatch":
+        allowed_families = list(contract.approach_policy.allowed_fit_families)
+        forbidden_families = list(contract.approach_policy.forbidden_fit_families)
+        if allowed_families:
+            metadata["allowed_families"] = allowed_families
+        if forbidden_families:
+            metadata["forbidden_families"] = forbidden_families
+        if len(allowed_families) == 1:
+            metadata["declared_family"] = allowed_families[0]
+        fit_tests = _matching_acceptance_tests(
+            contract,
+            keywords=("fit", "residual", "extrapolat", "ansatz"),
+        )
+        _apply_single_acceptance_test_binding(
+            binding,
+            contract,
+            fit_tests,
+            include_observable_binding=True,
+        )
+
+    elif check_key == "contract.estimator_family_mismatch":
+        allowed_families = list(contract.approach_policy.allowed_estimator_families)
+        forbidden_families = list(contract.approach_policy.forbidden_estimator_families)
+        if allowed_families:
+            metadata["allowed_families"] = allowed_families
+        if forbidden_families:
+            metadata["forbidden_families"] = forbidden_families
+        if len(allowed_families) == 1:
+            metadata["declared_family"] = allowed_families[0]
+        estimator_tests = _matching_acceptance_tests(
+            contract,
+            keywords=("estimator", "bootstrap", "jackknife", "posterior", "bias", "variance"),
+        )
+        _apply_single_acceptance_test_binding(
+            binding,
+            contract,
+            estimator_tests,
+            include_observable_binding=True,
+        )
+
+    return enriched_hint
 
 
 def _normalize_optional_scalar_str(value: object) -> object:
@@ -175,15 +285,42 @@ def _normalize_string_list(value: object) -> object:
     return normalized
 
 
-def _normalize_contract_metadata(metadata: dict[str, object]) -> dict[str, object]:
+def _validate_string_list_members(value: object, *, field_name: str) -> str | None:
+    if not isinstance(value, list):
+        return None
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            return f"{field_name}[{index}] must be a non-empty string"
+    return None
+
+
+def _validate_binding_payload(binding: dict[str, object]) -> str | None:
+    for key in sorted(binding):
+        if key not in _SUPPORTED_BINDING_KEYS:
+            continue
+        raw = binding[key]
+        if isinstance(raw, str):
+            if not raw.strip():
+                return f"binding.{key} must be a non-empty string"
+            continue
+        error = _validate_string_list_members(raw, field_name=f"binding.{key}")
+        if error is not None:
+            return error
+    return None
+
+
+def _normalize_contract_metadata(metadata: dict[str, object]) -> tuple[dict[str, object], str | None]:
     normalized = dict(metadata)
     for key in ("regime_label", "expected_behavior", "source_reference_id", "declared_family"):
         if key in normalized:
             normalized[key] = _normalize_optional_scalar_str(normalized[key])
     for key in ("allowed_families", "forbidden_families"):
         if key in normalized:
+            error = _validate_string_list_members(normalized[key], field_name=f"metadata.{key}")
+            if error is not None:
+                return {}, error
             normalized[key] = _normalize_string_list(normalized[key])
-    return normalized
+    return normalized, None
 
 
 def _serialize_verification_check_entry(check_entry: dict[str, object]) -> dict[str, object]:
@@ -289,10 +426,7 @@ DOMAIN_CHECKLISTS: dict[str, list[dict[str, str]]] = {
 
 def _error_result(message: object) -> dict[str, object]:
     """Return a stable MCP error envelope for verification tools."""
-    return {
-        "error": str(message),
-        "schema_version": VERIFICATION_SCHEMA_VERSION,
-    }
+    return stable_mcp_error(message)
 
 
 def _optional_mapping_field(request: dict[str, object], field_name: str) -> tuple[dict[str, object] | None, dict[str, object] | None]:
@@ -413,7 +547,6 @@ def run_check(check_id: str, domain: str, artifact_content: str) -> dict:
             result = _serialize_verification_check_entry(check_meta.model_dump())
             result.update(
                 {
-                    "schema_version": VERIFICATION_SCHEMA_VERSION,
                     "check_name": check_meta.name,
                     "domain": domain,
                     "domain_specific_checks": relevant_domain_checks,
@@ -425,7 +558,7 @@ def run_check(check_id: str, domain: str, artifact_content: str) -> dict:
                     ),
                 }
             )
-            return result
+            return stable_mcp_response(result)
         except Exception as exc:  # pragma: no cover - defensive envelope
             return _error_result(exc)
 
@@ -858,7 +991,22 @@ def _summarize_contract_salvage_errors(errors: list[str]) -> str:
     return summary
 
 
+def _validate_contract_schema_version(raw: object) -> dict[str, object] | None:
+    """Reject unsupported contract schema versions without coercing or salvaging them."""
+
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return _error_result("Invalid contract payload: schema_version must be the integer 1")
+    if raw != VERIFICATION_SCHEMA_VERSION:
+        return _error_result(f"Invalid contract payload: schema_version must be {VERIFICATION_SCHEMA_VERSION}")
+    return None
+
+
 def _parse_contract_payload(contract_raw: dict[str, object]) -> tuple[ResearchContract | None, list[str], dict | None]:
+    schema_error = _validate_contract_schema_version(contract_raw.get("schema_version"))
+    if schema_error is not None:
+        return None, [], schema_error
     try:
         return ResearchContract.model_validate(contract_raw), [], None
     except Exception as exc:  # pragma: no cover - pydantic version specifics
@@ -976,6 +1124,93 @@ def _with_contract_policy_defaults(
     return enriched
 
 
+def _contains_any_keyword(values: Iterable[str], keywords: Iterable[str]) -> bool:
+    haystack = " ".join(value for value in values if isinstance(value, str)).lower()
+    return any(keyword in haystack for keyword in keywords)
+
+
+def _set_single_binding_value(binding: dict[str, object], key: str, values: Iterable[str]) -> None:
+    unique_values = _unique_strings(values)
+    if len(unique_values) == 1:
+        binding[key] = unique_values
+
+
+def _apply_subject_binding(
+    binding: dict[str, object],
+    contract: ResearchContract,
+    subject_id: str,
+    *,
+    include_observable_binding: bool = False,
+) -> None:
+    claim_ids = {claim.id for claim in contract.claims}
+    if subject_id in claim_ids:
+        binding["claim_ids"] = [subject_id]
+        if include_observable_binding:
+            claim = next((claim for claim in contract.claims if claim.id == subject_id), None)
+            if claim is not None:
+                _set_single_binding_value(binding, "observable_ids", claim.observables)
+        return
+
+    deliverable_ids = {deliverable.id for deliverable in contract.deliverables}
+    if subject_id in deliverable_ids:
+        binding["deliverable_ids"] = [subject_id]
+
+
+def _matching_acceptance_tests(
+    contract: ResearchContract,
+    *,
+    kinds: Iterable[str] = (),
+    keywords: Iterable[str] = (),
+    evidence_ids: Iterable[str] = (),
+) -> list[object]:
+    accepted_kinds = set(kinds)
+    accepted_evidence_ids = set(evidence_ids)
+    matches: list[object] = []
+    for test in contract.acceptance_tests:
+        if accepted_kinds and test.kind in accepted_kinds:
+            matches.append(test)
+            continue
+        if accepted_evidence_ids and accepted_evidence_ids.intersection(test.evidence_required):
+            matches.append(test)
+            continue
+        if keywords and _contains_any_keyword((test.procedure, test.pass_condition), keywords):
+            matches.append(test)
+    return matches
+
+
+def _apply_single_acceptance_test_binding(
+    binding: dict[str, object],
+    contract: ResearchContract,
+    tests: list[object],
+    *,
+    include_observable_binding: bool = False,
+) -> object | None:
+    if len(tests) != 1:
+        return None
+
+    test = tests[0]
+    binding["acceptance_test_ids"] = [test.id]
+    _apply_subject_binding(
+        binding,
+        contract,
+        test.subject,
+        include_observable_binding=include_observable_binding,
+    )
+    return test
+
+
+def _claim_ids_for_regime(contract: ResearchContract, regime_label: str) -> list[str]:
+    observables_by_id = {observable.id: observable for observable in contract.observables}
+    matching_claim_ids: list[str] = []
+    for claim in contract.claims:
+        if any(
+            (observable := observables_by_id.get(observable_id)) is not None and observable.regime == regime_label
+            for observable_id in claim.observables
+        ):
+            matching_claim_ids.append(claim.id)
+    return matching_claim_ids
+
+
 @mcp.tool()
 def run_contract_check(request: dict) -> dict:
     """Run a contract-aware verification check using structured metadata."""
@@ -1013,8 +1248,13 @@ def run_contract_check(request: dict) -> dict:
                     return error
 
             binding = binding_raw or {}
+            binding_error = _validate_binding_payload(binding)
+            if binding_error is not None:
+                return _error_result(binding_error)
             binding_supplied = binding_raw is not None
-            metadata = _normalize_contract_metadata(metadata_raw or {})
+            metadata, metadata_error = _normalize_contract_metadata(metadata_raw or {})
+            if metadata_error is not None:
+                return _error_result(metadata_error)
             observed = observed_raw or {}
             artifact_content = str(request.get("artifact_content") or "")
             binding_ids, binding_issues, contract_impacts = _collect_binding_context(
@@ -1225,8 +1465,8 @@ def run_contract_check(request: dict) -> dict:
                 status = "insufficient_evidence"
                 evidence_directness = "mixed" if artifact_content else "metadata_only"
 
-            return {
-                "schema_version": VERIFICATION_SCHEMA_VERSION,
+            return stable_mcp_response(
+                {
                 "check_id": check_meta.check_id,
                 "check_key": check_meta.check_key,
                 "check_name": check_meta.name,
@@ -1241,7 +1481,8 @@ def run_contract_check(request: dict) -> dict:
                 "metrics": metrics,
                 "contract_impacts": contract_impacts,
                 "guidance": check_meta.oracle_hint,
-            }
+                }
+            )
         except Exception as exc:  # pragma: no cover - defensive envelope
             return _error_result(exc)
 
@@ -1252,7 +1493,9 @@ def suggest_contract_checks(contract: dict, active_checks: list[str] | None = No
 
     with gpd_span("mcp.verification.suggest_contract_checks"):
         try:
-            parsed, _, error = _parse_contract_payload(contract)
+            if not isinstance(contract, dict):
+                return _error_result("contract must be an object")
+            parsed, contract_salvage_errors, error = _parse_contract_payload(contract)
             if error is not None or parsed is None:
                 return error or _error_result("Invalid contract payload")
             active = set(active_checks or [])
@@ -1262,7 +1505,7 @@ def suggest_contract_checks(contract: dict, active_checks: list[str] | None = No
                 meta = get_verification_check(check_key)
                 if meta is None:
                     return
-                request_hint = _contract_check_request_hint(meta.check_key)
+                request_hint = _contract_check_request_hint(meta.check_key, contract=parsed)
                 suggestions.append(
                     {
                         "check_id": meta.check_id,
@@ -1310,11 +1553,16 @@ def suggest_contract_checks(contract: dict, active_checks: list[str] | None = No
                     "Acceptance tests mention estimator-family assumptions",
                 )
 
-            return {
-                "schema_version": VERIFICATION_SCHEMA_VERSION,
+            response = {
                 "suggested_checks": suggestions,
                 "suggested_count": len(suggestions),
             }
+            if contract_salvage_errors:
+                response["contract_warnings"] = [
+                    "Contract payload was salvaged before check suggestion: "
+                    + _summarize_contract_salvage_errors(contract_salvage_errors)
+                ]
+            return stable_mcp_response(response)
         except Exception as exc:  # pragma: no cover - defensive envelope
             if isinstance(exc, PydanticValidationError):
                 return _error_result(f"Invalid contract payload: {exc}")
@@ -1332,26 +1580,28 @@ def get_checklist(domain: str) -> dict:
         try:
             checklist = DOMAIN_CHECKLISTS.get(domain)
             if checklist is None:
-                return {
+                return stable_mcp_response(
+                    {
                     "found": False,
-                    "schema_version": VERIFICATION_SCHEMA_VERSION,
                     "domain": domain,
                     "available_domains": sorted(DOMAIN_CHECKLISTS.keys()),
                     "message": f"No checklist for domain '{domain}'.",
-                }
+                    }
+                )
 
             # Also include the universal checks
             universal = [_serialize_verification_check_entry(entry) for entry in list_verification_checks()]
 
-            return {
+            return stable_mcp_response(
+                {
                 "found": True,
-                "schema_version": VERIFICATION_SCHEMA_VERSION,
                 "domain": domain,
                 "domain_checks": checklist,
                 "domain_check_count": len(checklist),
                 "universal_checks": universal,
                 "universal_check_count": len(universal),
-            }
+                }
+            )
         except Exception as exc:  # pragma: no cover - defensive envelope
             return _error_result(exc)
 
@@ -1411,16 +1661,17 @@ def get_bundle_checklist(bundle_ids: list[str]) -> dict:
                         }
                     )
 
-            return {
+            return stable_mcp_response(
+                {
                 "found": bool(bundles),
-                "schema_version": VERIFICATION_SCHEMA_VERSION,
                 "bundle_count": len(bundles),
                 "bundles": bundles,
                 "protocol_bundle_context": render_protocol_bundle_context(resolved_bundles),
                 "bundle_check_count": len(checklist),
                 "bundle_checks": checklist,
                 "missing_bundle_ids": missing_bundle_ids,
-            }
+                }
+            )
         except Exception as exc:  # pragma: no cover - defensive envelope
             return _error_result(exc)
 

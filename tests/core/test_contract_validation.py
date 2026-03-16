@@ -236,6 +236,26 @@ def test_validate_project_contract_normalizes_reference_required_actions_whitesp
     assert result.valid is True
 
 
+def test_validate_project_contract_rejects_coercive_reference_must_surface_scalar() -> None:
+    contract = _load_contract_fixture()
+    contract["references"][0]["must_surface"] = "yes"
+
+    result = validate_project_contract(contract)
+
+    assert result.valid is False
+    assert "references.0.must_surface must be a boolean" in result.errors
+
+
+def test_validate_project_contract_rejects_coercive_schema_version_scalar() -> None:
+    contract = _load_contract_fixture()
+    contract["schema_version"] = True
+
+    result = validate_project_contract(contract)
+
+    assert result.valid is False
+    assert "schema_version must be the integer 1" in result.errors
+
+
 def test_validate_project_contract_rejects_must_surface_reference_without_applies_to() -> None:
     contract = _load_contract_fixture()
     contract["references"][0]["must_surface"] = True

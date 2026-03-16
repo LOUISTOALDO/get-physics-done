@@ -649,6 +649,72 @@ class TestSkillsServerIntegration:
         assert result["review_contract"]["review_mode"] == "publication"
         assert result["context_mode"] == "project-required"
 
+    @pytest.mark.parametrize(
+        ("skill_name", "expected_schema_docs", "expected_contract_docs", "expected_review_mode"),
+        [
+            (
+                "gpd-write-paper",
+                {"paper-config-schema.md": "Paper Config Schema"},
+                {"reproducibility-manifest.md": "Reproducibility Manifest Template"},
+                "publication",
+            ),
+            (
+                "gpd-verify-work",
+                {
+                    "verification-report.md": "Verification Report Template",
+                    "contract-results-schema.md": "Contract Results Schema",
+                },
+                {"contract-results-schema.md": "Contract Results Schema"},
+                "review",
+            ),
+            (
+                "gpd-peer-review",
+                {
+                    "review-ledger-schema.md": "Review Ledger Schema",
+                    "referee-decision-schema.md": "Referee Decision Schema",
+                },
+                {"peer-review-panel.md": "Peer Review Panel Protocol"},
+                "publication",
+            ),
+            (
+                "gpd-sync-state",
+                {"state-json-schema.md": "state.json Schema"},
+                {"state-json-schema.md": "state.json Schema"},
+                None,
+            ),
+        ],
+    )
+    def test_get_skill_surfaces_embedded_schema_and_contract_documents(
+        self,
+        skill_name: str,
+        expected_schema_docs: dict[str, str],
+        expected_contract_docs: dict[str, str],
+        expected_review_mode: str | None,
+    ) -> None:
+        from gpd.mcp.servers.skills_server import get_skill
+
+        result = get_skill(skill_name)
+        schema_documents = {Path(entry["path"]).name: entry for entry in result["schema_documents"]}
+        contract_documents = {Path(entry["path"]).name: entry for entry in result["contract_documents"]}
+
+        assert "error" not in result
+        assert result["schema_documents"]
+        assert result["contract_documents"]
+        for name, marker in expected_schema_docs.items():
+            assert name in schema_documents
+            assert marker in schema_documents[name]["body"]
+            assert schema_documents[name]["content"]
+        for name, marker in expected_contract_docs.items():
+            assert name in contract_documents
+            assert marker in contract_documents[name]["body"]
+            assert contract_documents[name]["content"]
+
+        if expected_review_mode is None:
+            assert result["review_contract"] is None
+        else:
+            assert result["review_contract"] is not None
+            assert result["review_contract"]["review_mode"] == expected_review_mode
+
     def test_get_skill_not_found(self):
         from gpd.mcp.servers.skills_server import get_skill
 
