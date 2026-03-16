@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import threading
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -275,7 +277,7 @@ def test_notify_keeps_target_dir_for_default_named_explicit_target(tmp_path: Pat
     assert str(explicit_target) in output
 
 
-def test_notify_explicit_target_without_runtime_metadata_falls_back_to_bootstrap_command(tmp_path: Path) -> None:
+def test_notify_explicit_target_without_runtime_metadata_falls_back_to_runtime_neutral_command(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     explicit_target = tmp_path / "custom-runtime-dir"
@@ -297,10 +299,10 @@ def test_notify_explicit_target_without_runtime_metadata_falls_back_to_bootstrap
     ):
         _check_and_notify_update(str(workspace))
 
-    assert "Run: npx -y get-physics-done" in stderr.getvalue()
+    assert "Run: gpd-update" in stderr.getvalue()
 
 
-def test_notify_runtime_directory_without_install_uses_bootstrap_command(tmp_path: Path) -> None:
+def test_notify_runtime_directory_without_install_uses_runtime_neutral_command(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     home = tmp_path / "home"
@@ -332,7 +334,7 @@ def test_notify_runtime_directory_without_install_uses_bootstrap_command(tmp_pat
 
     output = stderr.getvalue()
     assert "Update available: v2.0.0" in output
-    assert "Run: npx -y get-physics-done" in output
+    assert "Run: gpd-update" in output
 
 
 def test_notify_ignores_stale_uninstalled_runtime_cache_when_other_runtime_is_installed(tmp_path: Path) -> None:
@@ -666,3 +668,55 @@ def test_emit_execution_notification_dedupes_repeated_resume_state(tmp_path: Pat
 
     output = stderr.getvalue()
     assert output.count("Resume ready for 04-02") == 1
+
+
+def test_emit_execution_notification_dedupes_concurrent_resume_state(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    barrier = threading.Barrier(2)
+
+    class _SlowStderr:
+        def __init__(self) -> None:
+            self._chunks: list[str] = []
+            self._lock = threading.Lock()
+
+        def write(self, message: str) -> int:
+            time.sleep(0.05)
+            with self._lock:
+                self._chunks.append(message)
+            return len(message)
+
+        def getvalue(self) -> str:
+            with self._lock:
+                return "".join(self._chunks)
+
+    def _message(_cwd: str) -> tuple[str, str]:
+        barrier.wait(timeout=1)
+        return (
+            "[GPD] Resume ready for 04-02: .gpd/phases/04/.continue-here.md\n",
+            "resume:seg-2",
+        )
+
+    stderr = _SlowStderr()
+    errors: list[BaseException] = []
+
+    def _emit() -> None:
+        try:
+            _emit_execution_notification(str(workspace))
+        except BaseException as exc:  # pragma: no cover - surfaced via assertion below
+            errors.append(exc)
+
+    with (
+        patch("gpd.hooks.notify._execution_notification_message", side_effect=_message),
+        patch("sys.stderr", stderr),
+    ):
+        threads = [threading.Thread(target=_emit), threading.Thread(target=_emit)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+    assert errors == []
+    assert stderr.getvalue().count("Resume ready for 04-02") == 1
+    state = json.loads((workspace / ".gpd" / "observability" / "last-notify.json").read_text(encoding="utf-8"))
+    assert state["fingerprint"] == "resume:seg-2"

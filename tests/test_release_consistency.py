@@ -520,17 +520,18 @@ def test_infra_descriptors_reference_public_bootstrap_flow() -> None:
     from gpd.mcp.builtin_servers import build_public_descriptors
 
     repo_root = _repo_root()
-    expected = "npx -y get-physics-done"
+    expected = "Install GPD before enabling built-in MCP servers."
     stale_markers = (
         "packages/gpd",
         "uv pip install -e",
         "pip install -e packages/gpd",
+        "npx -y get-physics-done",
     )
     expected_descriptors = build_public_descriptors()
 
     for path in sorted((repo_root / "infra").glob("gpd-*.json")):
         content = path.read_text(encoding="utf-8")
-        assert expected in content, f"{path.name} should reference the public bootstrap flow"
+        assert expected in content, f"{path.name} should reference the public prerequisite flow"
         for marker in stale_markers:
             assert marker not in content, f"{path.name} should not mention {marker!r}"
         assert json.loads(content) == expected_descriptors[path.stem]

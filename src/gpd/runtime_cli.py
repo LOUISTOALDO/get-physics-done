@@ -141,10 +141,10 @@ def _is_matching_local_install_candidate(candidate: Path, *, runtime: str) -> bo
     return (candidate / MANIFEST_NAME).is_file() and (candidate / GPD_INSTALL_DIR_NAME).is_dir()
 
 
-def _resolve_local_config_dir(raw_value: str, *, runtime: str) -> Path:
+def _resolve_local_config_dir(raw_value: str, *, runtime: str, cli_cwd: Path) -> Path:
     """Resolve a local config dir reference against the nearest matching ancestor."""
     relative = Path(raw_value).expanduser()
-    resolved_cwd = Path.cwd().resolve(strict=False)
+    resolved_cwd = cli_cwd.resolve(strict=False)
     for base in (resolved_cwd, *resolved_cwd.parents):
         candidate = (base / relative).resolve(strict=False)
         if _is_matching_local_install_candidate(candidate, runtime=runtime):
@@ -152,14 +152,21 @@ def _resolve_local_config_dir(raw_value: str, *, runtime: str) -> Path:
     return (resolved_cwd / relative).resolve(strict=False)
 
 
-def _resolve_config_dir(raw_value: str, *, runtime: str, install_scope: str, explicit_target: bool) -> Path:
+def _resolve_config_dir(
+    raw_value: str,
+    *,
+    runtime: str,
+    install_scope: str,
+    explicit_target: bool,
+    cli_cwd: Path,
+) -> Path:
     """Resolve the configured runtime dir from an absolute or local-workspace reference."""
     candidate = Path(raw_value).expanduser()
     if candidate.is_absolute():
         return candidate.resolve(strict=False)
     if install_scope == "local" and not explicit_target:
-        return _resolve_local_config_dir(raw_value, runtime=runtime)
-    return (Path.cwd() / candidate).resolve(strict=False)
+        return _resolve_local_config_dir(raw_value, runtime=runtime, cli_cwd=cli_cwd)
+    return (cli_cwd / candidate).resolve(strict=False)
 
 
 def _uses_effective_explicit_target(
@@ -169,29 +176,39 @@ def _uses_effective_explicit_target(
     config_dir: Path,
     install_scope: str,
     explicit_target: bool,
+    cli_cwd: Path,
 ) -> bool:
     """Return whether repair guidance must emit ``--target-dir``."""
     if explicit_target or install_scope != "local":
         return explicit_target
 
-    default_local_config_dir = (Path.cwd() / Path(raw_config_dir).expanduser()).resolve(strict=False)
+    default_local_config_dir = (cli_cwd / Path(raw_config_dir).expanduser()).resolve(strict=False)
     return not _paths_equal(config_dir, default_local_config_dir)
 
 
-def _prepend_checkout_src(gpd_args: list[str]) -> None:
-    """Prefer the live checkout source tree when available."""
+def _maybe_reexec_from_checkout(raw_argv: list[str], *, cli_cwd: Path) -> None:
+    """Re-exec through a checkout when the active package does not match it."""
     from gpd.version import checkout_root
 
-    root = checkout_root(_resolve_cli_cwd_from_argv(gpd_args))
-    if root is None:
-        return
-    checkout_src = (root / "src").resolve(strict=False)
-    if not checkout_src.is_dir():
+    if os.environ.get(ENV_GPD_DISABLE_CHECKOUT_REEXEC) == "1":
         return
 
-    checkout_src_str = str(checkout_src)
-    if checkout_src_str not in sys.path:
-        sys.path.insert(0, checkout_src_str)
+    root = checkout_root(cli_cwd)
+    if root is None:
+        return
+
+    checkout_gpd = (root / "src" / "gpd").resolve(strict=False)
+    active_gpd = Path(__file__).resolve().parent
+    if active_gpd == checkout_gpd:
+        return
+
+    env = os.environ.copy()
+    checkout_src = str((root / "src").resolve(strict=False))
+    existing_pythonpath = [entry for entry in env.get("PYTHONPATH", "").split(os.pathsep) if entry]
+    if checkout_src not in existing_pythonpath:
+        env["PYTHONPATH"] = os.pathsep.join([checkout_src, *existing_pythonpath]) if existing_pythonpath else checkout_src
+    env[ENV_GPD_DISABLE_CHECKOUT_REEXEC] = "1"
+    os.execve(sys.executable, [sys.executable, "-m", "gpd.runtime_cli", *raw_argv], env)
 
 
 def _install_error_message(
@@ -201,6 +218,7 @@ def _install_error_message(
     config_dir: Path,
     install_scope: str,
     explicit_target: bool,
+    cli_cwd: Path,
     missing: tuple[str, ...],
 ) -> str:
     """Return a deterministic repair message for an incomplete runtime install."""
@@ -216,6 +234,7 @@ def _install_error_message(
             config_dir=config_dir,
             install_scope=install_scope,
             explicit_target=explicit_target,
+            cli_cwd=cli_cwd,
         ),
     )
     return (
@@ -229,11 +248,14 @@ def main(argv: list[str] | None = None) -> int:
     """Validate the install contract, then dispatch into ``gpd.cli``."""
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     options, gpd_args = _parse_args(raw_argv)
+    cli_cwd = _resolve_cli_cwd_from_argv(gpd_args)
+    _maybe_reexec_from_checkout(raw_argv, cli_cwd=cli_cwd)
     config_dir = _resolve_config_dir(
         options.config_dir,
         runtime=options.runtime,
         install_scope=options.install_scope,
         explicit_target=bool(options.explicit_target),
+        cli_cwd=cli_cwd,
     )
     adapter = get_adapter(options.runtime)
     missing = adapter.missing_install_artifacts(config_dir)
@@ -245,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
                 config_dir=config_dir,
                 install_scope=options.install_scope,
                 explicit_target=bool(options.explicit_target),
+                cli_cwd=cli_cwd,
                 missing=missing,
             )
         )
@@ -252,7 +275,6 @@ def main(argv: list[str] | None = None) -> int:
 
     os.environ[ENV_GPD_ACTIVE_RUNTIME] = adapter.runtime_name
     os.environ[ENV_GPD_DISABLE_CHECKOUT_REEXEC] = "1"
-    _prepend_checkout_src(gpd_args)
 
     from gpd.cli import entrypoint
 

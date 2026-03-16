@@ -1033,10 +1033,14 @@ def test_research_verification_body_scaffold_keeps_body_only_subject_labels_dist
 def test_verify_work_workflow_uses_body_only_subject_kind_fields() -> None:
     verify_work = (WORKFLOWS_DIR / "verify-work.md").read_text(encoding="utf-8")
 
-    assert "check_subject_kind: `claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check`" in verify_work
-    assert "check_subject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]" in verify_work
+    assert "check_subject_kind: `claim | deliverable | acceptance_test | reference`" in verify_work
+    assert "check_subject_kind: [claim | deliverable | acceptance_test | reference]" in verify_work
     assert 'gap_subject_kind: "{check_subject_kind}"' in verify_work
+    assert "Use `forbidden_proxy_id` for explicit proxy-rejection checks" in verify_work
+    assert "instead of inventing extra body subject kinds" in verify_work
     assert "\nsubject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]" not in verify_work
+    assert "check_subject_kind: `claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check`" not in verify_work
+    assert "check_subject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]" not in verify_work
 
 
 def test_skill_surface_exposes_contract_references_for_paper_and_review_workflows() -> None:

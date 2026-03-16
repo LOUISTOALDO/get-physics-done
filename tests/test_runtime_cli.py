@@ -7,6 +7,9 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
+import gpd.runtime_cli as runtime_cli
 from gpd.adapters import get_adapter
 from gpd.core.constants import ENV_GPD_ACTIVE_RUNTIME, ENV_GPD_DISABLE_CHECKOUT_REEXEC
 from gpd.runtime_cli import main
@@ -53,7 +56,7 @@ def _run_runtime_cli_with_recording(
     monkeypatch.delenv(ENV_GPD_DISABLE_CHECKOUT_REEXEC, raising=False)
     monkeypatch.setattr(adapter, "missing_install_artifacts", record_missing_install_artifacts)
     monkeypatch.setattr("gpd.runtime_cli.get_adapter", lambda runtime: adapter)
-    monkeypatch.setattr("gpd.runtime_cli._prepend_checkout_src", lambda _gpd_args: None)
+    monkeypatch.setattr("gpd.runtime_cli._maybe_reexec_from_checkout", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("gpd.cli.entrypoint", fake_entrypoint)
 
     return main(argv), observed
@@ -145,7 +148,7 @@ def test_runtime_cli_dispatches_with_runtime_pin(monkeypatch, tmp_path: Path) ->
     assert observed["disable_reexec"] == "1"
 
 
-def test_runtime_cli_resolves_checkout_root_from_forwarded_cli_cwd(monkeypatch, tmp_path: Path) -> None:
+def test_runtime_cli_reexecs_from_installed_package_using_forwarded_cli_cwd(monkeypatch, tmp_path: Path) -> None:
     runtime_cwd = tmp_path / "runtime"
     runtime_cwd.mkdir()
     config_dir = runtime_cwd / ".codex"
@@ -153,15 +156,13 @@ def test_runtime_cli_resolves_checkout_root_from_forwarded_cli_cwd(monkeypatch, 
 
     checkout_root = tmp_path / "checkout"
     checkout_src = checkout_root / "src"
-    checkout_src.mkdir(parents=True)
+    (checkout_src / "gpd").mkdir(parents=True)
     forwarded_cwd = checkout_root / "workspace" / "nested"
     forwarded_cwd.mkdir(parents=True)
+    installed_gpd = tmp_path / "site-packages" / "gpd"
+    installed_gpd.mkdir(parents=True)
 
     observed: dict[str, object] = {}
-
-    def fake_entrypoint() -> int:
-        observed["argv"] = list(sys.argv)
-        return 0
 
     def fake_checkout_root(start=None):
         observed["checkout_start"] = start
@@ -169,30 +170,57 @@ def test_runtime_cli_resolves_checkout_root_from_forwarded_cli_cwd(monkeypatch, 
             return checkout_root
         return None
 
+    def fake_execve(executable: str, argv: list[str], env: dict[str, str]) -> None:
+        observed["execve_executable"] = executable
+        observed["execve_argv"] = argv
+        observed["execve_env"] = env
+        raise RuntimeError("runtime-cli-reexec")
+
     monkeypatch.chdir(runtime_cwd)
-    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.delenv(ENV_GPD_DISABLE_CHECKOUT_REEXEC, raising=False)
+    monkeypatch.setenv("PYTHONPATH", "/managed/site-packages")
+    monkeypatch.setattr(runtime_cli, "__file__", str(installed_gpd / "runtime_cli.py"))
     monkeypatch.setattr("gpd.version.checkout_root", fake_checkout_root)
-    monkeypatch.setattr("gpd.cli.entrypoint", fake_entrypoint)
+    monkeypatch.setattr("gpd.runtime_cli.os.execve", fake_execve)
 
-    exit_code = main(
-        [
-            "--runtime",
-            "codex",
-            "--config-dir",
-            "./.codex",
-            "--install-scope",
-            "local",
-            "state",
-            "load",
-            "--cwd",
-            str(forwarded_cwd),
-        ]
-    )
+    with pytest.raises(RuntimeError, match="runtime-cli-reexec"):
+        main(
+            [
+                "--runtime",
+                "codex",
+                "--config-dir",
+                "./.codex",
+                "--install-scope",
+                "local",
+                "state",
+                "load",
+                "--cwd",
+                str(forwarded_cwd),
+            ]
+        )
 
-    assert exit_code == 0
     assert observed["checkout_start"] == forwarded_cwd.resolve(strict=False)
-    assert sys.path[0] == str(checkout_src.resolve(strict=False))
-    assert observed["argv"] == ["gpd", "state", "load", "--cwd", str(forwarded_cwd)]
+    assert observed["execve_executable"] == sys.executable
+    assert observed["execve_argv"] == [
+        sys.executable,
+        "-m",
+        "gpd.runtime_cli",
+        "--runtime",
+        "codex",
+        "--config-dir",
+        "./.codex",
+        "--install-scope",
+        "local",
+        "state",
+        "load",
+        "--cwd",
+        str(forwarded_cwd),
+    ]
+    assert observed["execve_env"][ENV_GPD_DISABLE_CHECKOUT_REEXEC] == "1"
+    assert observed["execve_env"]["PYTHONPATH"].split(os.pathsep)[:2] == [
+        str(checkout_src.resolve(strict=False)),
+        "/managed/site-packages",
+    ]
 
 
 def test_runtime_cli_resolves_local_config_dir_from_ancestor_workspace(monkeypatch, tmp_path: Path) -> None:
@@ -228,6 +256,76 @@ def test_runtime_cli_resolves_local_config_dir_from_ancestor_workspace(monkeypat
     assert exit_code == 0
     assert observed["argv"] == ["gpd", "state", "load"]
     assert observed["runtime"] == "codex"
+
+
+def test_runtime_cli_resolves_local_config_dir_from_forwarded_cli_cwd(monkeypatch, tmp_path: Path) -> None:
+    launcher_cwd = tmp_path / "runtime"
+    launcher_cwd.mkdir()
+    workspace_root = tmp_path / "project"
+    config_dir = workspace_root / ".codex"
+    _mark_complete_install(config_dir, runtime="codex")
+    forwarded_cwd = workspace_root / "research" / "notes"
+    forwarded_cwd.mkdir(parents=True)
+
+    exit_code, observed = _run_runtime_cli_with_recording(
+        monkeypatch,
+        cwd=launcher_cwd,
+        argv=[
+            "--runtime",
+            "codex",
+            "--config-dir",
+            "./.codex",
+            "--install-scope",
+            "local",
+            "state",
+            "load",
+            "--cwd",
+            str(forwarded_cwd),
+        ],
+    )
+
+    assert exit_code == 0
+    assert observed["config_dir"] == config_dir
+    assert observed["argv"] == ["gpd", "state", "load", "--cwd", str(forwarded_cwd)]
+    assert observed["runtime"] == "codex"
+    assert observed["disable_reexec"] == "1"
+
+
+def test_runtime_cli_forwarded_cli_cwd_drives_local_repair_guidance(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    launcher_cwd = tmp_path / "runtime"
+    launcher_cwd.mkdir()
+    workspace_root = tmp_path / "project"
+    config_dir = workspace_root / ".codex"
+    _mark_incomplete_install(config_dir, runtime="codex")
+    forwarded_cwd = workspace_root / "research" / "notes"
+    forwarded_cwd.mkdir(parents=True)
+
+    monkeypatch.chdir(launcher_cwd)
+    monkeypatch.setattr("gpd.runtime_cli._maybe_reexec_from_checkout", lambda *_args, **_kwargs: None)
+
+    exit_code = main(
+        [
+            "--runtime",
+            "codex",
+            "--config-dir",
+            "./.codex",
+            "--install-scope",
+            "local",
+            "state",
+            "load",
+            "--cwd",
+            str(forwarded_cwd),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 127
+    assert f"--target-dir {config_dir}" in captured.err
+    assert "npx -y get-physics-done --codex --local" in captured.err
 
 
 def test_runtime_cli_ignores_unrelated_nested_runtime_dirs_when_resolving_ancestor_local_install(

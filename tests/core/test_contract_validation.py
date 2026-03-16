@@ -467,15 +467,16 @@ def test_validate_project_contract_warns_when_optional_sections_are_missing_but_
     assert "no forbidden_proxies recorded yet" in result.warnings
 
 
-def test_validate_project_contract_accepts_recoverable_singleton_normalization() -> None:
-    contract = _load_contract_fixture()
-    contract["context_intake"] = "not-a-dict"
+def test_validate_project_contract_approved_mode_rejects_whole_singleton_defaulting() -> None:
+    for field_name in ("context_intake", "approach_policy", "uncertainty_markers"):
+        contract = _load_contract_fixture()
+        contract[field_name] = "not-a-dict"
 
-    result = validate_project_contract(contract, mode="approved")
+        result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
-    assert result.mode == "approved"
-    assert "context_intake must be an object, not str" in result.warnings
+        assert result.valid is False
+        assert result.mode == "approved"
+        assert f"{field_name} must be an object, not str" in result.errors
 
 
 def test_plan_contract_schema_uses_supported_contract_enum_values() -> None:

@@ -104,6 +104,22 @@ def _multi_claim_contract_fixture() -> dict[str, object]:
         },
     }
 
+
+class TestBuiltinServerDescriptors:
+    """Tests for public built-in MCP server descriptor metadata."""
+
+    def test_public_descriptor_prerequisites_are_runtime_neutral(self):
+        from gpd.mcp.builtin_servers import build_public_descriptors
+
+        descriptors = build_public_descriptors()
+        expected = ["Install GPD before enabling built-in MCP servers."]
+
+        for name, descriptor in descriptors.items():
+            assert descriptor["prerequisites"] == expected, name
+            prerequisite = descriptor["prerequisites"][0].lower()
+            assert "npx" not in prerequisite, name
+            assert "get-physics-done" not in prerequisite, name
+
 # ---------------------------------------------------------------------------
 # 1. Conventions server
 # ---------------------------------------------------------------------------

@@ -61,7 +61,14 @@ _ANCHOR_UNKNOWN_QUESTION_PATTERNS = (
 _RECOVERABLE_SCHEMA_WARNING_PATTERNS = (
     re.compile(r"^.+: Extra inputs are not permitted$"),
     re.compile(r"^references\.\d+\.aliases: Input should be a valid list$"),
+)
+_DEFAULTABLE_SINGLETON_SCHEMA_WARNING_PATTERNS = (
     re.compile(r"^(?:context_intake|approach_policy|uncertainty_markers) must be an object, not .+$"),
+)
+_AUTHORITATIVE_SCALAR_FINDING_PATTERNS = (
+    re.compile(r"^schema_version must be the integer 1$"),
+    re.compile(r"^schema_version: Input should be 1$"),
+    re.compile(r"^.+\.must_surface must be a boolean$"),
 )
 
 
@@ -350,17 +357,32 @@ def salvage_project_contract(contract: dict[str, object]) -> tuple[ResearchContr
         return None, errors
 
 
-def _split_project_contract_schema_findings(errors: list[str]) -> tuple[list[str], list[str]]:
+def _split_project_contract_schema_findings(
+    errors: list[str],
+    *,
+    allow_singleton_defaults: bool = True,
+) -> tuple[list[str], list[str]]:
     """Partition salvage findings into recoverable warnings and blocking errors."""
 
     recoverable: list[str] = []
     blocking: list[str] = []
+    recoverable_patterns = _RECOVERABLE_SCHEMA_WARNING_PATTERNS
+    if allow_singleton_defaults:
+        recoverable_patterns += _DEFAULTABLE_SINGLETON_SCHEMA_WARNING_PATTERNS
     for error in errors:
-        if any(pattern.fullmatch(error) for pattern in _RECOVERABLE_SCHEMA_WARNING_PATTERNS):
+        if any(pattern.fullmatch(error) for pattern in recoverable_patterns):
             recoverable.append(error)
         else:
             blocking.append(error)
     return recoverable, blocking
+
+
+def _has_authoritative_scalar_schema_findings(errors: list[str]) -> bool:
+    """Return whether salvage findings touched authoritative scalar fields."""
+
+    return any(
+        pattern.fullmatch(error) for error in errors for pattern in _AUTHORITATIVE_SCALAR_FINDING_PATTERNS
+    )
 
 
 def _light_contract_consistency_errors(contract: ResearchContract) -> list[str]:
@@ -543,7 +565,10 @@ def validate_project_contract(
                 mode=mode,
             )
         parsed, schema_findings = salvage_project_contract(contract)
-        schema_warnings, schema_errors = _split_project_contract_schema_findings(schema_findings)
+        schema_warnings, schema_errors = _split_project_contract_schema_findings(
+            schema_findings,
+            allow_singleton_defaults=mode != "approved",
+        )
         if parsed is None:
             if schema_errors:
                 return ProjectContractValidationResult(valid=False, errors=schema_errors, mode=mode)

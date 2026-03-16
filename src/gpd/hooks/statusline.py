@@ -506,7 +506,10 @@ def _check_update(workspace_dir: str | None = None) -> str:
     if cache and cache.get("update_available"):
         config_dir = getattr(cache_candidate, "config_dir", None)
         if isinstance(config_dir, Path):
-            command = _self_update_command(config_dir) or "npx -y get-physics-done"
+            from gpd.hooks.runtime_detect import RUNTIME_UNKNOWN, update_command_for_runtime
+
+            fallback_scope = _self_install_scope(config_dir)
+            command = _self_update_command(config_dir) or update_command_for_runtime(RUNTIME_UNKNOWN, scope=fallback_scope)
             return f"\x1b[33m\u2b06 {command}\x1b[0m \u2502 "
 
         from gpd.adapters import get_adapter

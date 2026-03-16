@@ -642,7 +642,7 @@ class TestCheckUpdateHook:
         assert "--codex --local --target-dir" in result
         assert str(explicit_target) in result
 
-    def test_explicit_target_hook_without_runtime_metadata_uses_bootstrap_command(self, tmp_path: Path) -> None:
+    def test_explicit_target_hook_without_runtime_metadata_uses_runtime_neutral_command(self, tmp_path: Path) -> None:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         explicit_target = tmp_path / "custom-runtime-dir"
@@ -657,9 +657,9 @@ class TestCheckUpdateHook:
         with patch("gpd.hooks.statusline.__file__", str(hook_path)):
             result = _check_update(str(workspace))
 
-        assert "npx -y get-physics-done" in result
+        assert "gpd-update" in result
 
-    def test_runtime_directory_without_install_uses_bootstrap_update_command(self, tmp_path: Path) -> None:
+    def test_runtime_directory_without_install_uses_runtime_neutral_update_command(self, tmp_path: Path) -> None:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         home = tmp_path / "home"
@@ -679,7 +679,7 @@ class TestCheckUpdateHook:
         ):
             result = _check_update(str(workspace))
 
-        assert "npx -y get-physics-done" in result
+        assert "gpd-update" in result
 
     def test_stale_uninstalled_runtime_cache_is_ignored_when_another_runtime_is_installed(self, tmp_path: Path) -> None:
         workspace = tmp_path / "workspace"
@@ -727,7 +727,7 @@ class TestCheckUpdateHook:
         ):
             assert _check_update() == ""
 
-    def test_unknown_runtime_falls_back_to_bootstrap_update_command(self, tmp_path: Path) -> None:
+    def test_unknown_runtime_falls_back_to_runtime_neutral_update_command(self, tmp_path: Path) -> None:
         gpd_cache = tmp_path / ".gpd" / "cache"
         gpd_cache.mkdir(parents=True)
         (gpd_cache / "gpd-update-check.json").write_text(json.dumps({"update_available": True}), encoding="utf-8")
@@ -739,7 +739,7 @@ class TestCheckUpdateHook:
         ):
             result = _check_update()
 
-        assert "npx -y get-physics-done" in result
+        assert "gpd-update" in result
 
     def test_known_runtime_does_not_call_detect_install_scope(self, tmp_path: Path) -> None:
         """When get_adapter succeeds, detect_install_scope should not be called (lazy evaluation)."""

@@ -202,8 +202,10 @@ For each contract-backed check, create a validation record that includes **both 
 - name: Brief check name
 - expected: What the physics should show (specific, verifiable)
 - computation: A specific numerical test the AI will perform before presenting to the researcher
-- check_subject_kind: `claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check`
+- check_subject_kind: `claim | deliverable | acceptance_test | reference`
 - subject_id: Contract ID when available
+
+Keep `check_subject_kind` and `gap_subject_kind` aligned with the canonical frontmatter-safe subject vocabulary. Use `forbidden_proxy_id` for explicit proxy-rejection checks, and keep missing decisive checks in the `suggested_contract_checks` ledger instead of inventing extra body subject kinds.
 
 Rules:
 
@@ -340,7 +342,7 @@ session_status: validating
 
 number: 1
 name: [first check name]
-check_subject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]
+check_subject_kind: [claim | deliverable | acceptance_test | reference]
 subject_id: [contract id or ""]
 claim_id: [claim-id or ""]
 deliverable_id: [deliverable-id or ""]
@@ -369,7 +371,7 @@ awaiting: researcher response
 
 ### 1. [Check Name]
 
-check_subject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]
+check_subject_kind: [claim | deliverable | acceptance_test | reference]
 subject_id: [contract id or ""]
 claim_id: [claim-id or ""]
 deliverable_id: [deliverable-id or ""]

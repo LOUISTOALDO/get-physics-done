@@ -9,6 +9,7 @@ from pathlib import Path
 
 from gpd.core.constants import ENV_GPD_DEBUG
 from gpd.core.observability import resolve_project_root
+from gpd.core.utils import atomic_write, file_lock
 from gpd.hooks.install_metadata import (
     config_dir_has_complete_install,
     install_scope_from_manifest,
@@ -159,7 +160,8 @@ def _check_and_notify_update(cwd: str | None = None) -> None:
         latest = latest_cache.get("latest", "?")
         config_dir = getattr(latest_candidate, "config_dir", None)
         if isinstance(config_dir, Path):
-            cmd = _self_update_command(config_dir) or "npx -y get-physics-done"
+            fallback_scope = _self_install_scope(config_dir)
+            cmd = _self_update_command(config_dir) or update_command_for_runtime(RUNTIME_UNKNOWN, scope=fallback_scope)
             sys.stderr.write(f"[GPD] Update available: v{installed} \u2192 v{latest}. Run: {cmd}\n")
             return
         runtime = latest_candidate.runtime if latest_candidate is not None else RUNTIME_UNKNOWN
@@ -218,10 +220,15 @@ def _load_last_notification(cwd: str) -> dict[str, object]:
     return raw if isinstance(raw, dict) else {}
 
 
-def _save_last_notification(cwd: str, payload: dict[str, object]) -> None:
+def _claim_last_notification(cwd: str, fingerprint: str) -> bool:
+    """Atomically claim a notification fingerprint for one workspace."""
     path = _notification_state_path(cwd)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    with file_lock(path):
+        previous = _load_last_notification(cwd)
+        if previous.get("fingerprint") == fingerprint:
+            return False
+        atomic_write(path, json.dumps({"fingerprint": fingerprint}, indent=2))
+        return True
 
 
 def _execution_notification_message(cwd: str) -> tuple[str | None, str | None]:
@@ -281,12 +288,10 @@ def _emit_execution_notification(cwd: str) -> None:
     if not message or not fingerprint:
         return
 
-    previous = _load_last_notification(cwd)
-    if previous.get("fingerprint") == fingerprint:
+    if not _claim_last_notification(cwd, fingerprint):
         return
 
     sys.stderr.write(message)
-    _save_last_notification(cwd, {"fingerprint": fingerprint})
 
 
 def main() -> None:

@@ -43,6 +43,7 @@ from gpd.core.constants import (
     ProjectLayout,
 )
 from gpd.core.contract_validation import (
+    _has_authoritative_scalar_schema_findings,
     _split_project_contract_schema_findings,
     salvage_project_contract,
     validate_project_contract,
@@ -1032,6 +1033,11 @@ def _normalize_project_contract_section(
     # scalar drift is surfaced as an integrity issue instead of silently
     # canonicalized by field validators or bool/int coercion.
     integrity_issues.extend(_integrity_issue_from_contract_error(error) for error in errors)
+    if _has_authoritative_scalar_schema_findings(errors):
+        integrity_issues.append(
+            'schema normalization: dropped "project_contract" because authoritative scalar fields required normalization'
+        )
+        return None
     if not allow_project_contract_salvage:
         integrity_issues.append(
             'schema normalization: dropped "project_contract" because contract schema required normalization'
@@ -1982,7 +1988,10 @@ def state_set_project_contract(cwd: Path, contract_data: dict[str, object] | Res
             parsed = contract_data
         else:
             normalized_contract, schema_findings = salvage_project_contract(contract_data)
-            _, schema_errors = _split_project_contract_schema_findings(schema_findings)
+            _, schema_errors = _split_project_contract_schema_findings(
+                schema_findings,
+                allow_singleton_defaults=False,
+            )
             if schema_errors:
                 return StateUpdateResult(
                     updated=False,

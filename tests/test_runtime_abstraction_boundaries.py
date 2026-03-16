@@ -66,6 +66,9 @@ _RUNTIME_INSTALL_ARTIFACT_PATTERN = re.compile(
     r"\.gemini/agents|\.opencode/agents|\.claude/commands|\.gemini/commands|\.opencode/commands)"
 )
 _SHARED_COMMAND_SURFACE_PATTERN = re.compile(r"/gpd:")
+_SHARED_BOOTSTRAP_COMMAND_PATTERN = re.compile(
+    r"(\bnpx\b|\bnpm\b|\buvx\b|\bpip\b|\bpipx\b|\bbunx\b|get-physics-done)"
+)
 _SHARED_RUNTIME_AGNOSTIC_PATHS = (
     REPO_ROOT / "src/gpd/agents",
     REPO_ROOT / "src/gpd/commands",
@@ -219,5 +222,14 @@ def test_shared_mcp_python_surfaces_do_not_hardcode_runtime_command_prefixes() -
 
     assert leaks == [], (
         "Shared MCP Python surfaces should stay canonical instead of hardcoding runtime command prefixes:\n"
+        f"{_format_failures(leaks)}"
+    )
+
+
+def test_shared_builtin_server_descriptors_do_not_hardcode_bootstrap_commands() -> None:
+    leaks = _scan_paths_for_pattern((REPO_ROOT / "src/gpd/mcp/builtin_servers.py",), _SHARED_BOOTSTRAP_COMMAND_PATTERN)
+
+    assert leaks == [], (
+        "Shared built-in MCP descriptors should not hardcode runtime-specific bootstrap commands:\n"
         f"{_format_failures(leaks)}"
     )

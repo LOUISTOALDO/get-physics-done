@@ -16,7 +16,7 @@
   ],
   "registry_prefix": "gpd_arxiv",
   "prerequisites": [
-    "Install GPD first: npx -y get-physics-done"
+    "Install GPD before enabling built-in MCP servers."
   ],
   "health_check": {
     "tool": "search_papers",

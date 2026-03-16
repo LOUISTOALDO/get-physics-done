@@ -438,11 +438,14 @@ def test_normalize_state_schema_reports_coercive_project_contract_scalars():
 
     normalized, issues = _normalize_state_schema({"project_contract": contract})
 
-    assert normalized["project_contract"] is not None
-    assert normalized["project_contract"]["schema_version"] == 1
-    assert normalized["project_contract"]["references"][0]["must_surface"] is False
+    assert normalized["project_contract"] is None
     assert any("schema_version must be the integer 1" in issue for issue in issues)
     assert any("references.0.must_surface must be a boolean" in issue for issue in issues)
+    assert any(
+        'schema normalization: dropped "project_contract" because authoritative scalar fields required normalization'
+        in issue
+        for issue in issues
+    )
 
 
 def test_ensure_state_schema_strips_claim_extra_keys_without_dropping_claim():
@@ -583,25 +586,21 @@ def test_state_set_project_contract_accepts_recoverable_schema_normalization(tmp
     assert saved["project_contract"]["references"][0]["aliases"] == []
 
 
-def test_state_set_project_contract_accepts_recoverable_singleton_normalization(tmp_path: Path):
-    contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
-    contract["context_intake"] = "not-a-dict"
-    save_state_json(tmp_path, default_state_dict())
+def test_state_set_project_contract_rejects_whole_singleton_defaulting(tmp_path: Path):
+    for field_name in ("context_intake", "approach_policy", "uncertainty_markers"):
+        contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+        contract[field_name] = "not-a-dict"
+        save_state_json(tmp_path, default_state_dict())
 
-    result = state_set_project_contract(tmp_path, contract)
+        result = state_set_project_contract(tmp_path, contract)
 
-    assert result.updated is True
-    saved = load_state_json(tmp_path)
-    assert saved is not None
-    assert saved["project_contract"] is not None
-    assert saved["project_contract"]["context_intake"] == {
-        "must_read_refs": [],
-        "must_include_prior_outputs": [],
-        "user_asserted_anchors": [],
-        "known_good_baselines": [],
-        "context_gaps": [],
-        "crucial_inputs": [],
-    }
+        assert result.updated is False
+        assert result.reason is not None
+        assert "Invalid project contract schema:" in result.reason
+        assert f"{field_name} must be an object, not str" in result.reason
+        saved = load_state_json(tmp_path)
+        assert saved is not None
+        assert saved["project_contract"] is None
 
 
 def test_save_state_json_drops_malformed_project_contract_instead_of_salvaging(tmp_path: Path):

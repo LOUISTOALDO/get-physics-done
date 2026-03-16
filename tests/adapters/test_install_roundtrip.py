@@ -804,8 +804,24 @@ def test_real_installed_contract_and_review_surfaces_keep_required_schema_bodies
         _read_runtime_command_prompt(tmp_path, target, runtime, "write-paper"),
         runtime=runtime,
     )
+    review_literature = _canonicalize_runtime_markdown(
+        _read_runtime_agent_prompt(target, runtime, "gpd-review-literature"),
+        runtime=runtime,
+    )
     review_reader = _canonicalize_runtime_markdown(
         _read_runtime_agent_prompt(target, runtime, "gpd-review-reader"),
+        runtime=runtime,
+    )
+    review_math = _canonicalize_runtime_markdown(
+        _read_runtime_agent_prompt(target, runtime, "gpd-review-math"),
+        runtime=runtime,
+    )
+    review_physics = _canonicalize_runtime_markdown(
+        _read_runtime_agent_prompt(target, runtime, "gpd-review-physics"),
+        runtime=runtime,
+    )
+    review_significance = _canonicalize_runtime_markdown(
+        _read_runtime_agent_prompt(target, runtime, "gpd-review-significance"),
         runtime=runtime,
     )
     referee = _canonicalize_runtime_markdown(
@@ -813,7 +829,17 @@ def test_real_installed_contract_and_review_surfaces_keep_required_schema_bodies
         runtime=runtime,
     )
 
-    for content in (verify_work, sync_state, write_paper, review_reader, referee):
+    for content in (
+        verify_work,
+        sync_state,
+        write_paper,
+        review_literature,
+        review_reader,
+        review_math,
+        review_physics,
+        review_significance,
+        referee,
+    ):
         lowered = content.lower()
         assert "@ include not resolved:" not in lowered
         assert "@ include cycle detected:" not in lowered
@@ -826,6 +852,17 @@ def test_real_installed_contract_and_review_surfaces_keep_required_schema_bodies
     assert "\nsubject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]" not in verify_work
     assert "# state.json Schema" in sync_state
     assert "Reproducibility Manifest Template" in write_paper
+    assert "Peer Review Panel Protocol" in review_literature
+    assert '"stage_id": "reader | literature | math | physics | interestingness"' in review_literature
+    assert '"stage_kind": "reader | literature | math | physics | interestingness"' in review_literature
     assert "Peer Review Panel Protocol" in review_reader
+    for review_stage, stage_path, stage_kind in (
+        (review_math, "STAGE-math.json", "math"),
+        (review_physics, "STAGE-physics.json", "physics"),
+        (review_significance, "STAGE-interestingness.json", "interestingness"),
+    ):
+        assert f"Required schema for `{stage_path}` (`StageReviewReport`, mirroring the staged-review contract):" in review_stage
+        assert f"`stage_id` and `stage_kind` must both be `{stage_kind}`" in review_stage
+        assert "do not collapse them to prose or scalars" in review_stage
     assert "Review Ledger Schema" in referee
     assert "Referee Decision Schema" in referee
