@@ -42,7 +42,11 @@ from gpd.core.constants import (
     SUMMARY_SUFFIX,
     ProjectLayout,
 )
-from gpd.core.contract_validation import salvage_project_contract, validate_project_contract
+from gpd.core.contract_validation import (
+    _split_project_contract_schema_findings,
+    salvage_project_contract,
+    validate_project_contract,
+)
 from gpd.core.conventions import KNOWN_CONVENTIONS, is_bogus_value
 from gpd.core.errors import StateError
 from gpd.core.extras import Approximation
@@ -1969,14 +1973,16 @@ def state_set_project_contract(cwd: Path, contract_data: dict[str, object] | Res
 
     This is a JSON-only state field, so it bypasses ``STATE.md`` field patching and
     writes through the authoritative structured state path instead. Unlike
-    ``ensure_state_schema()``, this write path rejects user input that needs schema
-    salvage instead of persisting a healed variant.
+    ``ensure_state_schema()``, this write path still rejects authoritative schema
+    drift, but it accepts a small class of recoverable normalization fixes
+    (for example harmless extra keys) and persists the canonicalized contract.
     """
     try:
         if isinstance(contract_data, ResearchContract):
             parsed = contract_data
         else:
-            normalized_contract, schema_errors = salvage_project_contract(contract_data)
+            normalized_contract, schema_findings = salvage_project_contract(contract_data)
+            _, schema_errors = _split_project_contract_schema_findings(schema_findings)
             if schema_errors:
                 return StateUpdateResult(
                     updated=False,

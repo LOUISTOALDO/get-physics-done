@@ -66,6 +66,13 @@ def _adapter(runtime: str):
         return None
 
 
+def _paths_equal(left: Path, right: Path) -> bool:
+    try:
+        return left.expanduser().resolve() == right.expanduser().resolve()
+    except OSError:
+        return left.expanduser() == right.expanduser()
+
+
 def _normalize_runtime_name(value: str | None) -> str | None:
     """Resolve a runtime id, display name, or alias to a canonical runtime name."""
     if not isinstance(value, str):
@@ -149,7 +156,11 @@ def _runtime_from_manifest_or_path(config_dir: Path) -> str | None:
 
     for runtime in ALL_RUNTIMES:
         adapter = _adapter(runtime)
-        if adapter is not None and config_dir.name == adapter.local_config_dir_name:
+        if adapter is None:
+            continue
+        if config_dir.name == adapter.local_config_dir_name:
+            return runtime
+        if _paths_equal(config_dir, adapter.resolve_global_config_dir()):
             return runtime
     return None
 

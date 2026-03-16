@@ -114,6 +114,31 @@ def _read_compare_experiment_command(tmp_path: Path, target: Path, runtime: str)
 
     raise AssertionError(f"Unsupported runtime {runtime}")
 
+
+def _read_runtime_command_prompt(tmp_path: Path, target: Path, runtime: str, command_name: str) -> str:
+    if runtime == "claude-code":
+        return (target / "commands" / "gpd" / f"{command_name}.md").read_text(encoding="utf-8")
+
+    if runtime == "codex":
+        return (tmp_path / "skills" / f"gpd-{command_name}" / "SKILL.md").read_text(encoding="utf-8")
+
+    if runtime == "gemini":
+        parsed = tomllib.loads((target / "commands" / "gpd" / f"{command_name}.toml").read_text(encoding="utf-8"))
+        prompt = parsed.get("prompt")
+        assert isinstance(prompt, str)
+        return prompt
+
+    if runtime == "opencode":
+        return (target / "command" / f"gpd-{command_name}.md").read_text(encoding="utf-8")
+
+    raise AssertionError(f"Unsupported runtime {runtime}")
+
+
+def _read_runtime_agent_prompt(target: Path, runtime: str, agent_name: str) -> str:
+    if runtime in {"claude-code", "codex", "gemini", "opencode"}:
+        return (target / "agents" / f"{agent_name}.md").read_text(encoding="utf-8")
+    raise AssertionError(f"Unsupported runtime {runtime}")
+
 # ---------------------------------------------------------------------------
 # Claude Code: install → read back → compare
 # ---------------------------------------------------------------------------
@@ -759,3 +784,45 @@ def test_real_installed_shared_prompt_semantics_are_equivalent_across_runtimes(t
     assert "review_cadence" in execute_plan
     assert "Required first-result sanity gate" in execute_plan
     assert "Contract-backed plans" in execute_plan
+
+
+@pytest.mark.parametrize("runtime", ["claude-code", "codex", "gemini", "opencode"])
+def test_real_installed_contract_and_review_surfaces_keep_required_schema_bodies(
+    tmp_path: Path, runtime: str
+) -> None:
+    target = _install_real_repo_for_runtime(tmp_path, runtime)
+
+    verify_work = _canonicalize_runtime_markdown(
+        _read_runtime_command_prompt(tmp_path, target, runtime, "verify-work"),
+        runtime=runtime,
+    )
+    sync_state = _canonicalize_runtime_markdown(
+        _read_runtime_command_prompt(tmp_path, target, runtime, "sync-state"),
+        runtime=runtime,
+    )
+    write_paper = _canonicalize_runtime_markdown(
+        _read_runtime_command_prompt(tmp_path, target, runtime, "write-paper"),
+        runtime=runtime,
+    )
+    review_reader = _canonicalize_runtime_markdown(
+        _read_runtime_agent_prompt(target, runtime, "gpd-review-reader"),
+        runtime=runtime,
+    )
+    referee = _canonicalize_runtime_markdown(
+        _read_runtime_agent_prompt(target, runtime, "gpd-referee"),
+        runtime=runtime,
+    )
+
+    for content in (verify_work, sync_state, write_paper, review_reader, referee):
+        lowered = content.lower()
+        assert "@ include not resolved:" not in lowered
+        assert "@ include cycle detected:" not in lowered
+        assert "@ include read error:" not in lowered
+        assert "@ include depth limit reached:" not in lowered
+
+    assert "Canonical source of truth for `plan_contract_ref`, `contract_results`, and `comparison_verdicts`" in verify_work
+    assert "# state.json Schema" in sync_state
+    assert "Reproducibility Manifest Template" in write_paper
+    assert "Peer Review Panel Protocol" in review_reader
+    assert "Review Ledger Schema" in referee
+    assert "Referee Decision Schema" in referee

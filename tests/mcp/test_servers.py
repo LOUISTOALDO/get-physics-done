@@ -740,7 +740,8 @@ class TestSkillsServer:
             "description: Show available GPD commands and usage guide.\n"
             "---\n"
             "\n"
-            "Canonical help command.\n",
+            "Canonical help command.\n"
+            "Try /gpd:help or /gpd:execute-phase for runtime-installed shells.\n",
             encoding="utf-8",
         )
         (commands_dir / "slides.md").write_text(
@@ -855,6 +856,15 @@ class TestSkillsServer:
         # Agent-backed entries remain part of the canonical MCP skill index.
         assert result["name"] == "gpd-debugger"
         assert "Primary debugger agent" in result["content"]
+
+    def test_get_skill_canonicalizes_runtime_command_examples(self):
+        from gpd.mcp.servers.skills_server import get_skill
+
+        result = get_skill("gpd-help")
+
+        assert "/gpd:" not in result["content"]
+        assert "gpd-help" in result["content"]
+        assert "gpd-execute-phase" in result["content"]
 
     def test_get_skill_resolves_install_and_agents_placeholders(self):
         from gpd.mcp.servers.skills_server import get_skill
@@ -1061,8 +1071,8 @@ class TestSkillsServer:
         result = get_skill_index()
         assert result["total_skills"] == 6
         assert "index_text" in result
-        assert "/gpd:execute-phase" in result["index_text"]
-        assert "/gpd:peer-review" in result["index_text"]
+        assert "gpd-execute-phase" in result["index_text"]
+        assert "gpd-peer-review" in result["index_text"]
         assert "gpd-debugger" in result["index_text"]
         assert "/gpd:debugger" not in result["index_text"]
 

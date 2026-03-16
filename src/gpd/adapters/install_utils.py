@@ -252,6 +252,13 @@ _COMMON_INLINE_MATH_NAMES = frozenset(
         "inf",
     }
 )
+_UNRESOLVED_INCLUDE_MARKERS = (
+    "@ include not resolved:",
+    "@ include cycle detected:",
+    "@ include read error:",
+    "@ include depth limit reached:",
+)
+_TEXT_INSTALL_ARTIFACT_SUFFIXES = frozenset({".md", ".toml"})
 
 
 def protect_runtime_agent_prompt(content: str, runtime: str) -> str:
@@ -773,21 +780,7 @@ def expand_at_includes(
             continue
 
         # Resolve against source directory
-        src_path: Path | None = None
-        if include_path.startswith("{GPD_INSTALL_DIR}/"):
-            relative_path = include_path[len("{GPD_INSTALL_DIR}/") :]
-            src_path = src_root / relative_path
-        elif include_path.startswith("{GPD_AGENTS_DIR}/"):
-            relative_path = include_path[len("{GPD_AGENTS_DIR}/") :]
-            src_path = src_root.parent / "agents" / relative_path
-        elif "get-physics-done/" in include_path:
-            gpd_idx = include_path.index("get-physics-done/")
-            relative_path = include_path[gpd_idx:]
-            src_path = src_root.parent / relative_path
-        elif "/agents/" in include_path:
-            agents_idx = include_path.index("/agents/")
-            relative_path = include_path[agents_idx + 1 :]
-            src_path = src_root.parent / relative_path
+        src_path = _resolve_include_source_path(src_root, include_path)
 
         # Try to read and inline the file
         if src_path and src_path.exists():
@@ -813,8 +806,8 @@ def expand_at_includes(
             if frontmatter:
                 body = split_body.strip()
 
-            # Normalize path references in included content before recursion
-            body = replace_placeholders(body, path_prefix, runtime, install_scope)
+            # Expand nested includes against canonical source paths before
+            # translating placeholders into installed runtime paths.
             body = expand_at_includes(
                 body,
                 str(src_root),
@@ -824,6 +817,7 @@ def expand_at_includes(
                 depth=depth + 1,
                 include_stack=include_stack,
             )
+            body = replace_placeholders(body, path_prefix, runtime, install_scope)
 
             result.append("")
             result.append(f"<!-- [included: {src_path.name}] -->")
@@ -835,6 +829,49 @@ def expand_at_includes(
             result.append(f"<!-- @ include not resolved: {include_path} -->")
 
     return "\n".join(result)
+
+
+def _resolve_include_source_path(src_root: Path, include_path: str) -> Path | None:
+    """Map a canonical or installed include path back to its source file."""
+
+    specs_root = _specs_source_root(src_root)
+    agents_root = _agents_source_root(src_root)
+
+    if include_path.startswith("{GPD_INSTALL_DIR}/"):
+        relative_path = include_path[len("{GPD_INSTALL_DIR}/") :]
+        return specs_root / relative_path
+    if include_path.startswith("{GPD_AGENTS_DIR}/"):
+        relative_path = include_path[len("{GPD_AGENTS_DIR}/") :]
+        return agents_root / relative_path
+    if "get-physics-done/" in include_path:
+        relative_path = include_path.split("get-physics-done/", 1)[1]
+        return specs_root / relative_path
+    if "/agents/" in include_path:
+        relative_path = include_path.split("/agents/", 1)[1]
+        return agents_root / relative_path
+    return None
+
+
+def _specs_source_root(src_root: Path) -> Path:
+    """Return the canonical source root for installed get-physics-done content."""
+
+    specs_root = src_root / "specs"
+    if specs_root.is_dir():
+        return specs_root
+    return src_root
+
+
+def _agents_source_root(src_root: Path) -> Path:
+    """Return the canonical source root for agent markdown files."""
+
+    specs_root = _specs_source_root(src_root)
+    sibling_agents = specs_root.parent / "agents"
+    if sibling_agents.is_dir():
+        return sibling_agents
+    direct_agents = src_root / "agents"
+    if direct_agents.is_dir():
+        return direct_agents
+    return sibling_agents
 
 
 # ---------------------------------------------------------------------------
@@ -1283,6 +1320,16 @@ def verify_installed(dir_path: str | Path, description: str) -> bool:
             return False
     except OSError:
         return False
+    for artifact in p.rglob("*"):
+        if not artifact.is_file() or artifact.suffix not in _TEXT_INSTALL_ARTIFACT_SUFFIXES:
+            continue
+        try:
+            content = artifact.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        lowered = content.casefold()
+        if any(marker in lowered for marker in _UNRESOLVED_INCLUDE_MARKERS):
+            return False
     return True
 
 

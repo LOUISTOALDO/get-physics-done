@@ -58,6 +58,10 @@ _ANCHOR_UNKNOWN_QUESTION_PATTERNS = (
     re.compile(r"^\s*(?:which|what)\b"),
     re.compile(r"\?$"),
 )
+_RECOVERABLE_SCHEMA_WARNING_PATTERNS = (
+    re.compile(r"^.+: Extra inputs are not permitted$"),
+    re.compile(r"^references\.\d+\.aliases: Input should be a valid list$"),
+)
 
 
 class ProjectContractValidationResult(BaseModel):
@@ -345,6 +349,19 @@ def salvage_project_contract(contract: dict[str, object]) -> tuple[ResearchContr
         return None, errors
 
 
+def _split_project_contract_schema_findings(errors: list[str]) -> tuple[list[str], list[str]]:
+    """Partition salvage findings into recoverable warnings and blocking errors."""
+
+    recoverable: list[str] = []
+    blocking: list[str] = []
+    for error in errors:
+        if any(pattern.fullmatch(error) for pattern in _RECOVERABLE_SCHEMA_WARNING_PATTERNS):
+            recoverable.append(error)
+        else:
+            blocking.append(error)
+    return recoverable, blocking
+
+
 def _light_contract_consistency_errors(contract: ResearchContract) -> list[str]:
     """Return cross-link errors without forcing mature-phase completeness."""
 
@@ -363,9 +380,6 @@ def _light_contract_consistency_errors(contract: ResearchContract) -> list[str]:
     reference_ids = {reference.id for reference in contract.references}
     known_subject_ids = claim_ids | deliverable_ids
     known_ids = known_subject_ids | acceptance_test_ids | reference_ids
-
-    if contract.references and not any(reference.must_surface for reference in contract.references):
-        errors.append("references must include at least one must_surface=true anchor")
 
     for must_read_ref in contract.context_intake.must_read_refs:
         if must_read_ref not in reference_ids:
@@ -488,6 +502,18 @@ def _has_approved_grounding_signal(contract: ResearchContract) -> bool:
     )
 
 
+def _has_non_reference_grounding_signal(contract: ResearchContract) -> bool:
+    """Return whether grounding is explicitly supplied outside references."""
+
+    return any(
+        (
+            contract.context_intake.must_include_prior_outputs,
+            contract.context_intake.user_asserted_anchors,
+            contract.context_intake.known_good_baselines,
+        )
+    )
+
+
 def validate_project_contract(
     contract: ResearchContract | dict[str, object],
     *,
@@ -506,6 +532,7 @@ def validate_project_contract(
 
     if isinstance(contract, ResearchContract):
         parsed = contract
+        schema_warnings: list[str] = []
         schema_errors: list[str] = []
     else:
         if not isinstance(contract, dict):
@@ -514,7 +541,8 @@ def validate_project_contract(
                 errors=["project contract must be a JSON object"],
                 mode=mode,
             )
-        parsed, schema_errors = salvage_project_contract(contract)
+        parsed, schema_findings = salvage_project_contract(contract)
+        schema_warnings, schema_errors = _split_project_contract_schema_findings(schema_findings)
         if parsed is None:
             if schema_errors:
                 return ProjectContractValidationResult(valid=False, errors=schema_errors, mode=mode)
@@ -523,7 +551,7 @@ def validate_project_contract(
             except PydanticValidationError as exc:
                 return _schema_error_result(exc, mode=mode)
     errors: list[str] = list(schema_errors)
-    warnings: list[str] = []
+    warnings: list[str] = list(schema_warnings)
 
     question = parsed.scope.question.strip()
     decisive_target_count = len(parsed.observables) + len(parsed.claims) + len(parsed.deliverables)
@@ -551,6 +579,17 @@ def validate_project_contract(
         errors.append("uncertainty_markers.disconfirming_observations must identify what would force a rethink")
 
     errors.extend(_light_contract_consistency_errors(parsed))
+
+    if parsed.references and not any(reference.must_surface for reference in parsed.references):
+        finding = "references must include at least one must_surface=true anchor"
+        if (
+            mode == "approved"
+            and _has_anchor_like_reference(parsed)
+            and not (_has_non_reference_grounding_signal(parsed) or _has_explicit_anchor_unknown(parsed))
+        ):
+            errors.append(finding)
+        else:
+            warnings.append(finding)
 
     if mode == "approved" and decisive_target_count > 0 and not (
         _has_approved_grounding_signal(parsed) or _has_explicit_anchor_unknown(parsed)

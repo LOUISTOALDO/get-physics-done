@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from gpd.core.constants import ENV_GPD_DEBUG
+from gpd.core.observability import resolve_project_root
 from gpd.hooks.install_metadata import (
     config_dir_has_complete_install,
     install_scope_from_manifest,
@@ -35,6 +36,16 @@ def _first_string(value: object, *keys: str) -> str:
     return ""
 
 
+def _normalize_workspace_text(value: str | None) -> str:
+    if not value:
+        return str(Path.cwd().resolve(strict=False))
+    path = Path(value).expanduser()
+    try:
+        return str(path.resolve(strict=False))
+    except OSError:
+        return str(path)
+
+
 def _trigger_update_check(cwd: str) -> None:
     """Opportunistically refresh the update cache (throttled by check_update)."""
     try:
@@ -55,7 +66,7 @@ def _hook_payload_policy(cwd: str | None = None):
     from gpd.adapters.runtime_catalog import get_hook_payload_policy
     from gpd.hooks.runtime_detect import RUNTIME_UNKNOWN, detect_active_runtime_with_gpd_install
 
-    workspace_path = Path(cwd) if cwd else None
+    workspace_path = resolve_project_root(cwd) if cwd else None
     runtime = detect_active_runtime_with_gpd_install(cwd=workspace_path)
     return get_hook_payload_policy(None if runtime == RUNTIME_UNKNOWN else runtime)
 
@@ -88,7 +99,7 @@ def _latest_update_cache(cwd: str | None = None) -> tuple[dict[str, object] | No
         should_consider_update_cache_candidate,
     )
 
-    workspace_path = Path(cwd) if cwd else None
+    workspace_path = resolve_project_root(cwd) if cwd else None
     active_installed_runtime = detect_active_runtime_with_gpd_install(cwd=workspace_path)
     self_config_dir = _self_config_dir()
     if self_config_dir is not None:
@@ -140,7 +151,7 @@ def _check_and_notify_update(cwd: str | None = None) -> None:
         update_command_for_runtime,
     )
 
-    workspace_path = Path(cwd) if cwd else None
+    workspace_path = resolve_project_root(cwd) if cwd else None
     latest_cache, latest_candidate = _latest_update_cache(cwd)
 
     if latest_cache and latest_cache.get("update_available"):
@@ -176,14 +187,22 @@ def _workspace_from_payload(data: dict[str, object], *, cwd: str | None = None) 
     # the payload's actual workspace instead of the process cwd.
     policy = _hook_payload_policy(cwd) if cwd else get_hook_payload_policy()
     workspace_value = data.get("workspace")
-    if isinstance(workspace_value, str) and workspace_value:
-        return workspace_value
-    return (
+    raw_workspace = (
+        workspace_value
+        if isinstance(workspace_value, str) and workspace_value
+        else (
         _first_string(workspace_value, *policy.workspace_keys)
         or _first_string(data, *policy.workspace_keys)
         or cwd
         or os.getcwd()
+        )
     )
+    project_dir = _first_string(workspace_value, *policy.project_dir_keys) or _first_string(
+        data,
+        *policy.project_dir_keys,
+    )
+    resolved_root = resolve_project_root(raw_workspace, project_dir=project_dir)
+    return str(resolved_root) if resolved_root is not None else _normalize_workspace_text(raw_workspace)
 
 
 def _notification_state_path(cwd: str) -> Path:

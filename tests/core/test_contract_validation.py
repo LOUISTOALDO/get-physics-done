@@ -172,6 +172,19 @@ def test_validate_project_contract_approved_mode_accepts_prior_output_grounding(
     assert result.mode == "approved"
 
 
+def test_validate_project_contract_approved_mode_accepts_non_reference_grounding_when_must_surface_is_missing() -> None:
+    contract = _load_contract_fixture()
+    contract["references"][0]["must_surface"] = False
+    contract["context_intake"]["must_include_prior_outputs"] = [".gpd/phases/00-baseline/00-01-SUMMARY.md"]
+    contract["scope"]["unresolved_questions"] = []
+
+    result = validate_project_contract(contract, mode="approved")
+
+    assert result.valid is True
+    assert result.mode == "approved"
+    assert "references must include at least one must_surface=true anchor" in result.warnings
+
+
 def test_validate_project_contract_rejects_unknown_must_read_ref() -> None:
     contract = _load_contract_fixture()
     contract["context_intake"]["must_read_refs"] = ["ref-missing"]
@@ -269,14 +282,26 @@ def test_validate_project_contract_rejects_must_surface_reference_without_applie
 
 def test_validate_project_contract_rejects_references_without_any_must_surface_anchor() -> None:
     contract = _load_contract_fixture()
+    _remove_incidental_grounding(contract)
     contract["references"][0]["must_surface"] = False
     contract["references"][0]["required_actions"] = ["read", "compare"]
     contract["references"][0]["applies_to"] = ["claim-benchmark"]
+    contract["scope"]["unresolved_questions"] = []
 
     result = validate_project_contract(contract, mode="approved")
 
     assert result.valid is False
     assert "references must include at least one must_surface=true anchor" in result.errors
+
+
+def test_validate_project_contract_draft_warns_when_reference_grounding_lacks_must_surface_anchor() -> None:
+    contract = _load_contract_fixture()
+    contract["references"][0]["must_surface"] = False
+
+    result = validate_project_contract(contract, mode="draft")
+
+    assert result.valid is True
+    assert "references must include at least one must_surface=true anchor" in result.warnings
 
 
 def test_validate_project_contract_rejects_invalid_forbidden_proxy_and_link_bindings() -> None:
@@ -321,8 +346,8 @@ def test_validate_project_contract_salvages_schema_drift_and_preserves_semantic_
 
     result = validate_project_contract(contract)
 
-    assert result.valid is False
-    assert "references.0.aliases: Input should be a valid list" in result.errors
+    assert result.valid is True
+    assert "references.0.aliases: Input should be a valid list" in result.warnings
     assert result.question == "What benchmark must the project recover?"
     assert result.decisive_target_count > 0
     assert result.reference_count == 1
@@ -334,8 +359,8 @@ def test_validate_project_contract_reports_extra_item_keys_without_dropping_sema
 
     result = validate_project_contract(contract)
 
-    assert result.valid is False
-    assert "claims.0.notes: Extra inputs are not permitted" in result.errors
+    assert result.valid is True
+    assert "claims.0.notes: Extra inputs are not permitted" in result.warnings
     assert result.question == "What benchmark must the project recover?"
     assert result.decisive_target_count > 0
 

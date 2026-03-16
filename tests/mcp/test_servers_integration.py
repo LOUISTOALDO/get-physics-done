@@ -625,6 +625,8 @@ class TestSkillsServerIntegration:
         assert "error" not in result
         assert result["name"] == "gpd-help"
         assert "gpd command reference" in result["content"].lower()
+        assert "/gpd:" not in result["content"]
+        assert "gpd-new-project" in result["content"]
         assert result["file_count"] == 1
 
     def test_get_skill_resolves_package_spec_paths(self):
@@ -750,8 +752,8 @@ class TestSkillsServerIntegration:
         assert isinstance(result, dict)
         assert result["total_skills"] > 10
         assert "index_text" in result
-        assert "/gpd:" in result["index_text"]
-        assert "/gpd:peer-review" in result["index_text"]
+        assert "gpd-execute-phase" in result["index_text"]
+        assert "gpd-peer-review" in result["index_text"]
         assert "gpd-debugger" in result["index_text"]
         assert "/gpd:debugger" not in result["index_text"]
         assert len(result["categories"]) > 3

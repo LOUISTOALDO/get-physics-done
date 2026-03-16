@@ -21,6 +21,14 @@ def _mark_complete_install(config_dir: Path, *, runtime: str, install_scope: str
     )
 
 
+def _mark_incomplete_install(config_dir: Path, *, runtime: str, install_scope: str = "local") -> None:
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "gpd-file-manifest.json").write_text(
+        json.dumps({"runtime": runtime, "install_scope": install_scope}),
+        encoding="utf-8",
+    )
+
+
 def _run_runtime_cli_with_recording(
     monkeypatch,
     *,
@@ -45,7 +53,7 @@ def _run_runtime_cli_with_recording(
     monkeypatch.delenv(ENV_GPD_DISABLE_CHECKOUT_REEXEC, raising=False)
     monkeypatch.setattr(adapter, "missing_install_artifacts", record_missing_install_artifacts)
     monkeypatch.setattr("gpd.runtime_cli.get_adapter", lambda runtime: adapter)
-    monkeypatch.setattr("gpd.runtime_cli._prepend_checkout_src", lambda: None)
+    monkeypatch.setattr("gpd.runtime_cli._prepend_checkout_src", lambda _gpd_args: None)
     monkeypatch.setattr("gpd.cli.entrypoint", fake_entrypoint)
 
     return main(argv), observed
@@ -73,6 +81,32 @@ def test_runtime_cli_fails_cleanly_for_incomplete_install(tmp_path: Path, capsys
     assert "GPD runtime install incomplete for Codex" in captured.err
     assert "`gpd-file-manifest.json`" in captured.err
     assert "`get-physics-done`" in captured.err
+    assert "npx -y get-physics-done --codex --local" in captured.err
+
+
+def test_runtime_cli_ancestor_local_repair_command_targets_resolved_install(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_dir = tmp_path / ".codex"
+    _mark_incomplete_install(config_dir, runtime="codex")
+    nested_cwd = tmp_path / "research" / "notes"
+    nested_cwd.mkdir(parents=True)
+    monkeypatch.chdir(nested_cwd)
+
+    exit_code = main(
+        [
+            "--runtime",
+            "codex",
+            "--config-dir",
+            "./.codex",
+            "--install-scope",
+            "local",
+            "state",
+            "load",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 127
+    assert f"--target-dir {config_dir}" in captured.err
     assert "npx -y get-physics-done --codex --local" in captured.err
 
 
@@ -109,6 +143,56 @@ def test_runtime_cli_dispatches_with_runtime_pin(monkeypatch, tmp_path: Path) ->
     assert observed["argv"] == ["gpd", "state", "load"]
     assert observed["runtime"] == "codex"
     assert observed["disable_reexec"] == "1"
+
+
+def test_runtime_cli_resolves_checkout_root_from_forwarded_cli_cwd(monkeypatch, tmp_path: Path) -> None:
+    runtime_cwd = tmp_path / "runtime"
+    runtime_cwd.mkdir()
+    config_dir = runtime_cwd / ".codex"
+    _mark_complete_install(config_dir, runtime="codex")
+
+    checkout_root = tmp_path / "checkout"
+    checkout_src = checkout_root / "src"
+    checkout_src.mkdir(parents=True)
+    forwarded_cwd = checkout_root / "workspace" / "nested"
+    forwarded_cwd.mkdir(parents=True)
+
+    observed: dict[str, object] = {}
+
+    def fake_entrypoint() -> int:
+        observed["argv"] = list(sys.argv)
+        return 0
+
+    def fake_checkout_root(start=None):
+        observed["checkout_start"] = start
+        if start == forwarded_cwd.resolve(strict=False):
+            return checkout_root
+        return None
+
+    monkeypatch.chdir(runtime_cwd)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setattr("gpd.version.checkout_root", fake_checkout_root)
+    monkeypatch.setattr("gpd.cli.entrypoint", fake_entrypoint)
+
+    exit_code = main(
+        [
+            "--runtime",
+            "codex",
+            "--config-dir",
+            "./.codex",
+            "--install-scope",
+            "local",
+            "state",
+            "load",
+            "--cwd",
+            str(forwarded_cwd),
+        ]
+    )
+
+    assert exit_code == 0
+    assert observed["checkout_start"] == forwarded_cwd.resolve(strict=False)
+    assert sys.path[0] == str(checkout_src.resolve(strict=False))
+    assert observed["argv"] == ["gpd", "state", "load", "--cwd", str(forwarded_cwd)]
 
 
 def test_runtime_cli_resolves_local_config_dir_from_ancestor_workspace(monkeypatch, tmp_path: Path) -> None:

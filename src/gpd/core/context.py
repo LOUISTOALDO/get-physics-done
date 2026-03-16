@@ -46,7 +46,7 @@ from gpd.core.constants import (
     VERIFICATION_SUFFIX,
     ProjectLayout,
 )
-from gpd.core.contract_validation import salvage_project_contract
+from gpd.core.contract_validation import _split_project_contract_schema_findings, salvage_project_contract
 from gpd.core.errors import ValidationError
 from gpd.core.protocol_bundles import render_protocol_bundle_context, select_protocol_bundles
 from gpd.core.reference_ingestion import ingest_reference_artifacts
@@ -231,14 +231,21 @@ def _load_project_contract(cwd: Path) -> ResearchContract | None:
         logger.warning("Skipping project_contract from %s because it is not a JSON object", source_path)
         return None
 
-    normalized_contract, schema_errors = salvage_project_contract(raw_contract)
+    normalized_contract, schema_findings = salvage_project_contract(raw_contract)
+    schema_warnings, schema_errors = _split_project_contract_schema_findings(schema_findings)
     if schema_errors or normalized_contract is None:
         logger.warning(
-            "Skipping project_contract from %s because schema normalization would be required: %s",
+            "Skipping project_contract from %s because blocking schema normalization would be required: %s",
             source_path,
             "; ".join(schema_errors) if schema_errors else "validation failed",
         )
         return None
+    if schema_warnings:
+        logger.warning(
+            "Loaded project_contract from %s after recoverable schema normalization: %s",
+            source_path,
+            "; ".join(schema_warnings),
+        )
     return normalized_contract
 
 

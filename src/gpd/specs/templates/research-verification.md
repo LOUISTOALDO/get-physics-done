@@ -43,7 +43,7 @@ session_status: validating | completed | diagnosed
 
 number: [N]
 name: [check name]
-subject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]
+check_subject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]
 subject_id: [contract id or ""]
 claim_id: [claim-id or ""]
 deliverable_id: [deliverable-id or ""]
@@ -68,7 +68,7 @@ awaiting: researcher response
 
 ### 1. [Check Name]
 
-subject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]
+check_subject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]
 subject_id: [contract id or ""]
 claim_id: [claim-id or ""]
 deliverable_id: [deliverable-id or ""]
@@ -146,7 +146,7 @@ The frontmatter `comparison_verdicts` ledger is authoritative; this section is a
 
 <!-- YAML format for plan-phase --gaps consumption -->
 
-- subject_kind: "claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check"
+- gap_subject_kind: "claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check"
   subject_id: "contract-id"
   expectation: "[expected physics property from check]"
   expected_check: "[expected physics property from check]"
@@ -196,7 +196,8 @@ The frontmatter `comparison_verdicts` ledger is authoritative; this section is a
 - `result` values: [pending], pass, issue, skipped
 - If issue: add `reported` (verbatim) and `severity` (inferred)
 - If skipped: add `reason` if provided
-- Every check should carry `subject_kind` / `subject_id` when the PLAN contract provides one
+- Use `check_subject_kind` for body-only verification checkpoints so it cannot be confused with frontmatter `comparison_verdicts.subject_kind`
+- Every check should carry `check_subject_kind` / `subject_id` when the PLAN contract provides one
 - Use `forbidden_proxy_id` for explicit proxy-rejection checks
 - Use `comparison_kind` / `comparison_reference_id` when the check should later emit a comparison verdict
 - Use `suggested_contract_checks` only when the verifier believes the contract omitted a decisive check, or when a decisive benchmark / cross-method check remains partial, not attempted, or still lacks a decisive verdict
@@ -225,6 +226,7 @@ The frontmatter `comparison_verdicts` ledger is authoritative; this section is a
 **Gaps:**
 
 - APPEND only when issue found (YAML format)
+- Use `gap_subject_kind` for the body scaffold that feeds `/gpd:plan-phase --gaps`; reserve bare `subject_kind` for canonical frontmatter ledgers such as `comparison_verdicts`
 - After diagnosis: fill `root_cause`, `artifacts`, `missing`, `debug_session`
 - This section feeds directly into /gpd:plan-phase --gaps
 
@@ -303,7 +305,7 @@ Probe how sensitive results are to assumptions and approximations.
 ```yaml
 ## Gaps
 
-- subject_kind: "claim"
+- gap_subject_kind: "claim"
   subject_id: "claim-critical-decay"
   expectation: "Correlation function decays as power law at criticality"
   expected_check: "Correlation function decays as power law at criticality"
@@ -444,7 +446,7 @@ forbidden_proxies_rejected: 0
 
 ## Gaps
 
-- subject_kind: "claim"
+- gap_subject_kind: "claim"
   subject_id: "claim-order-parameter-zero-T"
   expectation: "Order parameter reaches saturation value 1.0 at T=0"
   expected_check: "Order parameter reaches saturation value 1.0 at T=0"
@@ -461,7 +463,7 @@ forbidden_proxies_rejected: 0
   - "Increase equilibration to 10^5 sweeps minimum, add autocorrelation analysis"
     debug_session: ".gpd/debug/mc-equilibration.md"
 
-- subject_kind: "acceptance_test"
+- gap_subject_kind: "acceptance_test"
   subject_id: "test-equilibration-convergence"
   expectation: "Results are insensitive to doubling the equilibration time"
   expected_check: "Results are insensitive to doubling the equilibration time"

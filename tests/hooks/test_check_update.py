@@ -312,15 +312,18 @@ class TestMainThrottle:
 
     def test_popen_failure_no_crash(self, tmp_path: Path) -> None:
         """If Popen fails (e.g., no Python executable), no crash."""
+        cache_file = tmp_path / "nonexistent.json"
         with (
             patch(
                 "gpd.hooks.runtime_detect.get_update_cache_candidates",
-                return_value=[_cache_candidate(tmp_path / "nonexistent.json")],
+                return_value=[_cache_candidate(cache_file)],
             ),
             patch("gpd.hooks.check_update.Path.home", return_value=tmp_path),
             patch("subprocess.Popen", side_effect=OSError("exec failed")),
         ):
             main()  # Should not raise
+
+        assert not cache_file.with_name("nonexistent.json.inflight").exists()
 
     def test_cache_with_missing_checked_field_spawns(self, tmp_path: Path) -> None:
         """Cache JSON without 'checked' field → spawns check."""
@@ -510,3 +513,39 @@ class TestMainThrottle:
             main()
 
         mock_popen.assert_called_once()
+
+    def test_fresh_inflight_marker_suppresses_duplicate_spawn(self, tmp_path: Path) -> None:
+        cache_file = tmp_path / ".gpd" / "cache" / "gpd-update-check.json"
+        cache_file.parent.mkdir(parents=True)
+        cache_file.with_name("gpd-update-check.json.inflight").write_text(str(int(time.time())), encoding="utf-8")
+
+        with (
+            patch(
+                "gpd.hooks.runtime_detect.get_update_cache_candidates",
+                return_value=[_cache_candidate(cache_file)],
+            ),
+            patch("gpd.hooks.check_update.Path.home", return_value=tmp_path),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            main()
+
+        mock_popen.assert_not_called()
+
+    def test_stale_inflight_marker_is_replaced_before_spawning(self, tmp_path: Path) -> None:
+        cache_file = tmp_path / ".gpd" / "cache" / "gpd-update-check.json"
+        cache_file.parent.mkdir(parents=True)
+        marker = cache_file.with_name("gpd-update-check.json.inflight")
+        marker.write_text(str(int(time.time()) - 1000), encoding="utf-8")
+
+        with (
+            patch(
+                "gpd.hooks.runtime_detect.get_update_cache_candidates",
+                return_value=[_cache_candidate(cache_file)],
+            ),
+            patch("gpd.hooks.check_update.Path.home", return_value=tmp_path),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            main()
+
+        mock_popen.assert_called_once()
+        assert marker.exists()

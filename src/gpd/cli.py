@@ -287,9 +287,9 @@ class CommandContextPreflightResult:
 
 def _format_runtime_list(runtime_names: list[str]) -> str:
     """Render runtime identifiers as human-friendly names."""
-    from gpd.adapters import get_adapter
-
-    display_names = [get_adapter(runtime_name).display_name for runtime_name in runtime_names]
+    display_names = [
+        _get_adapter_or_error(runtime_name, action="runtime formatting").display_name for runtime_name in runtime_names
+    ]
     if not display_names:
         return "no runtimes"
     if len(display_names) == 1:
@@ -315,6 +315,33 @@ def _runtime_override_help() -> str:
     if not supported:
         return "Runtime name override"
     return f"Runtime name override ({', '.join(supported)})"
+
+
+def _list_runtimes_or_error(*, action: str) -> list[str]:
+    """Return supported runtime ids or emit a stable CLI error."""
+    from gpd.adapters import list_runtimes
+
+    try:
+        return list_runtimes()
+    except Exception as exc:
+        _error(f"Runtime catalog unavailable during {action}: {exc}")
+        return []  # unreachable
+
+
+def _get_adapter_or_error(runtime_name: str, *, action: str):
+    """Return a runtime adapter or emit a stable CLI error."""
+    from gpd.adapters import get_adapter
+
+    try:
+        return get_adapter(runtime_name)
+    except KeyError:
+        supported = _supported_runtime_names()
+        supported_suffix = f" Supported: {', '.join(supported)}" if supported else ""
+        _error(f"Unknown runtime {runtime_name!r}.{supported_suffix}")
+        return None  # unreachable
+    except Exception as exc:
+        _error(f"Runtime adapter unavailable for {runtime_name!r} during {action}: {exc}")
+        return None  # unreachable
 
 
 def _print_version(*, ctx: typer.Context | None = None) -> None:
@@ -3807,10 +3834,11 @@ def _prompt_runtimes(*, action: str = "install") -> list[str]:
     """Interactive runtime selection. Returns list of selected runtime names."""
     from rich.prompt import Prompt
 
-    from gpd.adapters import get_adapter, list_runtimes
-
-    runtimes = list_runtimes()
-    adapters = {runtime: get_adapter(runtime) for runtime in runtimes}
+    runtimes = _list_runtimes_or_error(action=f"{action} runtime selection")
+    adapters = {
+        runtime: _get_adapter_or_error(runtime, action=f"{action} runtime selection")
+        for runtime in runtimes
+    }
     label_width = max(len(adapter.display_name) for adapter in adapters.values())
     all_label = "All runtimes"
     label_width = max(label_width, len(all_label))
@@ -3869,14 +3897,12 @@ def _prompt_runtimes(*, action: str = "install") -> list[str]:
     return []  # unreachable
 
 
-def _location_example(runtimes: list[str], *, is_global: bool) -> str:
+def _location_example(runtimes: list[str], *, is_global: bool, action: str) -> str:
     """Return a representative install location example for the selected runtime set."""
     if len(runtimes) != 1:
         return "one config dir per runtime"
 
-    from gpd.adapters import get_adapter
-
-    adapter = get_adapter(runtimes[0])
+    adapter = _get_adapter_or_error(runtimes[0], action=f"{action} location selection")
     target = adapter.resolve_target_dir(is_global, _get_cwd())
     return _format_display_path(target)
 
@@ -3886,8 +3912,8 @@ def _prompt_location(runtimes: list[str], *, action: str = "install") -> bool:
     from rich.prompt import Prompt
 
     label = "Install" if action == "install" else "Uninstall"
-    local_example = _location_example(runtimes, is_global=False)
-    global_example = _location_example(runtimes, is_global=True)
+    local_example = _location_example(runtimes, is_global=False, action=action)
+    global_example = _location_example(runtimes, is_global=True, action=action)
     label_width = max(len("Local"), len("Global"))
     console.print(f"\n[bold {_INSTALL_TITLE_COLOR}]{label} location[/]\n")
     console.print(_render_install_option_line(1, "Local", "current project only", local_example, label_width=label_width))
@@ -3911,10 +3937,9 @@ def _install_single_runtime(
     target_dir_override: str | None = None,
 ) -> dict[str, object]:
     """Install GPD for a single runtime. Returns install result dict."""
-    from gpd.adapters import get_adapter
     from gpd.version import resolve_install_gpd_root
 
-    adapter = get_adapter(runtime_name)
+    adapter = _get_adapter_or_error(runtime_name, action="install")
     gpd_root = resolve_install_gpd_root(_get_cwd())
 
     if target_dir_override:
@@ -3932,8 +3957,6 @@ def _install_single_runtime(
 
 def _print_install_summary(results: list[tuple[str, dict[str, object]]]) -> None:
     """Print a rich summary table of install results."""
-    from gpd.adapters import get_adapter
-
     console.print()
     table = Table(title="Install Summary", title_style=f"italic {_INSTALL_ACCENT_COLOR}", show_header=True, header_style=f"bold {_INSTALL_ACCENT_COLOR}")
     table.add_column("Runtime", style="bold")
@@ -3941,7 +3964,7 @@ def _print_install_summary(results: list[tuple[str, dict[str, object]]]) -> None
     table.add_column("Status")
 
     for runtime_name, result in results:
-        adapter = get_adapter(runtime_name)
+        adapter = _get_adapter_or_error(runtime_name, action="install summary")
         target = _format_display_path(result.get("target"))
         agents = result.get("agents", 0)
         commands = result.get("commands", 0)
@@ -3961,7 +3984,7 @@ def _print_install_summary(results: list[tuple[str, dict[str, object]]]) -> None
             if runtime_name in seen_runtime_names:
                 continue
             seen_runtime_names.add(runtime_name)
-            adapter = get_adapter(runtime_name)
+            adapter = _get_adapter_or_error(runtime_name, action="install summary")
             next_step_entries.append(
                 (
                     adapter.display_name,
@@ -4050,8 +4073,6 @@ def install(
     """
     from rich.progress import Progress, SpinnerColumn, TextColumn
 
-    from gpd.adapters import get_adapter, list_runtimes
-
     if global_install and local_install:
         _error("Cannot specify both --global and --local")
         return  # unreachable
@@ -4060,10 +4081,10 @@ def install(
     # Resolve which runtimes to install
     selected: list[str]
     if install_all:
-        selected = list_runtimes()
+        selected = _list_runtimes_or_error(action="install")
     elif runtimes:
         # Validate all runtime names
-        supported = list_runtimes()
+        supported = _list_runtimes_or_error(action="install")
         for rt in runtimes:
             if rt not in supported:
                 _error(f"Unknown runtime {rt!r}. Supported: {', '.join(supported)}")
@@ -4073,12 +4094,13 @@ def install(
         # Interactive mode
         from gpd.version import resolve_active_version
 
-        console.print(_GPD_BANNER, style=f"bold {_INSTALL_LOGO_COLOR}")
-        console.print()
-        header_line, attribution_line = _format_install_header_lines(resolve_active_version(_get_cwd()))
-        console.print(header_line, style=f"bold {_INSTALL_TITLE_COLOR}", markup=False, highlight=False)
-        console.print(attribution_line, style=f"dim {_INSTALL_META_COLOR}", markup=False, highlight=False)
-        console.print()
+        if not _raw:
+            console.print(_GPD_BANNER, style=f"bold {_INSTALL_LOGO_COLOR}")
+            console.print()
+            header_line, attribution_line = _format_install_header_lines(resolve_active_version(_get_cwd()))
+            console.print(header_line, style=f"bold {_INSTALL_TITLE_COLOR}", markup=False, highlight=False)
+            console.print(attribution_line, style=f"dim {_INSTALL_META_COLOR}", markup=False, highlight=False)
+            console.print()
         selected = _prompt_runtimes()
 
     _validate_target_dir_runtime_selection("install", selected, target_dir)
@@ -4111,7 +4133,7 @@ def install(
         disable=_raw,
     ) as progress:
         for rt in selected:
-            adapter = get_adapter(rt)
+            adapter = _get_adapter_or_error(rt, action="install")
             task = progress.add_task(f"Installing {adapter.display_name}...", total=None)
             try:
                 result = _install_single_runtime(rt, is_global=is_global, target_dir_override=target_dir)
@@ -4161,8 +4183,6 @@ def uninstall(
     """
     from rich.prompt import Confirm
 
-    from gpd.adapters import get_adapter, list_runtimes
-
     if global_uninstall and local_uninstall:
         _error("Cannot specify both --global and --local")
         return
@@ -4171,9 +4191,9 @@ def uninstall(
     # Resolve runtimes
     selected: list[str]
     if uninstall_all:
-        selected = list_runtimes()
+        selected = _list_runtimes_or_error(action="uninstall")
     elif runtimes:
-        supported = list_runtimes()
+        supported = _list_runtimes_or_error(action="uninstall")
         for rt in runtimes:
             if rt not in supported:
                 _error(f"Unknown runtime {rt!r}. Supported: {', '.join(supported)}")
@@ -4201,7 +4221,7 @@ def uninstall(
 
     removed_results: list[tuple[str, dict[str, object]]] = []
     for rt in selected:
-        adapter = get_adapter(rt)
+        adapter = _get_adapter_or_error(rt, action="uninstall")
         target = _resolve_cli_target_dir(target_dir) if target_dir else adapter.resolve_target_dir(is_global, _get_cwd())
         if not target.is_dir():
             if not _raw:

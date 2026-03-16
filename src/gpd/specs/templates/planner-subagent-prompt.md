@@ -122,6 +122,12 @@ Output consumed by /gpd:execute-phase. Plans need:
 </quality_gate>
 ```
 
+## Canonical PLAN Contract Schema
+
+Load the validator-enforced PLAN contract schema before writing or revising any `contract:` block:
+
+@{GPD_INSTALL_DIR}/templates/plan-contract-schema.md
+
 ---
 
 ## Revision Template

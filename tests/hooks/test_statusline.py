@@ -246,6 +246,28 @@ class TestReadPosition:
         (planning / "state.json").write_text("not valid json{{{")
         assert _read_position(str(tmp_path)) == ""
 
+    def test_nested_workspace_walks_up_to_project_root(self, tmp_path: Path) -> None:
+        planning = tmp_path / ".gpd"
+        planning.mkdir()
+        nested = tmp_path / "src" / "notes"
+        nested.mkdir(parents=True)
+        state = {"position": {"current_phase": 4, "total_phases": 9}}
+        (planning / "state.json").write_text(json.dumps(state))
+        assert _read_position(str(nested)) == "P4/9"
+
+    def test_tilde_workspace_expands_before_project_root_lookup(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        project = home / "project"
+        planning = project / ".gpd"
+        planning.mkdir(parents=True)
+        nested = project / "src"
+        nested.mkdir(parents=True)
+        state = {"position": {"current_phase": 7, "total_phases": 8}}
+        (planning / "state.json").write_text(json.dumps(state))
+
+        with patch.dict(os.environ, {"HOME": str(home)}):
+            assert _read_position("~/project/src") == "P7/8"
+
     def test_no_position_key_returns_empty(self, tmp_path: Path) -> None:
         planning = tmp_path / ".gpd"
         planning.mkdir()
@@ -823,6 +845,28 @@ class TestMain:
 
         assert "[workspace]" in captured.getvalue()
 
+    def test_main_uses_project_root_for_project_state_helpers_when_workspace_is_nested_mapping(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        nested = project / "src" / "notes"
+        nested.mkdir(parents=True)
+
+        captured = io.StringIO()
+        with (
+            patch("sys.stdin", io.StringIO(json.dumps({"workspace": {"cwd": str(nested), "project_dir": str(project)}}))),
+            patch("sys.stdout", captured),
+            patch("gpd.hooks.statusline._read_position", return_value="") as mock_position,
+            patch("gpd.hooks.statusline._read_current_task", return_value="") as mock_task,
+            patch("gpd.hooks.statusline._read_execution_state", return_value={}) as mock_execution,
+            patch("gpd.hooks.statusline._check_update", return_value="") as mock_update,
+        ):
+            main()
+
+        mock_position.assert_called_once_with(str(project))
+        mock_task.assert_called_once_with("", str(project))
+        mock_execution.assert_called_once_with(str(project))
+        mock_update.assert_called_once_with(str(project))
+        assert "[project/src/notes]" in captured.getvalue()
+
     def test_main_prefers_live_execution_task_over_todo_fallback(self) -> None:
         captured = io.StringIO()
         with (
@@ -876,6 +920,7 @@ class TestMain:
         assert "[research-project]" in output
 
     def test_string_workspace_is_forwarded_to_helpers(self) -> None:
+        expected = str(Path("/tmp/research-project").resolve(strict=False))
         captured = io.StringIO()
         with (
             patch("sys.stdin", io.StringIO(json.dumps({"workspace": "/tmp/research-project"}))),
@@ -887,12 +932,13 @@ class TestMain:
         ):
             main()
 
-        mock_position.assert_called_once_with("/tmp/research-project")
-        mock_task.assert_called_once_with("", "/tmp/research-project")
-        mock_update.assert_called_once_with("/tmp/research-project")
+        mock_position.assert_called_once_with(expected)
+        mock_task.assert_called_once_with("", expected)
+        mock_update.assert_called_once_with(expected)
         assert "GPD" in captured.getvalue()
 
     def test_workspace_mapping_accepts_cwd_field(self) -> None:
+        expected = str(Path("/tmp/alternate-workspace").resolve(strict=False))
         captured = io.StringIO()
         with (
             patch("sys.stdin", io.StringIO(json.dumps({"workspace": {"cwd": "/tmp/alternate-workspace"}}))),
@@ -904,12 +950,13 @@ class TestMain:
         ):
             main()
 
-        mock_position.assert_called_once_with("/tmp/alternate-workspace")
-        mock_task.assert_called_once_with("", "/tmp/alternate-workspace")
-        mock_update.assert_called_once_with("/tmp/alternate-workspace")
+        mock_position.assert_called_once_with(expected)
+        mock_task.assert_called_once_with("", expected)
+        mock_update.assert_called_once_with(expected)
         assert "GPD" in captured.getvalue()
 
     def test_top_level_cwd_workspace_alias_is_forwarded_to_helpers(self) -> None:
+        expected = str(Path("/tmp/top-level-workspace").resolve(strict=False))
         captured = io.StringIO()
         with (
             patch("sys.stdin", io.StringIO(json.dumps({"cwd": "/tmp/top-level-workspace"}))),
@@ -921,9 +968,9 @@ class TestMain:
         ):
             main()
 
-        mock_position.assert_called_once_with("/tmp/top-level-workspace")
-        mock_task.assert_called_once_with("", "/tmp/top-level-workspace")
-        mock_update.assert_called_once_with("/tmp/top-level-workspace")
+        mock_position.assert_called_once_with(expected)
+        mock_task.assert_called_once_with("", expected)
+        mock_update.assert_called_once_with(expected)
         assert "GPD" in captured.getvalue()
 
     def test_invalid_json_stdin_no_crash(self) -> None:

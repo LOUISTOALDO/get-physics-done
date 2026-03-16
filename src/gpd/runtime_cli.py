@@ -36,6 +36,69 @@ def _parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     return options, gpd_args
 
 
+def _split_global_cli_options(argv: list[str]) -> tuple[list[str], list[str]]:
+    """Partition root-global CLI options from the rest of the argv stream."""
+    global_args: list[str] = []
+    remaining_args: list[str] = []
+    passthrough = False
+    index = 0
+
+    while index < len(argv):
+        arg = str(argv[index])
+        if passthrough:
+            remaining_args.append(arg)
+            index += 1
+            continue
+
+        if arg == "--":
+            passthrough = True
+            remaining_args.append(arg)
+            index += 1
+            continue
+
+        if arg == "--raw":
+            global_args.append(arg)
+            index += 1
+            continue
+
+        if arg == "--cwd":
+            global_args.append(arg)
+            if index + 1 < len(argv):
+                global_args.append(str(argv[index + 1]))
+                index += 2
+            else:
+                index += 1
+            continue
+
+        if arg.startswith("--cwd="):
+            global_args.append(arg)
+            index += 1
+            continue
+
+        remaining_args.append(arg)
+        index += 1
+
+    return global_args, remaining_args
+
+
+def _resolve_cli_cwd_from_argv(argv: list[str]) -> Path:
+    """Resolve the effective CLI cwd from raw argv before Typer parses it."""
+    raw_cwd = "."
+    global_args, _ = _split_global_cli_options(argv)
+    for index, arg in enumerate(global_args):
+        if arg == "--cwd" and index + 1 < len(global_args):
+            raw_cwd = global_args[index + 1]
+            break
+        if arg.startswith("--cwd="):
+            raw_cwd = arg.split("=", 1)[1]
+            break
+
+    candidate = Path(raw_cwd).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve(strict=False)
+    return (Path.cwd() / candidate).resolve(strict=False)
+
+
 def _load_install_manifest(config_dir: Path) -> dict[str, object]:
     """Return install metadata for *config_dir* when present."""
     manifest_path = config_dir / MANIFEST_NAME
@@ -99,11 +162,27 @@ def _resolve_config_dir(raw_value: str, *, runtime: str, install_scope: str, exp
     return (Path.cwd() / candidate).resolve(strict=False)
 
 
-def _prepend_checkout_src() -> None:
+def _uses_effective_explicit_target(
+    *,
+    runtime: str,
+    raw_config_dir: str,
+    config_dir: Path,
+    install_scope: str,
+    explicit_target: bool,
+) -> bool:
+    """Return whether repair guidance must emit ``--target-dir``."""
+    if explicit_target or install_scope != "local":
+        return explicit_target
+
+    default_local_config_dir = (Path.cwd() / Path(raw_config_dir).expanduser()).resolve(strict=False)
+    return not _paths_equal(config_dir, default_local_config_dir)
+
+
+def _prepend_checkout_src(gpd_args: list[str]) -> None:
     """Prefer the live checkout source tree when available."""
     from gpd.version import checkout_root
 
-    root = checkout_root()
+    root = checkout_root(_resolve_cli_cwd_from_argv(gpd_args))
     if root is None:
         return
     checkout_src = (root / "src").resolve(strict=False)
@@ -118,6 +197,7 @@ def _prepend_checkout_src() -> None:
 def _install_error_message(
     *,
     runtime: str,
+    raw_config_dir: str,
     config_dir: Path,
     install_scope: str,
     explicit_target: bool,
@@ -130,7 +210,13 @@ def _install_error_message(
         runtime,
         install_scope=install_scope,
         target_dir=config_dir,
-        explicit_target=explicit_target,
+        explicit_target=_uses_effective_explicit_target(
+            runtime=runtime,
+            raw_config_dir=raw_config_dir,
+            config_dir=config_dir,
+            install_scope=install_scope,
+            explicit_target=explicit_target,
+        ),
     )
     return (
         f"GPD runtime install incomplete for {adapter.display_name} at `{config_dir}`.\n"
@@ -155,6 +241,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(
             _install_error_message(
                 runtime=adapter.runtime_name,
+                raw_config_dir=options.config_dir,
                 config_dir=config_dir,
                 install_scope=options.install_scope,
                 explicit_target=bool(options.explicit_target),
@@ -165,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
 
     os.environ[ENV_GPD_ACTIVE_RUNTIME] = adapter.runtime_name
     os.environ[ENV_GPD_DISABLE_CHECKOUT_REEXEC] = "1"
-    _prepend_checkout_src()
+    _prepend_checkout_src(gpd_args)
 
     from gpd.cli import entrypoint
 

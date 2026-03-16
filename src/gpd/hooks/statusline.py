@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from gpd.core.constants import ENV_GPD_DEBUG, PLANNING_DIR_NAME, STATE_JSON_FILENAME
+from gpd.core.observability import resolve_project_root
 from gpd.hooks.install_metadata import (
     config_dir_has_complete_install,
     install_scope_from_manifest,
@@ -74,12 +75,22 @@ def _first_value(value: object, *keys: str) -> object | None:
     return None
 
 
+def _normalize_workspace_text(value: str | None) -> str:
+    if not value:
+        return str(Path.cwd().resolve(strict=False))
+    path = Path(value).expanduser()
+    try:
+        return str(path.resolve(strict=False))
+    except OSError:
+        return str(path)
+
+
 def _hook_payload_policy(workspace_dir: str | None = None):
     """Return hook payload metadata for the active runtime or a merged fallback."""
     from gpd.adapters.runtime_catalog import get_hook_payload_policy
     from gpd.hooks.runtime_detect import RUNTIME_UNKNOWN, detect_active_runtime_with_gpd_install
 
-    workspace_path = Path(workspace_dir) if workspace_dir else None
+    workspace_path = resolve_project_root(workspace_dir) if workspace_dir else None
     runtime = detect_active_runtime_with_gpd_install(cwd=workspace_path)
     return get_hook_payload_policy(None if runtime == RUNTIME_UNKNOWN else runtime)
 
@@ -156,7 +167,8 @@ def _read_workspace_label(data: dict[str, object], workspace_dir: str, hook_payl
 
 def _read_position(workspace_dir: str) -> str:
     """Read research position from .gpd/state.json."""
-    state_file = Path(workspace_dir) / PLANNING_DIR_NAME / STATE_JSON_FILENAME
+    workspace_root = resolve_project_root(workspace_dir) or Path(workspace_dir).expanduser().resolve(strict=False)
+    state_file = workspace_root / PLANNING_DIR_NAME / STATE_JSON_FILENAME
     if not state_file.exists():
         return ""
     try:
@@ -245,7 +257,7 @@ def _read_current_task(session_id: str, workspace_dir: str | None = None) -> str
         should_consider_todo_candidate,
     )
 
-    workspace_path = Path(workspace_dir) if workspace_dir else None
+    workspace_path = resolve_project_root(workspace_dir) if workspace_dir else None
     active_installed_runtime = detect_active_runtime_with_gpd_install(cwd=workspace_path)
     preferred_runtime = detect_runtime_for_gpd_use(cwd=workspace_path)
     todo_candidates = get_todo_candidates(cwd=workspace_path, preferred_runtime=preferred_runtime)
@@ -290,12 +302,31 @@ def _workspace_from_payload(data: dict[str, object]) -> str:
 
     hook_payload = get_hook_payload_policy()
     workspace_value = data.get("workspace")
-    if isinstance(workspace_value, str) and workspace_value:
-        return workspace_value
-    return _first_string(workspace_value, *hook_payload.workspace_keys) or _first_string(
+    raw_workspace = (
+        workspace_value
+        if isinstance(workspace_value, str) and workspace_value
+        else _first_string(workspace_value, *hook_payload.workspace_keys)
+        or _first_string(
         data,
         *hook_payload.workspace_keys,
-    ) or os.getcwd()
+        )
+        or os.getcwd()
+    )
+    return _normalize_workspace_text(raw_workspace)
+
+
+def _workspace_root_from_payload(data: dict[str, object], workspace_dir: str) -> str:
+    """Resolve the project root for one hook payload workspace."""
+    from gpd.adapters.runtime_catalog import get_hook_payload_policy
+
+    hook_payload = get_hook_payload_policy()
+    workspace_value = data.get("workspace")
+    project_dir = _first_string(workspace_value, *hook_payload.project_dir_keys) or _first_string(
+        data,
+        *hook_payload.project_dir_keys,
+    )
+    resolved_root = resolve_project_root(workspace_dir, project_dir=project_dir)
+    return str(resolved_root) if resolved_root is not None else workspace_dir
 
 
 def _read_context_remaining(data: dict[str, object], hook_payload) -> float | int | None:
@@ -419,7 +450,7 @@ def _latest_update_cache(workspace_dir: str | None = None) -> tuple[dict[str, ob
         should_consider_update_cache_candidate,
     )
 
-    workspace_path = Path(workspace_dir) if workspace_dir else None
+    workspace_path = resolve_project_root(workspace_dir) if workspace_dir else None
     active_installed_runtime = detect_active_runtime_with_gpd_install(cwd=workspace_path)
     self_config_dir = _self_config_dir()
     if self_config_dir is not None:
@@ -487,7 +518,7 @@ def _check_update(workspace_dir: str | None = None) -> str:
             update_command_for_runtime,
         )
 
-        workspace_path = Path(workspace_dir) if workspace_dir else None
+        workspace_path = resolve_project_root(workspace_dir) if workspace_dir else None
         runtime = getattr(cache_candidate, "runtime", None) or RUNTIME_UNKNOWN
         scope = getattr(cache_candidate, "scope", None)
         if runtime != RUNTIME_UNKNOWN and not _runtime_dir_has_gpd_install(runtime, cwd=workspace_path):
@@ -518,24 +549,25 @@ def main() -> None:
 
     try:
         workspace_dir = _workspace_from_payload(data)
-        hook_payload = _hook_payload_policy(workspace_dir)
+        workspace_root = _workspace_root_from_payload(data, workspace_dir)
+        hook_payload = _hook_payload_policy(workspace_root)
 
         session_value = data.get("session_id")
         session_id = session_value if isinstance(session_value, str) else ""
         remaining = _read_context_remaining(data, hook_payload)
-        execution = _read_execution_state(workspace_dir)
+        execution = _read_execution_state(workspace_root)
 
         ctx = _context_bar(remaining) if isinstance(remaining, (int, float)) and math.isfinite(remaining) else ""
-        position = _read_position(workspace_dir)
+        position = _read_position(workspace_root)
         execution_badge = _execution_badge(execution)
         execution_task = _first_string(execution, "current_task")
-        task = execution_task or _read_current_task(session_id, workspace_dir)
+        task = execution_task or _read_current_task(session_id, workspace_root)
         if execution_task:
             task = execution_task
         elif execution_badge:
             task = ""
         artifact_label = _execution_artifact_label(execution)
-        gpd_update = _check_update(workspace_dir)
+        gpd_update = _check_update(workspace_root)
         model_label = _read_model_label(data, hook_payload)
         workspace_label = _read_workspace_label(data, workspace_dir, hook_payload)
 

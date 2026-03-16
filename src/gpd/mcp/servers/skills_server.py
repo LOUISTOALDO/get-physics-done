@@ -42,6 +42,7 @@ _CONTRACT_REFERENCE_NAMES = {
     "summary.md",
     "verification-report.md",
 }
+_RUNTIME_COMMAND_SURFACE_RE = re.compile(r"(?<![A-Za-z0-9_-])/?gpd:(?P<slug>[a-z0-9][a-z0-9-]*)")
 
 
 def _load_skill_index() -> list[content_registry.SkillDef]:
@@ -66,17 +67,25 @@ def _public_skill(skill: content_registry.SkillDef) -> dict[str, str]:
 
 
 def _skill_index_label(skill: content_registry.SkillDef) -> str:
-    """Render a skill label without presenting agent skills as runtime commands."""
-    if skill.source_kind == "command":
-        return f"/{skill.name.replace('gpd-', 'gpd:')}"
+    """Render a canonical skill label for the shared MCP surface."""
     return skill.name
+
+
+def _canonicalize_command_surface(content: str) -> str:
+    """Rewrite runtime-facing command examples to canonical ``gpd-*`` names."""
+
+    def _replace(match: re.Match[str]) -> str:
+        return f"gpd-{match.group('slug')}"
+
+    return _RUNTIME_COMMAND_SURFACE_RE.sub(_replace, content)
 
 
 def _resolve_skill_content(content: str) -> str:
     """Resolve shared path placeholders to local package paths for returned content."""
     specs_path = content_registry.SPECS_DIR.resolve().as_posix()
     agents_path = content_registry.AGENTS_DIR.resolve().as_posix()
-    return content.replace("{GPD_INSTALL_DIR}", specs_path).replace("{GPD_AGENTS_DIR}", agents_path)
+    resolved = content.replace("{GPD_INSTALL_DIR}", specs_path).replace("{GPD_AGENTS_DIR}", agents_path)
+    return _canonicalize_command_surface(resolved)
 
 
 def _reference_kind(path: str) -> str:

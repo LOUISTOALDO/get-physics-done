@@ -566,6 +566,23 @@ def test_state_set_project_contract_rejects_schema_drifted_contract(tmp_path: Pa
     assert saved["project_contract"] is None
 
 
+def test_state_set_project_contract_accepts_recoverable_schema_normalization(tmp_path: Path):
+    contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    contract["claims"][0]["notes"] = "harmless"
+    contract["references"][0]["aliases"] = "not-a-list"
+    save_state_json(tmp_path, default_state_dict())
+
+    result = state_set_project_contract(tmp_path, contract)
+
+    assert result.updated is True
+    saved = load_state_json(tmp_path)
+    assert saved is not None
+    assert saved["project_contract"] is not None
+    assert saved["project_contract"]["claims"][0]["id"] == "claim-benchmark"
+    assert "notes" not in saved["project_contract"]["claims"][0]
+    assert saved["project_contract"]["references"][0]["aliases"] == []
+
+
 def test_save_state_json_drops_malformed_project_contract_instead_of_salvaging(tmp_path: Path):
     contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
     contract["context_intake"]["must_read_refs"] = "ref-benchmark"

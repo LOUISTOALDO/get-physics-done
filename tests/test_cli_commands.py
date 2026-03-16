@@ -2199,6 +2199,102 @@ def test_cli_import_survives_runtime_help_lookup_failure(monkeypatch: pytest.Mon
             gpd_package.cli = original_cli
 
 
+def test_install_command_reports_runtime_catalog_failure_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    gpd_project: Path,
+) -> None:
+    import gpd.adapters as adapters_module
+
+    def _raise_runtime_catalog() -> list[str]:
+        raise RuntimeError("catalog offline")
+
+    monkeypatch.setattr(adapters_module, "list_runtimes", _raise_runtime_catalog)
+
+    result = runner.invoke(
+        app,
+        ["--raw", "--cwd", str(gpd_project), "install", "--all"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.output)
+    assert payload["error"] == "Runtime catalog unavailable during install: catalog offline"
+    assert "Traceback" not in result.output
+
+
+def test_install_command_reports_runtime_adapter_failure_during_interactive_selection_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    gpd_project: Path,
+) -> None:
+    import gpd.adapters as adapters_module
+
+    monkeypatch.setattr(adapters_module, "list_runtimes", lambda: ["codex"])
+    monkeypatch.setattr(
+        adapters_module,
+        "get_adapter",
+        lambda runtime_name: (_ for _ in ()).throw(RuntimeError("adapter offline")),
+    )
+
+    result = runner.invoke(
+        app,
+        ["--raw", "--cwd", str(gpd_project), "install"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.output)
+    assert payload["error"] == "Runtime adapter unavailable for 'codex' during install runtime selection: adapter offline"
+    assert "Traceback" not in result.output
+
+
+def test_uninstall_command_reports_runtime_catalog_failure_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    gpd_project: Path,
+) -> None:
+    import gpd.adapters as adapters_module
+
+    def _raise_runtime_catalog() -> list[str]:
+        raise RuntimeError("catalog offline")
+
+    monkeypatch.setattr(adapters_module, "list_runtimes", _raise_runtime_catalog)
+
+    result = runner.invoke(
+        app,
+        ["--raw", "--cwd", str(gpd_project), "uninstall", "--all", "--global"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.output)
+    assert payload["error"] == "Runtime catalog unavailable during uninstall: catalog offline"
+    assert "Traceback" not in result.output
+
+
+def test_uninstall_command_reports_runtime_adapter_failure_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    gpd_project: Path,
+) -> None:
+    import gpd.adapters as adapters_module
+
+    monkeypatch.setattr(adapters_module, "list_runtimes", lambda: ["codex"])
+    monkeypatch.setattr(
+        adapters_module,
+        "get_adapter",
+        lambda runtime_name: (_ for _ in ()).throw(RuntimeError("adapter offline")),
+    )
+
+    result = runner.invoke(
+        app,
+        ["--raw", "--cwd", str(gpd_project), "uninstall", "codex", "--target-dir", str(gpd_project / ".codex")],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.output)
+    assert payload["error"] == "Runtime adapter unavailable for 'codex' during uninstall: adapter offline"
+    assert "Traceback" not in result.output
+
+
 class TestNoDuplicateTestMethods:
     """Regression: duplicate method names hide tests in Python."""
 

@@ -65,6 +65,7 @@ _RUNTIME_INSTALL_ARTIFACT_PATTERN = re.compile(
     r"(SKILL\.md|CODEX_SKILLS_DIR|~\/\.agents/skills|\.claude/agents|\.codex/agents|"
     r"\.gemini/agents|\.opencode/agents|\.claude/commands|\.gemini/commands|\.opencode/commands)"
 )
+_SHARED_COMMAND_SURFACE_PATTERN = re.compile(r"/gpd:")
 _SHARED_RUNTIME_AGNOSTIC_PATHS = (
     REPO_ROOT / "src/gpd/agents",
     REPO_ROOT / "src/gpd/commands",
@@ -209,5 +210,14 @@ def test_shared_canonical_surfaces_do_not_reference_runtime_install_artifacts() 
 
     assert leaks == [], (
         "Shared commands, agents, specs, and canonical registry/MCP surfaces should not reference runtime install artifacts:\n"
+        f"{_format_failures(leaks)}"
+    )
+
+
+def test_shared_mcp_python_surfaces_do_not_hardcode_runtime_command_prefixes() -> None:
+    leaks = _scan_paths_for_pattern((REPO_ROOT / "src/gpd/mcp",), _SHARED_COMMAND_SURFACE_PATTERN)
+
+    assert leaks == [], (
+        "Shared MCP Python surfaces should stay canonical instead of hardcoding runtime command prefixes:\n"
         f"{_format_failures(leaks)}"
     )

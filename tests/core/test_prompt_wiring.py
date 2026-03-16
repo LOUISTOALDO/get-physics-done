@@ -1020,6 +1020,16 @@ def test_review_and_verification_prompts_explicitly_surface_schema_sources_and_c
     assert "re-open `@{GPD_INSTALL_DIR}/references/publication/peer-review-panel.md`" in referee
 
 
+def test_research_verification_body_scaffold_keeps_body_only_subject_labels_distinct() -> None:
+    research_verification = (TEMPLATES_DIR / "research-verification.md").read_text(encoding="utf-8")
+
+    assert "check_subject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]" in research_verification
+    assert 'gap_subject_kind: "claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check"' in research_verification
+    assert "Use `check_subject_kind` for body-only verification checkpoints" in research_verification
+    assert "Use `gap_subject_kind` for the body scaffold" in research_verification
+    assert "\nsubject_kind: [claim | deliverable | acceptance_test | reference | forbidden_proxy | suggested_contract_check]" not in research_verification
+
+
 def test_skill_surface_exposes_contract_references_for_paper_and_review_workflows() -> None:
     from gpd.mcp.servers.skills_server import get_skill
 
@@ -1068,6 +1078,18 @@ def test_review_and_execution_prompts_expand_required_schema_sources() -> None:
     assert "Review Ledger Schema" in referee
     assert "Referee Decision Schema" in referee
     assert "Summary Template" in executor
+
+
+def test_planner_and_summary_prompt_surfaces_expand_contract_schema_bodies() -> None:
+    planner_prompt = _expand_prompt_surface(TEMPLATES_DIR / "planner-subagent-prompt.md")
+    summary_template = _expand_prompt_surface(TEMPLATES_DIR / "summary.md")
+
+    assert "# PLAN Contract Schema" in planner_prompt
+    assert "Every claim must declare a stable `id`." in planner_prompt
+    assert "If `must_surface: true`, `required_actions` must not be empty." in planner_prompt
+    assert "# Contract Results Schema" in summary_template
+    assert "Missing contract-backed `contract_results` is invalid." in summary_template
+    assert "Do not invent `artifact` or `other` subject kinds" in summary_template
 
 
 def test_sync_state_and_write_paper_command_prompts_expand_required_schema_bodies() -> None:

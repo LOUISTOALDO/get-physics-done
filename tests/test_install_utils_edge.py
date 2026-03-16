@@ -31,6 +31,7 @@ from gpd.adapters.install_utils import (
     read_settings,
     replace_placeholders,
     translate_frontmatter_tool_names,
+    verify_installed,
     write_manifest,
     write_settings,
 )
@@ -228,6 +229,25 @@ class TestExpandAtIncludes:
 
         assert "Shared agent body" in result
         assert "<!-- [included: gpd-shared.md] -->" in result
+
+    def test_installed_style_nested_get_physics_done_includes_resolve_against_specs_root(self, tmp_path: Path) -> None:
+        gpd_dir = self._make_src(
+            tmp_path,
+            {
+                "templates/schema.md": "Canonical schema body\n",
+                "workflows/verify.md": "@{GPD_INSTALL_DIR}/templates/schema.md\n",
+            },
+        )
+
+        result = expand_at_includes(
+            f"@{tmp_path}/runtime/get-physics-done/workflows/verify.md",
+            gpd_dir,
+            f"{tmp_path}/runtime/",
+            runtime="codex",
+        )
+
+        assert "Canonical schema body" in result
+        assert "@ include not resolved:" not in result.lower()
 
 
 # =========================================================================
@@ -911,3 +931,11 @@ class TestInstallBackupSafety:
         assert backup_path.exists()
         assert backup_path.read_text(encoding="utf-8") == _bundled_hook_text("statusline.py")
         assert not (config_dir / "hooks" / "statusline.py").exists()
+
+
+def test_verify_installed_rejects_unresolved_include_markers(tmp_path: Path) -> None:
+    install_dir = tmp_path / "installed"
+    install_dir.mkdir()
+    (install_dir / "prompt.md").write_text("<!-- @ include not resolved: foo.md -->\n", encoding="utf-8")
+
+    assert verify_installed(install_dir, "installed prompt dir") is False

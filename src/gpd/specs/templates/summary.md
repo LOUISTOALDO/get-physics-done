@@ -33,6 +33,10 @@ Use `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` as the schema sour
 Every declared claim, deliverable, acceptance test, reference, and forbidden proxy ID from the source PLAN contract must appear in the matching `contract_results` section. Use explicit statuses like `not_attempted`, `missing`, `not_applicable`, or `unresolved` instead of silently omitting contract IDs.
 `plan_contract_ref` must end with the exact `#/contract` fragment. For reference-backed decisive comparisons, `comparison_kind: benchmark|prior_work|experiment|baseline|cross_method` can satisfy the requirement; `comparison_kind: other` cannot.
 
+Canonical ledger schema and validator-enforced rules to load before writing frontmatter:
+
+@{GPD_INSTALL_DIR}/templates/contract-results-schema.md
+
 ```markdown
 ---
 phase: XX-name

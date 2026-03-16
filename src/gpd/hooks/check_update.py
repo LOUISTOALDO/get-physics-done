@@ -23,6 +23,7 @@ except ImportError:
 
 SECONDS_PER_HOUR = 3600
 UPDATE_CHECK_TTL_SECONDS = 12 * SECONDS_PER_HOUR
+UPDATE_CHECK_INFLIGHT_TTL_SECONDS = 5 * 60
 NPM_PACKAGE_NAME = "get-physics-done"
 NPM_LATEST_RELEASE_URL = f"https://registry.npmjs.org/{NPM_PACKAGE_NAME}/latest"
 
@@ -115,36 +116,111 @@ def _is_older_than(a: str, b: str) -> bool:
 
 def _do_check(cache_file: Path) -> None:
     """Perform the actual network check and write cache (runs in child process)."""
-    installed = _read_installed_version()
-
-    latest = None
     try:
-        import urllib.request
+        installed = _read_installed_version()
 
-        with urllib.request.urlopen(NPM_LATEST_RELEASE_URL, timeout=10) as resp:
-            data = json.loads(resp.read())
-            latest = data["version"]
-    except Exception as exc:
-        _debug(f"npm registry version check failed: {exc}")
+        latest = None
+        try:
+            import urllib.request
 
-    result = {
-        "update_available": bool(latest and _is_older_than(installed, latest)),
-        "installed": installed,
-        "latest": latest or "unknown",
-        "checked": int(time.time()),
-    }
+            with urllib.request.urlopen(NPM_LATEST_RELEASE_URL, timeout=10) as resp:
+                data = json.loads(resp.read())
+                latest = data["version"]
+        except Exception as exc:
+            _debug(f"npm registry version check failed: {exc}")
 
+        result = {
+            "update_available": bool(latest and _is_older_than(installed, latest)),
+            "installed": installed,
+            "latest": latest or "unknown",
+            "checked": int(time.time()),
+        }
+
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps(result), encoding="utf-8")
+        except OSError as exc:
+            _debug(f"Failed to write update cache: {exc}")
+    finally:
+        _clear_inflight_marker(cache_file)
+
+
+def _inflight_marker(cache_file: Path) -> Path:
+    return cache_file.with_name(f"{cache_file.name}.inflight")
+
+
+def _inflight_started_at(marker_path: Path) -> int | None:
     try:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps(result), encoding="utf-8")
-    except OSError as exc:
-        _debug(f"Failed to write update cache: {exc}")
+        raw = marker_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        try:
+            return int(marker_path.stat().st_mtime)
+        except OSError:
+            return None
+    try:
+        return int(raw)
+    except ValueError:
+        try:
+            return int(marker_path.stat().st_mtime)
+        except OSError:
+            return None
+
+
+def _has_fresh_inflight_marker(cache_file: Path) -> bool:
+    marker_path = _inflight_marker(cache_file)
+    if not marker_path.exists():
+        return False
+    started_at = _inflight_started_at(marker_path)
+    if started_at is None:
+        return False
+    age = int(time.time()) - started_at
+    return 0 <= age < UPDATE_CHECK_INFLIGHT_TTL_SECONDS
+
+
+def _claim_inflight_marker(cache_file: Path) -> bool:
+    marker_path = _inflight_marker(cache_file)
+    if _has_fresh_inflight_marker(cache_file):
+        return False
+    if marker_path.exists():
+        try:
+            marker_path.unlink()
+        except OSError:
+            if _has_fresh_inflight_marker(cache_file):
+                return False
+    try:
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return False
+    try:
+        fd = os.open(marker_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    except (FileExistsError, OSError):
+        return False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(str(int(time.time())))
+    except OSError:
+        try:
+            marker_path.unlink()
+        except OSError:
+            pass
+        return False
+    return True
+
+
+def _clear_inflight_marker(cache_file: Path) -> None:
+    try:
+        _inflight_marker(cache_file).unlink()
+    except FileNotFoundError:
+        return
+    except OSError:
+        return
 
 
 def main() -> None:
     """Entry point: throttle-check for updates, spawn background worker if needed."""
     from gpd.hooks.runtime_detect import (
         ALL_RUNTIMES,
+        RUNTIME_UNKNOWN,
         detect_active_runtime_with_gpd_install,
         detect_runtime_for_gpd_use,
         get_update_cache_candidates,
@@ -166,7 +242,7 @@ def main() -> None:
             home=resolved_home,
         )
     ]
-    if active_installed_runtime in (None, "", "unknown") and preferred_runtime in ALL_RUNTIMES:
+    if active_installed_runtime in (None, "", RUNTIME_UNKNOWN) and preferred_runtime in ALL_RUNTIMES:
         relevant_candidates = [
             candidate
             for candidate in relevant_candidates
@@ -195,6 +271,9 @@ def main() -> None:
         except Exception as exc:
             _debug(f"Failed to read update cache {candidate_path}: {exc}")
 
+    if not _claim_inflight_marker(cache_file):
+        return
+
     # Spawn background child to do the actual check
     try:
         subprocess.Popen(
@@ -210,6 +289,7 @@ def main() -> None:
             start_new_session=True,
         )
     except OSError as exc:
+        _clear_inflight_marker(cache_file)
         _debug(f"Failed to spawn background update check: {exc}")
 
 

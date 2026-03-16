@@ -410,6 +410,7 @@ def test_main_resolves_workspace_before_filtering_event_types(tmp_path: Path) ->
 
 
 def test_main_accepts_workspace_mapping_with_cwd_field() -> None:
+    expected = str(Path("/tmp/project").resolve(strict=False))
     with (
         patch("sys.stdin", io.StringIO(json.dumps({"type": "agent-turn-complete", "workspace": {"cwd": "/tmp/project"}}))),
         patch("gpd.hooks.notify._trigger_update_check") as mock_trigger,
@@ -417,11 +418,50 @@ def test_main_accepts_workspace_mapping_with_cwd_field() -> None:
     ):
         main()
 
-    mock_trigger.assert_called_once_with("/tmp/project")
-    mock_notify.assert_called_once_with("/tmp/project")
+    mock_trigger.assert_called_once_with(expected)
+    mock_notify.assert_called_once_with(expected)
+
+
+def test_main_prefers_project_dir_root_over_nested_workspace_cwd(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    nested = project / "src" / "notes"
+    nested.mkdir(parents=True)
+
+    payload = {"type": "agent-turn-complete", "workspace": {"cwd": str(nested), "project_dir": str(project)}}
+    with (
+        patch("sys.stdin", io.StringIO(json.dumps(payload))),
+        patch("gpd.hooks.notify._trigger_update_check") as mock_trigger,
+        patch("gpd.hooks.notify._check_and_notify_update") as mock_notify,
+        patch("gpd.hooks.notify._emit_execution_notification") as mock_execution,
+    ):
+        main()
+
+    mock_trigger.assert_called_once_with(str(project))
+    mock_notify.assert_called_once_with(str(project))
+    mock_execution.assert_called_once_with(str(project))
+
+
+def test_main_expands_tilde_workspace_and_project_dir(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    nested = project / "src"
+    nested.mkdir(parents=True)
+    payload = {"type": "agent-turn-complete", "workspace": {"cwd": "~/project/src", "project_dir": "~/project"}}
+
+    with (
+        patch.dict("os.environ", {"HOME": str(home)}),
+        patch("sys.stdin", io.StringIO(json.dumps(payload))),
+        patch("gpd.hooks.notify._trigger_update_check") as mock_trigger,
+        patch("gpd.hooks.notify._check_and_notify_update") as mock_notify,
+    ):
+        main()
+
+    mock_trigger.assert_called_once_with(str(project))
+    mock_notify.assert_called_once_with(str(project))
 
 
 def test_main_accepts_top_level_cwd_workspace_alias() -> None:
+    expected = str(Path("/tmp/project").resolve(strict=False))
     with (
         patch("sys.stdin", io.StringIO(json.dumps({"type": "agent-turn-complete", "cwd": "/tmp/project"}))),
         patch("gpd.hooks.notify._trigger_update_check") as mock_trigger,
@@ -429,11 +469,12 @@ def test_main_accepts_top_level_cwd_workspace_alias() -> None:
     ):
         main()
 
-    mock_trigger.assert_called_once_with("/tmp/project")
-    mock_notify.assert_called_once_with("/tmp/project")
+    mock_trigger.assert_called_once_with(expected)
+    mock_notify.assert_called_once_with(expected)
 
 
 def test_main_accepts_string_workspace_payload() -> None:
+    expected = str(Path("/tmp/project").resolve(strict=False))
     with (
         patch("sys.stdin", io.StringIO(json.dumps({"type": "agent-turn-complete", "workspace": "/tmp/project"}))),
         patch("gpd.hooks.notify._trigger_update_check") as mock_trigger,
@@ -441,8 +482,8 @@ def test_main_accepts_string_workspace_payload() -> None:
     ):
         main()
 
-    mock_trigger.assert_called_once_with("/tmp/project")
-    mock_notify.assert_called_once_with("/tmp/project")
+    mock_trigger.assert_called_once_with(expected)
+    mock_notify.assert_called_once_with(expected)
 
 
 def test_main_logs_handler_exception_instead_of_swallowing(tmp_path: Path) -> None:
@@ -482,6 +523,28 @@ def test_emit_execution_notification_for_first_result_gate(tmp_path: Path) -> No
 
     assert "First-result review due for 03-01" in stderr.getvalue()
     assert "Benchmark reproduction" in stderr.getvalue()
+
+
+def test_emit_execution_notification_walks_up_from_nested_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    nested = workspace / "src" / "notes"
+    nested.mkdir(parents=True)
+    _write_current_execution(
+        workspace,
+        {
+            "phase": "03",
+            "plan": "01",
+            "segment_id": "seg-1",
+            "first_result_gate_pending": True,
+            "last_result_label": "Benchmark reproduction",
+        },
+    )
+
+    stderr = io.StringIO()
+    with patch("sys.stderr", stderr):
+        _emit_execution_notification(str(nested))
+
+    assert "First-result review due for 03-01" in stderr.getvalue()
 
 
 def test_emit_execution_notification_for_pre_fanout_review(tmp_path: Path) -> None:

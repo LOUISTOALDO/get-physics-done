@@ -82,6 +82,18 @@ def _write_coercive_project_contract_state(tmp_path: Path) -> None:
     (tmp_path / ".gpd" / "state.json").write_text(json.dumps(state), encoding="utf-8")
 
 
+def _write_recoverable_project_contract_state(tmp_path: Path) -> None:
+    """Persist a contract payload that only needs recoverable normalization."""
+    from gpd.core.state import default_state_dict
+
+    state = default_state_dict()
+    contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    contract["claims"][0]["notes"] = "harmless"
+    contract["references"][0]["aliases"] = "not-a-list"
+    state["project_contract"] = contract
+    (tmp_path / ".gpd" / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+
 def _write_stat_mech_project(tmp_path: Path) -> None:
     project = tmp_path / ".gpd" / "PROJECT.md"
     project.write_text(
@@ -1254,6 +1266,20 @@ class TestInitProgress:
 
         assert ctx["project_contract"] is None
         assert "None confirmed in `state.json.project_contract.references` yet." in ctx["active_reference_context"]
+
+    def test_progress_keeps_project_contract_when_raw_state_only_needs_recoverable_normalization(
+        self, tmp_path: Path
+    ) -> None:
+        _setup_project(tmp_path)
+        _write_recoverable_project_contract_state(tmp_path)
+
+        ctx = init_progress(tmp_path)
+
+        assert ctx["project_contract"] is not None
+        assert ctx["project_contract"]["claims"][0]["id"] == "claim-benchmark"
+        assert "notes" not in ctx["project_contract"]["claims"][0]
+        assert ctx["project_contract"]["references"][0]["aliases"] == []
+        assert "Recover known limiting behavior" in ctx["active_reference_context"]
 
 
 # ─── _extract_frontmatter_field ──────────────────────────────────────────────
