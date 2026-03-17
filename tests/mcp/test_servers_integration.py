@@ -305,6 +305,22 @@ class TestVerificationServerIntegration:
         assert "L" in mismatches
         assert "T" in mismatches
 
+    def test_dimensional_check_invalid_element_returns_error_envelope(self):
+        from gpd.mcp.servers.verification_server import dimensional_check
+
+        result = dimensional_check(["[M] = [M]", 4])
+
+        assert result["schema_version"] == 1
+        assert result["error"] == "expressions[1] must be a string"
+
+    def test_limiting_case_check_invalid_limit_key_returns_error_envelope(self):
+        from gpd.mcp.servers.verification_server import limiting_case_check
+
+        result = limiting_case_check("E = m * c^2", {0: "classical"})
+
+        assert result["schema_version"] == 1
+        assert result["error"] == "limits keys must be strings"
+
     def test_symmetry_check_with_real_symmetries(self):
         from gpd.mcp.servers.verification_server import symmetry_check
 
@@ -317,6 +333,22 @@ class TestVerificationServerIntegration:
         for entry in result["results"]:
             assert entry["matched_type"] is not None
             assert entry["strategy"] is not None
+
+    def test_symmetry_check_invalid_element_returns_error_envelope(self):
+        from gpd.mcp.servers.verification_server import symmetry_check
+
+        result = symmetry_check("M(s,t)", ["Lorentz invariance", None])
+
+        assert result["schema_version"] == 1
+        assert result["error"] == "symmetries[1] must be a string"
+
+    def test_verification_coverage_invalid_element_returns_error_envelope(self):
+        from gpd.mcp.servers.verification_server import get_verification_coverage
+
+        result = get_verification_coverage([15, {"id": 37}], ["5.1"])
+
+        assert result["schema_version"] == 1
+        assert result["error"] == "error_class_ids[1] must be an integer"
 
     def test_run_contract_check_fit_family_with_partial_metadata(self):
         from gpd.mcp.servers.verification_server import run_contract_check

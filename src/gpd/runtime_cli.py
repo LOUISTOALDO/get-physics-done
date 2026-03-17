@@ -30,7 +30,28 @@ def _parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--config-dir", required=True)
     parser.add_argument("--install-scope", choices=("local", "global"), required=True)
     parser.add_argument("--explicit-target", action="store_true")
-    options, gpd_args = parser.parse_known_args(argv)
+    bridge_args: list[str] = []
+    index = 0
+    while index < len(argv):
+        arg = str(argv[index])
+        if arg == "--explicit-target":
+            bridge_args.append(arg)
+            index += 1
+            continue
+        if any(arg.startswith(prefix) for prefix in ("--runtime=", "--config-dir=", "--install-scope=")):
+            bridge_args.append(arg)
+            index += 1
+            continue
+        if arg in {"--runtime", "--config-dir", "--install-scope"}:
+            bridge_args.append(arg)
+            if index + 1 < len(argv):
+                bridge_args.append(str(argv[index + 1]))
+            index += 2
+            continue
+        break
+
+    options = parser.parse_args(bridge_args)
+    gpd_args = argv[index:]
     if gpd_args[:1] == ["--"]:
         gpd_args = gpd_args[1:]
     return options, gpd_args
@@ -107,6 +128,23 @@ def _load_install_manifest(config_dir: Path) -> dict[str, object]:
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _manifest_runtime(config_dir: Path) -> str | None:
+    """Return the persisted runtime for *config_dir* when present."""
+    runtime = _load_install_manifest(config_dir).get("runtime")
+    if not isinstance(runtime, str):
+        return None
+    normalized = runtime.strip()
+    return normalized or None
+
+
+def _runtime_display_name(runtime: str) -> str:
+    """Return a human-readable runtime label when the runtime is known."""
+    try:
+        return get_adapter(runtime).display_name
+    except KeyError:
+        return runtime
 
 
 def _paths_equal(left: Path, right: Path) -> bool:
@@ -244,6 +282,38 @@ def _install_error_message(
     )
 
 
+def _runtime_mismatch_error_message(
+    *,
+    runtime: str,
+    manifest_runtime: str,
+    raw_config_dir: str,
+    config_dir: Path,
+    install_scope: str,
+    explicit_target: bool,
+    cli_cwd: Path,
+) -> str:
+    """Return repair guidance when the resolved config dir belongs to another runtime."""
+    repair_command = build_runtime_install_repair_command(
+        runtime,
+        install_scope=install_scope,
+        target_dir=config_dir,
+        explicit_target=_uses_effective_explicit_target(
+            runtime=runtime,
+            raw_config_dir=raw_config_dir,
+            config_dir=config_dir,
+            install_scope=install_scope,
+            explicit_target=explicit_target,
+            cli_cwd=cli_cwd,
+        ),
+    )
+    return (
+        f"GPD runtime bridge mismatch for {_runtime_display_name(runtime)} at `{config_dir}`.\n"
+        f"Resolved install manifest pins {_runtime_display_name(manifest_runtime)} (`{manifest_runtime}`), "
+        "so this bridge cannot safely continue.\n"
+        f"Repair the install with: `{repair_command}`\n"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Validate the install contract, then dispatch into ``gpd.cli``."""
     raw_argv = list(sys.argv[1:] if argv is None else argv)
@@ -257,6 +327,21 @@ def main(argv: list[str] | None = None) -> int:
         explicit_target=bool(options.explicit_target),
         cli_cwd=cli_cwd,
     )
+    manifest_runtime = _manifest_runtime(config_dir)
+    if manifest_runtime is not None and manifest_runtime != options.runtime:
+        sys.stderr.write(
+            _runtime_mismatch_error_message(
+                runtime=options.runtime,
+                manifest_runtime=manifest_runtime,
+                raw_config_dir=options.config_dir,
+                config_dir=config_dir,
+                install_scope=options.install_scope,
+                explicit_target=bool(options.explicit_target),
+                cli_cwd=cli_cwd,
+            )
+        )
+        return 127
+
     adapter = get_adapter(options.runtime)
     missing = adapter.missing_install_artifacts(config_dir)
     if missing:

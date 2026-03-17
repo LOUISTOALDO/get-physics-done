@@ -1066,6 +1066,7 @@ async function main() {
   const reinstallManagedPackage = args.includes("--reinstall");
   const upgradeManagedPackage = args.includes("--upgrade");
   const targetDir = parseTargetDirArg(args);
+  const parsedRuntimes = parseSelectedRuntimes(args);
 
   printBanner();
 
@@ -1101,6 +1102,10 @@ async function main() {
   }
   if (targetDir && (args.includes("--global") || args.includes("-g"))) {
     error("Cannot combine --target-dir with --global. Use --local semantics for explicit target directories.");
+    process.exit(1);
+  }
+  if (targetDir && parsedRuntimes.length === 0 && !process.stdin.isTTY) {
+    error(`Specify exactly one runtime with ${documentedRuntimeFlags().join("/")} when using --target-dir non-interactively.`);
     process.exit(1);
   }
 

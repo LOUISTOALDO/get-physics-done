@@ -34,6 +34,7 @@ from gpd.adapters.install_utils import (
     generate_manifest,
     get_global_dir,
     hook_python_interpreter,
+    install_gpd_content,
     parse_jsonc,
     remove_stale_agents,
     render_markdown_frontmatter,
@@ -87,6 +88,7 @@ _COLOR_NAME_TO_HEX: dict[str, str] = {
 }
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{6}$")
+_SHELL_FENCE_LANGUAGES = frozenset({"bash", "sh", "shell", "zsh"})
 
 # ---------------------------------------------------------------------------
 # XDG config directory resolution
@@ -213,6 +215,96 @@ def convert_claude_to_opencode_frontmatter(content: str, path_prefix: str | None
     return render_markdown_frontmatter(preamble, new_frontmatter, separator, body)
 
 
+def _rewrite_gpd_cli_invocations(content: str, bridge_command: str) -> str:
+    """Rewrite shell-command ``gpd`` calls to the shared runtime CLI bridge."""
+    rewritten: list[str] = []
+    in_shell_fence = False
+
+    for line in content.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            if in_shell_fence:
+                in_shell_fence = False
+            else:
+                fence_language = stripped[3:].strip().lower()
+                in_shell_fence = fence_language in _SHELL_FENCE_LANGUAGES
+            rewritten.append(line)
+            continue
+
+        if in_shell_fence:
+            rewritten.append(_rewrite_gpd_shell_line(line, bridge_command))
+            continue
+
+        rewritten.append(line)
+
+    return "".join(rewritten)
+
+
+def _rewrite_gpd_shell_line(line: str, bridge_command: str) -> str:
+    """Rewrite only command-position ``gpd`` tokens on a shell line."""
+    pieces: list[str] = []
+    index = 0
+    in_single = False
+    in_double = False
+
+    while index < len(line):
+        char = line[index]
+        previous = line[index - 1] if index > 0 else ""
+
+        if char == "'" and not in_double:
+            in_single = not in_single
+            pieces.append(char)
+            index += 1
+            continue
+
+        if char == '"' and not in_single and previous != "\\":
+            in_double = not in_double
+            pieces.append(char)
+            index += 1
+            continue
+
+        if (
+            not in_single
+            and not in_double
+            and line.startswith("gpd", index)
+            and _is_gpd_command_start(line, index)
+            and _is_gpd_token_end(line, index + 3)
+        ):
+            pieces.append(bridge_command)
+            index += 3
+            continue
+
+        pieces.append(char)
+        index += 1
+
+    return "".join(pieces)
+
+
+def _is_gpd_command_start(line: str, index: int) -> bool:
+    """Return whether ``gpd`` starts a shell command token at *index*."""
+    probe = index - 1
+    while probe >= 0 and line[probe] in " \t":
+        probe -= 1
+
+    if probe < 0:
+        return True
+
+    if line[probe] in "|;(":
+        return True
+
+    if probe >= 1 and line[probe - 1 : probe + 1] in {"&&", "||", "$("}:
+        return True
+
+    return False
+
+
+def _is_gpd_token_end(line: str, end_index: int) -> bool:
+    """Return whether the token ending at *end_index* is a standalone ``gpd``."""
+    if end_index >= len(line):
+        return True
+    return line[end_index].isspace() or line[end_index] in {'"', "'", "`"}
+
+
 # ---------------------------------------------------------------------------
 # Command copying (flattened structure)
 # ---------------------------------------------------------------------------
@@ -225,6 +317,7 @@ def copy_flattened_commands(
     path_prefix: str,
     gpd_src_root: Path | None = None,
     install_scope: str | None = None,
+    bridge_command: str | None = None,
 ) -> int:
     """Copy commands to a flat structure for OpenCode.
 
@@ -254,6 +347,7 @@ def copy_flattened_commands(
                 path_prefix,
                 gpd_src_root,
                 install_scope,
+                bridge_command,
             )
         elif entry.name.endswith(".md"):
             base_name = entry.stem
@@ -267,6 +361,8 @@ def copy_flattened_commands(
                 install_scope=install_scope,
                 src_root=gpd_src_root,
             )
+            if bridge_command:
+                content = _rewrite_gpd_cli_invocations(content, bridge_command)
             content = convert_claude_to_opencode_frontmatter(content, path_prefix)
 
             dest_path.write_text(content, encoding="utf-8")
@@ -286,6 +382,7 @@ def copy_agents_as_agent_files(
     path_prefix: str,
     gpd_src_root: Path | None = None,
     install_scope: str | None = None,
+    bridge_command: str | None = None,
 ) -> int:
     """Copy agent .md files with OpenCode frontmatter conversion.
 
@@ -313,6 +410,8 @@ def copy_agents_as_agent_files(
             src_root=source_root,
             protect_agent_prompt_body=True,
         )
+        if bridge_command:
+            content = _rewrite_gpd_cli_invocations(content, bridge_command)
         content = convert_claude_to_opencode_frontmatter(content, path_prefix)
 
         (agents_dest / entry.name).write_text(content, encoding="utf-8")
@@ -747,6 +846,7 @@ class OpenCodeAdapter(RuntimeAdapter):
         commands_src = gpd_root / "commands"
         command_dir = target_dir / "command"
         command_dir.mkdir(parents=True, exist_ok=True)
+        bridge_command = self.runtime_cli_bridge_command(target_dir)
         return copy_flattened_commands(
             commands_src,
             command_dir,
@@ -754,10 +854,30 @@ class OpenCodeAdapter(RuntimeAdapter):
             path_prefix,
             gpd_root / "specs",
             self._current_install_scope_flag(),
+            bridge_command,
         )
 
     def _install_content(self, gpd_root: Path, target_dir: Path, path_prefix: str, failures: list[str]) -> None:
-        super()._install_content(gpd_root, target_dir, path_prefix, failures)
+        bridge_command = self.runtime_cli_bridge_command(target_dir)
+
+        def _translate(content: str, prefix: str, install_scope: str | None = None) -> str:
+            translated = super(OpenCodeAdapter, self).translate_shared_markdown(
+                content,
+                prefix,
+                install_scope=install_scope,
+            )
+            return _rewrite_gpd_cli_invocations(translated, bridge_command)
+
+        failures.extend(
+            install_gpd_content(
+                gpd_root / "specs",
+                target_dir,
+                path_prefix,
+                self.runtime_name,
+                install_scope=self._current_install_scope_flag(),
+                markdown_transform=_translate,
+            )
+        )
         skill_dest = target_dir / "get-physics-done"
         self._gpd_files_count = sum(1 for _ in skill_dest.rglob("*") if _.is_file())
 
@@ -765,12 +885,14 @@ class OpenCodeAdapter(RuntimeAdapter):
         agents_src = gpd_root / "agents"
         if agents_src.exists():
             agents_dest = target_dir / "agents"
+            bridge_command = self.runtime_cli_bridge_command(target_dir)
             return copy_agents_as_agent_files(
                 agents_src,
                 agents_dest,
                 path_prefix,
                 gpd_root / "specs",
                 self._current_install_scope_flag(),
+                bridge_command,
             )
         return 0
 

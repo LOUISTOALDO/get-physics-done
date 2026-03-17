@@ -503,6 +503,23 @@ def test_bootstrap_forwards_target_dir_to_runtime_install(tmp_path: Path) -> Non
 
 @pytest.mark.skipif(os.name == "nt", reason="bootstrap installer harness uses POSIX-style fake Python shims")
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is required for bootstrap installer tests")
+def test_bootstrap_requires_explicit_runtime_with_target_dir_non_interactively(tmp_path: Path) -> None:
+    target_dir = tmp_path / "custom target"
+    result, _, log_path = _run_bootstrap_with_fake_python(
+        tmp_path,
+        installer_args=["--target-dir", str(target_dir)],
+    )
+
+    assert result.returncode == 1
+    assert "Specify exactly one runtime with" in result.stderr
+    assert "when using --target-dir non-interactively." in result.stderr
+    for flag in ("--claude", "--gemini", "--codex", "--opencode"):
+        assert flag in result.stderr
+    assert not log_path.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="bootstrap installer harness uses POSIX-style fake Python shims")
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is required for bootstrap installer tests")
 def test_bootstrap_rejects_target_dir_with_all_runtimes(tmp_path: Path) -> None:
     target_dir = tmp_path / "custom target"
     result, _, _ = _run_bootstrap_with_fake_python(

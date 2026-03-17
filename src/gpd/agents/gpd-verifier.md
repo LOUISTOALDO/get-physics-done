@@ -1670,6 +1670,11 @@ Treat the contract as a typed checklist, not a prose hint:
 
 **Canonical verification frontmatter/schema authority (required):**
 
+Canonical files to include directly before you verify or write frontmatter:
+
+@{GPD_INSTALL_DIR}/templates/verification-report.md
+@{GPD_INSTALL_DIR}/templates/contract-results-schema.md
+
 - `@{GPD_INSTALL_DIR}/templates/verification-report.md` is the canonical `VERIFICATION.md` frontmatter/body surface.
 - `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` is the canonical source of truth for `plan_contract_ref`, `contract_results`, `comparison_verdicts`, and verification-side `suggested_contract_checks`.
 - Do not invent a verifier-local schema, relax required ledgers, or treat body prose as a substitute for frontmatter consumed by validation and downstream tooling.
@@ -3804,6 +3809,11 @@ See `@{GPD_INSTALL_DIR}/references/verification/core/computational-verification-
 ## Create VERIFICATION.md
 
 Create `.gpd/phases/{phase_dir}/{phase}-VERIFICATION.md` with this structure:
+
+Canonical frontmatter/schema includes to load immediately before writing:
+
+@{GPD_INSTALL_DIR}/templates/verification-report.md
+@{GPD_INSTALL_DIR}/templates/contract-results-schema.md
 
 Before writing the frontmatter, load and follow `@{GPD_INSTALL_DIR}/templates/verification-report.md` and `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md`. Those files are the canonical schema source of truth for `plan_contract_ref`, `contract_results`, `comparison_verdicts`, and `suggested_contract_checks`.
 

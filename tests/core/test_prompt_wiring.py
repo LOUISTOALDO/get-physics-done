@@ -943,6 +943,7 @@ def test_contract_schema_references_stay_wired_into_templates_and_review_docs() 
     summary_template = (TEMPLATES_DIR / "summary.md").read_text(encoding="utf-8")
     verification_template = (TEMPLATES_DIR / "verification-report.md").read_text(encoding="utf-8")
     contract_results_schema = (TEMPLATES_DIR / "contract-results-schema.md").read_text(encoding="utf-8")
+    executor_completion = (REFERENCES_DIR / "execution" / "executor-completion.md").read_text(encoding="utf-8")
     referee = (AGENTS_DIR / "gpd-referee.md").read_text(encoding="utf-8")
     peer_review = (WORKFLOWS_DIR / "peer-review.md").read_text(encoding="utf-8")
     panel = (REFERENCES_DIR / "publication" / "peer-review-panel.md").read_text(encoding="utf-8")
@@ -972,9 +973,17 @@ def test_contract_schema_references_stay_wired_into_templates_and_review_docs() 
     assert '"sections"' in paper_config_schema
     assert "XX-YY-SUMMARY.md" in contract_results_schema
     assert "XX-VERIFICATION.md" in contract_results_schema
+    assert "templates/contract-results-schema.md" in executor_completion
+    assert "claim_id: claim-main" in executor_completion
+    assert "completed_actions: [read, compare, cite]" in executor_completion
+    assert "forbidden_proxies:" in executor_completion
+    assert "uncertainty_markers:" in executor_completion
     assert "REFEREE-DECISION{round_suffix}.json --strict --ledger" in referee_decision_schema
     assert "random_seeds[].computation" in reproducibility_template
     assert "resource_requirements[].step" in reproducibility_template
+    assert "Strict validation fails on warnings, not only on hard errors." in reproducibility_template
+    assert "Draft-only approximate output checksums still emit warnings and therefore block strict review." in reproducibility_template
+    assert "Every stochastic `execution_steps[].name` must have a matching `random_seeds[].computation`" in reproducibility_template
     assert "templates/paper/reproducibility-manifest.md" in reproducibility_protocol
     assert "templates/paper/paper-config-schema.md" in write_paper
     assert "templates/paper/reproducibility-manifest.md" in write_paper

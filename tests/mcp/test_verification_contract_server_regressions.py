@@ -176,6 +176,15 @@ def test_suggest_contract_checks_rejects_non_mapping_payloads(payload: object) -
     assert result == {"error": "contract must be an object", "schema_version": 1}
 
 
+@pytest.mark.parametrize("payload", ["not-a-dict", ["claim-benchmark"], 3])
+def test_run_contract_check_rejects_non_mapping_payloads(payload: object) -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check
+
+    result = run_contract_check(payload)  # type: ignore[arg-type]
+
+    assert result == {"error": "request must be an object", "schema_version": 1}
+
+
 @pytest.mark.parametrize(
     ("request_payload", "expected_error"),
     [

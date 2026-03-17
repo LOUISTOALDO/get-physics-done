@@ -12,10 +12,13 @@ def _read_verifier_prompt() -> str:
 
 def test_verifier_prompt_points_to_canonical_verification_schema_sources() -> None:
     verifier = _read_verifier_prompt()
+    verifier_lines = verifier.splitlines()
 
     assert "`@{GPD_INSTALL_DIR}/templates/verification-report.md` is the canonical `VERIFICATION.md` frontmatter/body surface." in verifier
     assert "`@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` is the canonical source of truth for `plan_contract_ref`, `contract_results`, `comparison_verdicts`, and verification-side `suggested_contract_checks`." in verifier
     assert "Do not invent a verifier-local schema, relax required ledgers, or treat body prose as a substitute for frontmatter consumed by validation and downstream tooling." in verifier
+    assert "@{GPD_INSTALL_DIR}/templates/verification-report.md" in verifier_lines
+    assert "@{GPD_INSTALL_DIR}/templates/contract-results-schema.md" in verifier_lines
 
 
 def test_verifier_prompt_surfaces_validator_enforced_contract_ledger_rules() -> None:

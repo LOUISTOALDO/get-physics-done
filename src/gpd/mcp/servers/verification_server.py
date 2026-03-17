@@ -438,6 +438,52 @@ def _optional_mapping_field(request: dict[str, object], field_name: str) -> tupl
         return None, _error_result(f"{field_name} must be an object")
     return raw, None
 
+
+def _validate_string(value: object, *, field_name: str) -> tuple[str | None, dict[str, object] | None]:
+    """Return a validated string scalar or an MCP error envelope."""
+    if not isinstance(value, str):
+        return None, _error_result(f"{field_name} must be a string")
+    return value, None
+
+
+def _validate_string_list(value: object, *, field_name: str) -> tuple[list[str] | None, dict[str, object] | None]:
+    """Return a validated list[str] or an MCP error envelope."""
+    if not isinstance(value, list):
+        return None, _error_result(f"{field_name} must be a list of strings")
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            return None, _error_result(f"{field_name}[{index}] must be a string")
+    return value, None
+
+
+def _validate_string_mapping(
+    value: object,
+    *,
+    field_name: str,
+) -> tuple[dict[str, str] | None, dict[str, object] | None]:
+    """Return a validated dict[str, str] or an MCP error envelope."""
+    if not isinstance(value, dict):
+        return None, _error_result(f"{field_name} must be an object with string keys and string values")
+
+    validated: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            return None, _error_result(f"{field_name} keys must be strings")
+        if not isinstance(item, str):
+            return None, _error_result(f"{field_name}[{key}] must be a string")
+        validated[key] = item
+    return validated, None
+
+
+def _validate_int_list(value: object, *, field_name: str) -> tuple[list[int] | None, dict[str, object] | None]:
+    """Return a validated list[int] or an MCP error envelope."""
+    if not isinstance(value, list):
+        return None, _error_result(f"{field_name} must be a list of integers")
+    for index, item in enumerate(value):
+        if isinstance(item, bool) or not isinstance(item, int):
+            return None, _error_result(f"{field_name}[{index}] must be an integer")
+    return value, None
+
 # ─── Dimension Parsing ────────────────────────────────────────────────────────
 
 # Base dimensions: [M], [L], [T], [Q], [Theta]
@@ -1230,6 +1276,8 @@ def run_contract_check(request: dict) -> dict:
 
     with gpd_span("mcp.verification.run_contract_check"):
         try:
+            if not isinstance(request, dict):
+                return _error_result("request must be an object")
             check_id = str(request.get("check_key") or request.get("check_id") or "").strip()
             if not check_id:
                 return _error_result("Missing check_key or check_id")
@@ -1699,7 +1747,10 @@ def dimensional_check(expressions: list[str]) -> dict:
     Example: "[M][L]^2[T]^-2 = [M][L]^2[T]^-2" (energy = energy)
     """
     with gpd_span("mcp.verification.dimensional_check"):
-        return _dimensional_check_inner(expressions)
+        validated_expressions, error = _validate_string_list(expressions, field_name="expressions")
+        if error is not None:
+            return error
+        return _dimensional_check_inner(validated_expressions)
 
 
 def _dimensional_check_inner(expressions: list[str]) -> dict:
@@ -1772,7 +1823,13 @@ def limiting_case_check(expression: str, limits: dict[str, str]) -> dict:
                        "c -> infinity": "non-relativistic Schrodinger"}
     """
     with gpd_span("mcp.verification.limiting_case"):
-        return _limiting_case_inner(expression, limits)
+        validated_expression, error = _validate_string(expression, field_name="expression")
+        if error is not None:
+            return error
+        validated_limits, error = _validate_string_mapping(limits, field_name="limits")
+        if error is not None:
+            return error
+        return _limiting_case_inner(validated_expression, validated_limits)
 
 
 def _limiting_case_inner(expression: str, limits: dict[str, str]) -> dict:
@@ -1845,7 +1902,13 @@ def symmetry_check(expression: str, symmetries: list[str]) -> dict:
                     ["Lorentz invariance", "gauge invariance", "parity"]
     """
     with gpd_span("mcp.verification.symmetry_check"):
-        return _symmetry_check_inner(expression, symmetries)
+        validated_expression, error = _validate_string(expression, field_name="expression")
+        if error is not None:
+            return error
+        validated_symmetries, error = _validate_string_list(symmetries, field_name="symmetries")
+        if error is not None:
+            return error
+        return _symmetry_check_inner(validated_expression, validated_symmetries)
 
 
 def _symmetry_check_inner(expression: str, symmetries: list[str]) -> dict:
@@ -1915,7 +1978,13 @@ def get_verification_coverage(error_class_ids: list[int], active_checks: list[st
         active_checks: List of active check IDs (e.g., ["5.1", "5.2", "5.3"])
     """
     with gpd_span("mcp.verification.coverage"):
-        return _coverage_inner(error_class_ids, active_checks)
+        validated_error_class_ids, error = _validate_int_list(error_class_ids, field_name="error_class_ids")
+        if error is not None:
+            return error
+        validated_active_checks, error = _validate_string_list(active_checks, field_name="active_checks")
+        if error is not None:
+            return error
+        return _coverage_inner(validated_error_class_ids, validated_active_checks)
 
 
 def _coverage_inner(error_class_ids: list[int], active_checks: list[str]) -> dict:

@@ -1362,6 +1362,14 @@ class TestVerificationServer:
         result = dimensional_check(["[Q][T]^-1 = [Q][T]^-1"])
         assert result["all_consistent"] is True
 
+    def test_dimensional_check_invalid_element_returns_error_envelope(self):
+        from gpd.mcp.servers.verification_server import dimensional_check
+
+        result = dimensional_check(["[M] = [M]", 3])
+
+        assert result["schema_version"] == 1
+        assert result["error"] == "expressions[1] must be a string"
+
     # --- limiting_case_check (pure function) ---
 
     def test_limiting_case_check_basic(self):
@@ -1410,6 +1418,22 @@ class TestVerificationServer:
         )
         assert result["results"][0]["limit_type"] == "classical"
 
+    def test_limiting_case_check_invalid_limit_key_returns_error_envelope(self):
+        from gpd.mcp.servers.verification_server import limiting_case_check
+
+        result = limiting_case_check("E = m * c^2", {1: "classical"})
+
+        assert result["schema_version"] == 1
+        assert result["error"] == "limits keys must be strings"
+
+    def test_limiting_case_check_invalid_limit_value_returns_error_envelope(self):
+        from gpd.mcp.servers.verification_server import limiting_case_check
+
+        result = limiting_case_check("E = m * c^2", {"classical limit": 0})
+
+        assert result["schema_version"] == 1
+        assert result["error"] == "limits[classical limit] must be a string"
+
     # --- symmetry_check (pure function) ---
 
     def test_symmetry_check_known_symmetries(self):
@@ -1430,6 +1454,14 @@ class TestVerificationServer:
         result = symmetry_check("expression", ["custom_symmetry_xyz"])
         assert result["results"][0]["matched_type"] is None
         assert "custom_symmetry_xyz" in result["results"][0]["strategy"]
+
+    def test_symmetry_check_invalid_element_returns_error_envelope(self):
+        from gpd.mcp.servers.verification_server import symmetry_check
+
+        result = symmetry_check("expression", ["parity", 7])
+
+        assert result["schema_version"] == 1
+        assert result["error"] == "symmetries[1] must be a string"
 
     # --- run_check ---
 
@@ -2150,6 +2182,28 @@ class TestVerificationServer:
             ),
         )
         assert "Full coverage" in result["recommendation"]
+
+    def test_verification_coverage_invalid_error_class_id_returns_error_envelope(self):
+        from gpd.mcp.servers.verification_server import get_verification_coverage
+
+        result = get_verification_coverage(
+            error_class_ids=[15, {"id": 37}],
+            active_checks=["5.1"],
+        )
+
+        assert result["schema_version"] == 1
+        assert result["error"] == "error_class_ids[1] must be an integer"
+
+    def test_verification_coverage_invalid_active_check_returns_error_envelope(self):
+        from gpd.mcp.servers.verification_server import get_verification_coverage
+
+        result = get_verification_coverage(
+            error_class_ids=[15],
+            active_checks=["5.1", 5.3],
+        )
+
+        assert result["schema_version"] == 1
+        assert result["error"] == "active_checks[1] must be a string"
 
 
     # --- _parse_dimensions helper ---

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from gpd.adapters.install_utils import build_runtime_cli_bridge_command
 from gpd.adapters.opencode import (
     OpenCodeAdapter,
     configure_opencode_permissions,
@@ -22,6 +23,16 @@ from gpd.adapters.opencode import (
 @pytest.fixture()
 def adapter() -> OpenCodeAdapter:
     return OpenCodeAdapter()
+
+
+def expected_opencode_bridge(target: Path, *, is_global: bool = False, explicit_target: bool = False) -> str:
+    return build_runtime_cli_bridge_command(
+        "opencode",
+        target_dir=target,
+        config_dir_name=".opencode",
+        is_global=is_global,
+        explicit_target=explicit_target,
+    )
 
 
 class TestProperties:
@@ -399,6 +410,31 @@ class TestInstall:
         assert result["runtime"] == "opencode"
         assert result["commands"] > 0
         assert result["agents"] > 0
+
+    def test_install_rewrites_gpd_cli_calls_to_runtime_cli_bridge(
+        self,
+        adapter: OpenCodeAdapter,
+        tmp_path: Path,
+    ) -> None:
+        gpd_root = Path(__file__).resolve().parents[2] / "src" / "gpd"
+        target = tmp_path / ".opencode"
+        target.mkdir()
+        adapter.install(gpd_root, target, is_global=False)
+
+        expected_bridge = expected_opencode_bridge(target, is_global=False)
+        command = (target / "command" / "gpd-settings.md").read_text(encoding="utf-8")
+        workflow = (target / "get-physics-done" / "workflows" / "settings.md").read_text(encoding="utf-8")
+        agent = (target / "agents" / "gpd-planner.md").read_text(encoding="utf-8")
+
+        assert expected_bridge + " config ensure-section" in command
+        assert f'INIT=$({expected_bridge} init progress --include state,config)' in command
+        assert expected_bridge + " config ensure-section" in workflow
+        assert f'INIT=$({expected_bridge} init progress --include state,config)' in workflow
+        assert 'echo "ERROR: gpd initialization failed: $INIT"' in workflow
+        assert f'INIT=$({expected_bridge} init plan-phase "<PHASE>")' in agent
+        assert "```bash\ngpd config ensure-section\n" not in workflow
+        assert 'INIT=$(gpd init progress --include state,config)' not in workflow
+        assert 'INIT=$(gpd init plan-phase "<PHASE>")' not in agent
 
     def test_install_preserves_existing_mcp_overrides(
         self,

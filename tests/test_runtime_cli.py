@@ -148,6 +148,32 @@ def test_runtime_cli_dispatches_with_runtime_pin(monkeypatch, tmp_path: Path) ->
     assert observed["disable_reexec"] == "1"
 
 
+def test_runtime_cli_preserves_subcommand_runtime_flags(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / ".codex"
+    _mark_complete_install(config_dir, runtime="codex")
+
+    exit_code, observed = _run_runtime_cli_with_recording(
+        monkeypatch,
+        cwd=tmp_path,
+        argv=[
+            "--runtime",
+            "codex",
+            "--config-dir",
+            str(config_dir),
+            "--install-scope",
+            "local",
+            "resolve-model",
+            "gpd-executor",
+            "--runtime",
+            "gemini",
+        ],
+    )
+
+    assert exit_code == 0
+    assert observed["argv"] == ["gpd", "resolve-model", "gpd-executor", "--runtime", "gemini"]
+    assert observed["runtime"] == "codex"
+
+
 def test_runtime_cli_reexecs_from_installed_package_using_forwarded_cli_cwd(monkeypatch, tmp_path: Path) -> None:
     runtime_cwd = tmp_path / "runtime"
     runtime_cwd.mkdir()
@@ -326,6 +352,67 @@ def test_runtime_cli_forwarded_cli_cwd_drives_local_repair_guidance(
     assert exit_code == 127
     assert f"--target-dir {config_dir}" in captured.err
     assert "npx -y get-physics-done --codex --local" in captured.err
+
+
+def test_runtime_cli_fails_when_resolved_local_config_dir_manifest_runtime_mismatches(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    config_dir = tmp_path / ".codex"
+    _mark_complete_install(config_dir, runtime="claude-code")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("gpd.runtime_cli._maybe_reexec_from_checkout", lambda *_args, **_kwargs: None)
+
+    exit_code = main(
+        [
+            "--runtime",
+            "codex",
+            "--config-dir",
+            "./.codex",
+            "--install-scope",
+            "local",
+            "state",
+            "load",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 127
+    assert f"GPD runtime bridge mismatch for {get_adapter('codex').display_name}" in captured.err
+    assert f"{get_adapter('claude-code').display_name} (`claude-code`)" in captured.err
+    assert "npx -y get-physics-done --codex --local" in captured.err
+
+
+def test_runtime_cli_fails_when_explicit_target_manifest_runtime_mismatches(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    config_dir = tmp_path / "custom-runtime-dir"
+    _mark_complete_install(config_dir, runtime="claude-code")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("gpd.runtime_cli._maybe_reexec_from_checkout", lambda *_args, **_kwargs: None)
+
+    exit_code = main(
+        [
+            "--runtime",
+            "codex",
+            "--config-dir",
+            str(config_dir),
+            "--install-scope",
+            "local",
+            "--explicit-target",
+            "state",
+            "load",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 127
+    assert f"GPD runtime bridge mismatch for {get_adapter('codex').display_name}" in captured.err
+    assert f"{get_adapter('claude-code').display_name} (`claude-code`)" in captured.err
+    assert f"--target-dir {config_dir}" in captured.err
 
 
 def test_runtime_cli_ignores_unrelated_nested_runtime_dirs_when_resolving_ancestor_local_install(

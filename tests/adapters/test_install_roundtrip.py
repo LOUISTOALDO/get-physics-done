@@ -19,6 +19,7 @@ from gpd.adapters.claude_code import ClaudeCodeAdapter
 from gpd.adapters.codex import CodexAdapter
 from gpd.adapters.gemini import GeminiAdapter
 from gpd.adapters.install_utils import (
+    build_runtime_cli_bridge_command,
     convert_tool_references_in_body,
     expand_at_includes,
     translate_frontmatter_tool_names,
@@ -29,6 +30,16 @@ from gpd.registry import load_agents_from_dir
 
 REPO_GPD_ROOT = Path(__file__).resolve().parents[2] / "src" / "gpd"
 RUNTIME_ALIAS_MAP = build_canonical_alias_map(adapter.tool_name_map for adapter in iter_adapters())
+
+
+def expected_opencode_bridge(target: Path, *, is_global: bool = False, explicit_target: bool = False) -> str:
+    return build_runtime_cli_bridge_command(
+        "opencode",
+        target_dir=target,
+        config_dir_name=".opencode",
+        is_global=is_global,
+        explicit_target=explicit_target,
+    )
 
 
 def _install_real_repo_for_runtime(tmp_path: Path, runtime: str) -> Path:
@@ -599,6 +610,23 @@ class TestOpenCodeRoundtrip:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         files = manifest.get("files", {})
         assert any(k.startswith("command/gpd-") for k in files)
+
+
+def test_real_installed_opencode_artifacts_rewrite_gpd_cli_calls_to_runtime_bridge(tmp_path: Path) -> None:
+    target = _install_real_repo_for_runtime(tmp_path, "opencode")
+    expected_bridge = expected_opencode_bridge(target, is_global=False)
+    command = (target / "command" / "gpd-settings.md").read_text(encoding="utf-8")
+    workflow = (target / "get-physics-done" / "workflows" / "settings.md").read_text(encoding="utf-8")
+    agent = (target / "agents" / "gpd-planner.md").read_text(encoding="utf-8")
+
+    assert expected_bridge + " config ensure-section" in command
+    assert f'INIT=$({expected_bridge} init progress --include state,config)' in command
+    assert expected_bridge + " config ensure-section" in workflow
+    assert f'INIT=$({expected_bridge} init progress --include state,config)' in workflow
+    assert 'echo "ERROR: gpd initialization failed: $INIT"' in workflow
+    assert f'INIT=$({expected_bridge} init plan-phase "<PHASE>")' in agent
+    assert 'INIT=$(gpd init progress --include state,config)' not in workflow
+    assert 'INIT=$(gpd init plan-phase "<PHASE>")' not in agent
 
 
 # ---------------------------------------------------------------------------

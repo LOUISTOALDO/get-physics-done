@@ -10,7 +10,11 @@ After all tasks complete, create `{phase}-{plan}-SUMMARY.md` at `${phase_dir}/`.
 
 **Frontmatter:** phase, plan, physics-area, tags, dependency graph (requires/provides/affects), methods (analytical/numerical/computational), key-files (created/modified), decisions, metrics (duration, completed date).
 
-**Verification contract:** For contract-backed work, the SUMMARY.md frontmatter MUST declare `plan_contract_ref`, `contract_results`, and any decisive `comparison_verdicts` so the verifier can test results without re-reading the full derivation. Every decisive numerical result needs concrete evidence. Every equation that matters downstream needs a spot-check or limiting-case anchor.
+**Canonical ledger schema to load before writing SUMMARY frontmatter:**
+
+@{GPD_INSTALL_DIR}/templates/contract-results-schema.md
+
+**Verification contract:** For contract-backed work, the SUMMARY.md frontmatter MUST declare `plan_contract_ref`, `contract_results`, and any decisive `comparison_verdicts` so the verifier can test results without re-reading the full derivation. `plan_contract_ref` must end with the exact `#/contract` fragment. `contract_results` must cover every declared claim, deliverable, acceptance test, reference, and forbidden proxy ID from the PLAN contract. Use only real contract IDs in both ledgers. If a decisive comparison remains open, keep the parent target incomplete and emit `verdict: inconclusive` or `verdict: tension` instead of omitting the verdict. Every decisive numerical result needs concrete evidence. Every equation that matters downstream needs a spot-check or limiting-case anchor.
 
 ```yaml
 plan_contract_ref: ".gpd/phases/XX-name/{phase}-{plan}-PLAN.md#/contract"
@@ -18,30 +22,43 @@ contract_results:
   claims:
     claim-main:
       status: passed
+      summary: "[what was actually established]"
+      linked_ids: [deliv-main, test-main, ref-main]
       evidence:
         - verifier: gpd-executor
           method: benchmark reproduction
           confidence: high
-          evidence_path: "paper/benchmark.dat"
-          notes: "[How the decisive claim was checked]"
+          claim_id: claim-main
+          deliverable_id: deliv-main
+          acceptance_test_id: test-main
+          reference_id: ref-main
+          evidence_path: ".gpd/phases/XX-name/{phase}-VERIFICATION.md"
   deliverables:
     deliv-main:
       status: passed
-      evidence:
-        - verifier: gpd-executor
-          method: artifact creation
-          confidence: high
-          evidence_path: "paper/figures/main.pdf"
-          notes: "[Artifact produced]"
+      path: "paper/figures/main.pdf"
+      summary: "[artifact produced and why it matters]"
+      linked_ids: [claim-main, test-main]
   acceptance_tests:
     test-main:
       status: passed
-      evidence:
-        - verifier: gpd-executor
-          method: acceptance test execution
-          confidence: high
-          evidence_path: "analysis/benchmark_check.py"
-          notes: "[Executed check and outcome]"
+      summary: "[executed decisive check and outcome]"
+      linked_ids: [claim-main, deliv-main, ref-main]
+  references:
+    ref-main:
+      status: completed
+      completed_actions: [read, compare, cite]
+      missing_actions: []
+      summary: "[how the anchor was surfaced]"
+  forbidden_proxies:
+    fp-main:
+      status: rejected
+      notes: "[why this tempting proxy did not count as success]"
+  uncertainty_markers:
+    weakest_anchors: []
+    unvalidated_assumptions: []
+    competing_explanations: []
+    disconfirming_observations: []
 comparison_verdicts:
   - subject_id: "claim-main"
     subject_kind: "claim"
@@ -51,6 +68,8 @@ comparison_verdicts:
     metric: "relative_error"
     threshold: "<= 0.01"
     verdict: "pass"
+    recommended_action: "[what to do next if this later regresses]"
+    notes: "[How the benchmark was checked]"
 ```
 
 **Title:** `# Phase [X] Plan [Y]: [Name] Summary`
