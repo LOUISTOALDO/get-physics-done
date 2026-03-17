@@ -9,11 +9,9 @@
 
 Get Physics Done is an open-source AI copilot for physics research from [Physical Superintelligence PBC (PSI)](https://www.psi.inc), released as a community contribution. GPD helps turn a research question into a structured workflow: scope the problem, plan the work, derive results, verify them, and package the output.
 
-<p align="center">
-  <video controls width="720">
-    <source src="https://github.com/user-attachments/assets/aaa2410f-6039-420f-8857-d3fbb8634074">
-  </video>
-</p>
+**Watch the Demo:**
+
+https://github.com/user-attachments/assets/aaa2410f-6039-420f-8857-d3fbb8634074
 
 [Quick Start](#quick-start) · [Supported Runtimes](#supported-runtimes) · [Workflow](#what-gpd-does) · [Commands](#key-in-runtime-commands) · [Models](#optional-model-profiles-and-tier-overrides) · [Advanced CLI](#advanced-cli-utilities) · [System Requirements](#system-requirements)
 
@@ -22,7 +20,6 @@ Get Physics Done is an open-source AI copilot for physics research from [Physica
 GPD is for hard physics research problems that cannot be handled reliably with manual prompting.
 
 It is designed for long-horizon projects that require rigorous verification, structured research memory, multi-step analytical work, complex numerical studies, and manuscript writing or review.
-
 
 We welcome contributions and feedback via GitHub issues or pull requests; if GPD is useful in your work, please star the repo, and share it with colleagues who might benefit.
 
