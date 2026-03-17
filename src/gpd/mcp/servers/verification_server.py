@@ -456,6 +456,24 @@ def _validate_string_list(value: object, *, field_name: str) -> tuple[list[str] 
     return value, None
 
 
+def _validate_boolean(value: object, *, field_name: str) -> tuple[bool | None, dict[str, object] | None]:
+    """Return a validated bool or an MCP error envelope."""
+    if value is None:
+        return None, None
+    if not isinstance(value, bool):
+        return None, _error_result(f"{field_name} must be a boolean")
+    return value, None
+
+
+def _validate_number(value: object, *, field_name: str) -> tuple[int | float | None, dict[str, object] | None]:
+    """Return a validated numeric scalar without accepting bools."""
+    if value is None:
+        return None, None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None, _error_result(f"{field_name} must be a number")
+    return value, None
+
+
 def _validate_string_mapping(
     value: object,
     *,
@@ -1359,7 +1377,9 @@ def run_contract_check(request: dict) -> dict:
                     missing_inputs.append("metadata.regime_label")
                 if not expected_behavior:
                     missing_inputs.append("metadata.expected_behavior")
-                limit_passed = observed.get("limit_passed")
+                limit_passed, error = _validate_boolean(observed.get("limit_passed"), field_name="observed.limit_passed")
+                if error is not None:
+                    return error
                 observed_limit = observed.get("observed_limit")
                 metrics["regime_label"] = regime_label
                 metrics["observed_limit"] = observed_limit
@@ -1379,8 +1399,15 @@ def run_contract_check(request: dict) -> dict:
 
             elif check_meta.check_key == "contract.benchmark_reproduction":
                 source_reference_id = metadata.get("source_reference_id")
-                metric_value = observed.get("metric_value")
-                threshold_value = observed.get("threshold_value")
+                metric_value, error = _validate_number(observed.get("metric_value"), field_name="observed.metric_value")
+                if error is not None:
+                    return error
+                threshold_value, error = _validate_number(
+                    observed.get("threshold_value"),
+                    field_name="observed.threshold_value",
+                )
+                if error is not None:
+                    return error
                 source_reference_id, source_reference_issue = _validate_benchmark_reference_binding(
                     contract=contract,
                     binding_ids=binding_ids,
@@ -1399,8 +1426,8 @@ def run_contract_check(request: dict) -> dict:
                 metrics["metric_value"] = metric_value
                 metrics["threshold_value"] = threshold_value
                 if (
-                    isinstance(metric_value, (int, float))
-                    and isinstance(threshold_value, (int, float))
+                    metric_value is not None
+                    and threshold_value is not None
                     and source_reference_id
                 ):
                     evidence_directness = "direct"
@@ -1414,10 +1441,27 @@ def run_contract_check(request: dict) -> dict:
                     evidence_directness = "mixed"
 
             elif check_meta.check_key == "contract.direct_proxy_consistency":
-                proxy_only = _truthy(observed.get("proxy_only"))
-                direct_available = _truthy(observed.get("direct_available"))
-                proxy_available = _truthy(observed.get("proxy_available"))
-                consistency_passed = observed.get("consistency_passed")
+                proxy_only, error = _validate_boolean(observed.get("proxy_only"), field_name="observed.proxy_only")
+                if error is not None:
+                    return error
+                direct_available, error = _validate_boolean(
+                    observed.get("direct_available"),
+                    field_name="observed.direct_available",
+                )
+                if error is not None:
+                    return error
+                proxy_available, error = _validate_boolean(
+                    observed.get("proxy_available"),
+                    field_name="observed.proxy_available",
+                )
+                if error is not None:
+                    return error
+                consistency_passed, error = _validate_boolean(
+                    observed.get("consistency_passed"),
+                    field_name="observed.consistency_passed",
+                )
+                if error is not None:
+                    return error
                 metrics.update(
                     {
                         "proxy_only": proxy_only,
@@ -1446,7 +1490,12 @@ def run_contract_check(request: dict) -> dict:
                 selected_family = observed.get("selected_family")
                 allowed = {str(item) for item in metadata.get("allowed_families", []) if isinstance(item, str)}
                 forbidden = {str(item) for item in metadata.get("forbidden_families", []) if isinstance(item, str)}
-                competing_checked = observed.get("competing_family_checked")
+                competing_checked, error = _validate_boolean(
+                    observed.get("competing_family_checked"),
+                    field_name="observed.competing_family_checked",
+                )
+                if error is not None:
+                    return error
                 if not declared_family:
                     missing_inputs.append("metadata.declared_family")
                 if selected_family is None:
@@ -1481,8 +1530,15 @@ def run_contract_check(request: dict) -> dict:
                 selected_family = observed.get("selected_family")
                 allowed = {str(item) for item in metadata.get("allowed_families", []) if isinstance(item, str)}
                 forbidden = {str(item) for item in metadata.get("forbidden_families", []) if isinstance(item, str)}
-                bias_checked = observed.get("bias_checked")
-                calibration_checked = observed.get("calibration_checked")
+                bias_checked, error = _validate_boolean(observed.get("bias_checked"), field_name="observed.bias_checked")
+                if error is not None:
+                    return error
+                calibration_checked, error = _validate_boolean(
+                    observed.get("calibration_checked"),
+                    field_name="observed.calibration_checked",
+                )
+                if error is not None:
+                    return error
                 if not declared_family:
                     missing_inputs.append("metadata.declared_family")
                 if selected_family is None:
@@ -1556,6 +1612,10 @@ def suggest_contract_checks(contract: dict, active_checks: list[str] | None = No
         try:
             if not isinstance(contract, dict):
                 return _error_result("contract must be an object")
+            if active_checks is not None:
+                active_checks, error = _validate_string_list(active_checks, field_name="active_checks")
+                if error is not None:
+                    return error
             parsed, contract_salvage_errors, error = _parse_contract_payload(contract)
             if error is not None or parsed is None:
                 return error or _error_result("Invalid contract payload")

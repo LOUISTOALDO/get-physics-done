@@ -621,6 +621,23 @@ def test_save_state_json_drops_malformed_project_contract_instead_of_salvaging(t
     assert persisted["open_questions"] == ["Keep this question"]
 
 
+def test_save_state_json_preserves_recoverable_warning_only_project_contract_drift(tmp_path: Path):
+    contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    contract["references"][0]["aliases"] = "not-a-list"
+
+    state = default_state_dict()
+    state["position"]["current_phase"] = "2"
+    state["position"]["status"] = "Executing"
+    state["project_contract"] = contract
+
+    save_state_json(tmp_path, state)
+
+    layout = ProjectLayout(tmp_path)
+    persisted = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    assert persisted["project_contract"] is not None
+    assert persisted["project_contract"]["references"][0]["aliases"] == []
+
+
 def test_save_state_markdown_drops_existing_malformed_project_contract_instead_of_salvaging(tmp_path: Path):
     state = default_state_dict()
     state["position"]["current_phase"] = "2"
@@ -696,6 +713,27 @@ def test_load_state_json_primary_file_drops_malformed_project_contract_instead_o
     assert loaded is not None
     assert loaded["project_contract"] is None
     assert loaded["position"]["current_phase"] == "2"
+
+
+def test_load_state_json_preserves_recoverable_warning_only_project_contract_drift(tmp_path: Path):
+    state = default_state_dict()
+    state["position"]["current_phase"] = "2"
+    state["position"]["status"] = "Executing"
+    save_state_json(tmp_path, state)
+
+    layout = ProjectLayout(tmp_path)
+    contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    contract["references"][0]["aliases"] = "not-a-list"
+
+    corrupted = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    corrupted["project_contract"] = contract
+    layout.state_json.write_text(json.dumps(corrupted, indent=2) + "\n", encoding="utf-8")
+
+    loaded = load_state_json(tmp_path)
+
+    assert loaded is not None
+    assert loaded["project_contract"] is not None
+    assert loaded["project_contract"]["references"][0]["aliases"] == []
 
 
 def test_ensure_state_schema_preserves_good_fields_when_one_is_bad():
@@ -818,6 +856,29 @@ def test_state_validate_review_blocks_verified_result_without_records(tmp_path):
     assert result.integrity_mode == "review"
     assert result.integrity_status == "blocked"
     assert any("verified=true but no verification_records present" in issue for issue in result.issues)
+
+
+def test_state_validate_matches_load_for_recoverable_project_contract_warning_drift(tmp_path):
+    state = default_state_dict()
+    state["position"]["status"] = "Executing"
+    save_state_json(tmp_path, state)
+
+    layout = ProjectLayout(tmp_path)
+    contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    contract["references"][0]["aliases"] = "not-a-list"
+
+    persisted = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    persisted["project_contract"] = contract
+    layout.state_json.write_text(json.dumps(persisted, indent=2) + "\n", encoding="utf-8")
+
+    loaded = load_state_json(tmp_path)
+    validation = state_validate(tmp_path)
+
+    assert loaded is not None
+    assert loaded["project_contract"] is not None
+    assert loaded["project_contract"]["references"][0]["aliases"] == []
+    assert validation.valid is True
+    assert any("references.0.aliases" in warning for warning in validation.warnings)
 
 
 def test_state_validate_review_blocks_missing_evidence_file(tmp_path):

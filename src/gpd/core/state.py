@@ -1038,10 +1038,16 @@ def _normalize_project_contract_section(
             'schema normalization: dropped "project_contract" because authoritative scalar fields required normalization'
         )
         return None
-    if not allow_project_contract_salvage:
+    _schema_warnings, schema_errors = _split_project_contract_schema_findings(
+        errors,
+        allow_singleton_defaults=allow_project_contract_salvage,
+    )
+    if schema_errors and not allow_project_contract_salvage:
         integrity_issues.append(
             'schema normalization: dropped "project_contract" because contract schema required normalization'
         )
+        return None
+    if normalized_contract is None:
         return None
     return normalized_contract.model_dump() if normalized_contract is not None else None
 

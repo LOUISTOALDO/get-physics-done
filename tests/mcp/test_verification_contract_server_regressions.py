@@ -176,6 +176,15 @@ def test_suggest_contract_checks_rejects_non_mapping_payloads(payload: object) -
     assert result == {"error": "contract must be an object", "schema_version": 1}
 
 
+@pytest.mark.parametrize("active_checks", ["5.16", 5, {"5.16": True}])
+def test_suggest_contract_checks_rejects_non_list_active_checks(active_checks: object) -> None:
+    from gpd.mcp.servers.verification_server import suggest_contract_checks
+
+    result = suggest_contract_checks(_derived_template_contract(), active_checks=active_checks)  # type: ignore[arg-type]
+
+    assert result == {"error": "active_checks must be a list of strings", "schema_version": 1}
+
+
 @pytest.mark.parametrize("payload", ["not-a-dict", ["claim-benchmark"], 3])
 def test_run_contract_check_rejects_non_mapping_payloads(payload: object) -> None:
     from gpd.mcp.servers.verification_server import run_contract_check
@@ -228,6 +237,65 @@ def test_run_contract_check_rejects_non_mapping_payloads(payload: object) -> Non
 )
 def test_run_contract_check_rejects_malformed_binding_and_metadata_list_members(
     request_payload: dict[str, object], expected_error: str
+) -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check
+
+    result = run_contract_check(request_payload)
+
+    assert result == {"error": expected_error, "schema_version": 1}
+
+
+@pytest.mark.parametrize(
+    ("request_payload", "expected_error"),
+    [
+        (
+            {
+                "check_key": "contract.benchmark_reproduction",
+                "metadata": {"source_reference_id": "ref-benchmark"},
+                "observed": {"metric_value": True, "threshold_value": 0.02},
+            },
+            "observed.metric_value must be a number",
+        ),
+        (
+            {
+                "check_key": "contract.benchmark_reproduction",
+                "metadata": {"source_reference_id": "ref-benchmark"},
+                "observed": {"metric_value": 0.01, "threshold_value": False},
+            },
+            "observed.threshold_value must be a number",
+        ),
+        (
+            {
+                "check_key": "contract.direct_proxy_consistency",
+                "observed": {"proxy_only": "true"},
+            },
+            "observed.proxy_only must be a boolean",
+        ),
+        (
+            {
+                "check_key": "contract.fit_family_mismatch",
+                "metadata": {"declared_family": "power_law"},
+                "observed": {"selected_family": "power_law", "competing_family_checked": "false"},
+            },
+            "observed.competing_family_checked must be a boolean",
+        ),
+        (
+            {
+                "check_key": "contract.estimator_family_mismatch",
+                "metadata": {"declared_family": "bootstrap"},
+                "observed": {
+                    "selected_family": "bootstrap",
+                    "bias_checked": "true",
+                    "calibration_checked": True,
+                },
+            },
+            "observed.bias_checked must be a boolean",
+        ),
+    ],
+)
+def test_run_contract_check_rejects_coercive_numeric_and_boolean_fields(
+    request_payload: dict[str, object],
+    expected_error: str,
 ) -> None:
     from gpd.mcp.servers.verification_server import run_contract_check
 

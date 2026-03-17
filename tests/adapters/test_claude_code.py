@@ -183,13 +183,16 @@ class TestInstall:
         expected_bridge = expected_claude_bridge(target)
         command = (target / "commands" / "gpd" / "settings.md").read_text(encoding="utf-8")
         workflow = (target / "get-physics-done" / "workflows" / "set-profile.md").read_text(encoding="utf-8")
+        execute_phase = (target / "get-physics-done" / "workflows" / "execute-phase.md").read_text(encoding="utf-8")
         agent = (target / "agents" / "gpd-planner.md").read_text(encoding="utf-8")
 
         assert "gpd convention set" in command
         assert expected_bridge + " init progress --include state,config" in workflow
         assert 'echo "ERROR: gpd initialization failed: $INIT"' in workflow
+        assert f'if ! {expected_bridge} verify plan "$plan"; then' in execute_phase
         assert f'INIT=$({expected_bridge} init plan-phase "${{PHASE}}")' in agent
         assert "gpd init progress --include state,config" not in workflow
+        assert 'if ! gpd verify plan "$plan"; then' not in execute_phase
         assert 'INIT=$(gpd init plan-phase "${PHASE}")' not in agent
 
     def test_install_configures_update_hook(self, adapter: ClaudeCodeAdapter, gpd_root: Path, tmp_path: Path) -> None:

@@ -417,6 +417,35 @@ def test_bootstrap_supports_all_runtime_uninstall_in_one_pass(tmp_path: Path) ->
 
 @pytest.mark.skipif(os.name == "nt", reason="bootstrap installer harness uses POSIX-style fake Python shims")
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is required for bootstrap installer tests")
+def test_bootstrap_install_requires_explicit_runtime_non_interactively(tmp_path: Path) -> None:
+    result, _, log_path = _run_bootstrap_with_fake_python(
+        tmp_path,
+        installer_args=["--local"],
+    )
+
+    assert result.returncode == 1
+    assert "Specify a runtime with" in result.stderr
+    assert "when running non-interactively." in result.stderr
+    for flag in ("--claude", "--gemini", "--codex", "--opencode"):
+        assert flag in result.stderr
+    assert not log_path.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="bootstrap installer harness uses POSIX-style fake Python shims")
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is required for bootstrap installer tests")
+def test_bootstrap_install_requires_explicit_scope_non_interactively(tmp_path: Path) -> None:
+    result, _, log_path = _run_bootstrap_with_fake_python(
+        tmp_path,
+        installer_args=["--codex"],
+    )
+
+    assert result.returncode == 1
+    assert "Specify --global or --local when running non-interactively." in result.stderr
+    assert not log_path.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="bootstrap installer harness uses POSIX-style fake Python shims")
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is required for bootstrap installer tests")
 def test_bootstrap_uninstall_requires_explicit_runtime_non_interactively(tmp_path: Path) -> None:
     result, _, _ = _run_bootstrap_with_fake_python(
         tmp_path,
@@ -486,7 +515,7 @@ def test_bootstrap_forwards_target_dir_to_runtime_install(tmp_path: Path) -> Non
     target_dir = tmp_path / "custom target" / ".codex"
     result, _, log_path = _run_bootstrap_with_fake_python(
         tmp_path,
-        installer_args=["--codex", "--local", "--target-dir", str(target_dir)],
+        installer_args=["--codex", "--target-dir", str(target_dir)],
     )
 
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"

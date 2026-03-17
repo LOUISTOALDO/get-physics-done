@@ -645,6 +645,37 @@ def test_install_single_runtime_resolves_relative_target_dir_against_cli_cwd(tmp
     assert captured_calls == [cli_cwd / "relative-target"]
 
 
+def test_install_single_runtime_rejects_explicit_target_with_foreign_manifest(
+    gpd_root: Path,
+    tmp_path: Path,
+) -> None:
+    """Explicit target installs must not clean up a config dir owned by another runtime."""
+    from gpd.adapters.claude_code import ClaudeCodeAdapter
+    from gpd.cli import _install_single_runtime
+
+    target = tmp_path / "shared-runtime-dir"
+    target.mkdir()
+    (target / "get-physics-done").mkdir()
+    preserved = target / "get-physics-done" / "keep.md"
+    preserved.write_text("preserve", encoding="utf-8")
+    manifest_path = target / "gpd-file-manifest.json"
+    manifest_path.write_text(
+        json.dumps({"runtime": "gemini", "install_scope": "local", "explicit_target": True}),
+        encoding="utf-8",
+    )
+
+    with (
+        patch("gpd.adapters.get_adapter", return_value=ClaudeCodeAdapter()),
+        patch("gpd.version.resolve_install_gpd_root", return_value=gpd_root),
+        patch("gpd.cli._get_cwd", return_value=tmp_path),
+    ):
+        with pytest.raises(RuntimeError, match="Gemini CLI \\(`gemini`\\), not Claude Code \\(`claude-code`\\)"):
+            _install_single_runtime("claude-code", is_global=False, target_dir_override=str(target))
+
+    assert preserved.read_text(encoding="utf-8") == "preserve"
+    assert json.loads(manifest_path.read_text(encoding="utf-8"))["runtime"] == "gemini"
+
+
 def test_local_install_manifest_stays_non_explicit_outside_process_cwd(gpd_root: Path, tmp_path: Path):
     """Default local installs should not become explicit targets just because cwd differs."""
     from gpd.adapters.claude_code import ClaudeCodeAdapter
@@ -715,6 +746,27 @@ def test_uninstall_resolves_relative_target_dir_against_cli_cwd(tmp_path: Path):
 
     assert result.exit_code == 0
     assert captured_targets == [target]
+
+
+def test_uninstall_rejects_target_dir_with_foreign_manifest(tmp_path: Path) -> None:
+    """Explicit target uninstalls must not remove another runtime's install."""
+    target = tmp_path / "shared-runtime-dir"
+    target.mkdir()
+    (target / "get-physics-done").mkdir()
+    preserved = target / "get-physics-done" / "keep.md"
+    preserved.write_text("preserve", encoding="utf-8")
+    manifest_path = target / "gpd-file-manifest.json"
+    manifest_path.write_text(
+        json.dumps({"runtime": "gemini", "install_scope": "local", "explicit_target": True}),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["uninstall", "claude-code", "--target-dir", str(target)])
+
+    assert result.exit_code == 1
+    assert "Gemini CLI (`gemini`), not Claude Code (`claude-code`)" in result.output
+    assert preserved.read_text(encoding="utf-8") == "preserve"
+    assert json.loads(manifest_path.read_text(encoding="utf-8"))["runtime"] == "gemini"
 
 
 def test_install_interactive_rejects_ambiguous_runtime_name(tmp_path: Path):

@@ -954,13 +954,11 @@ async function selectRuntimes(args, action = "install") {
   }
 
   if (!process.stdin.isTTY) {
-    if (action === "uninstall") {
-      error(`Specify a runtime with ${documentedRuntimeFlags().join("/")} or use --all when running --uninstall non-interactively.`);
-      process.exit(1);
-    }
-    const defaultRuntime = ALL_RUNTIMES[0];
-    warn(`Non-interactive terminal detected, defaulting to ${runtimeDisplayName(defaultRuntime)}.`);
-    return [defaultRuntime];
+    const mode = action === "uninstall" ? "--uninstall " : "";
+    error(
+      `Specify a runtime with ${documentedRuntimeFlags().join("/")} or use --all when running ${mode}non-interactively.`
+    );
+    process.exit(1);
   }
 
   const optionLabelWidth = Math.max(
@@ -1009,12 +1007,9 @@ async function selectInstallScope(args, runtimes, targetDir, action = "install")
   }
 
   if (!process.stdin.isTTY) {
-    if (action === "uninstall") {
-      error("Specify --global or --local when running --uninstall non-interactively.");
-      process.exit(1);
-    }
-    warn("Non-interactive terminal detected, defaulting to global install.");
-    return "global";
+    const mode = action === "uninstall" ? "--uninstall " : "";
+    error(`Specify --global or --local when running ${mode}non-interactively.`);
+    process.exit(1);
   }
 
   const globalExample = formatLocationExample(runtimes, "global");

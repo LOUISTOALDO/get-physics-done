@@ -214,17 +214,21 @@ class TestInstall:
         expected_bridge = expected_codex_bridge(target, is_global=False)
         skill = (local_skills / "gpd-set-profile" / "SKILL.md").read_text(encoding="utf-8")
         workflow = (target / "get-physics-done" / "workflows" / "set-profile.md").read_text(encoding="utf-8")
+        execute_phase = (target / "get-physics-done" / "workflows" / "execute-phase.md").read_text(encoding="utf-8")
         agent = (target / "agents" / "gpd-planner.md").read_text(encoding="utf-8")
 
         assert "Codex shell compatibility:" in skill
         assert f"When shell steps call the GPD CLI, use {expected_bridge}" in skill
-        assert "`GPD_ACTIVE_RUNTIME=codex uv run gpd ...`" in skill
+        assert "validates the install contract" in skill
+        assert "`GPD_ACTIVE_RUNTIME=codex uv run gpd ...`" not in skill
         assert expected_bridge + " config ensure-section" in skill
         assert f'INIT=$({expected_bridge} init progress --include state,config)' in skill
         assert 'echo "ERROR: gpd initialization failed: $INIT"' in skill
         assert expected_bridge + " config ensure-section" in workflow
+        assert f'if ! {expected_bridge} verify plan "$plan"; then' in execute_phase
         assert f'INIT=$({expected_bridge} init plan-phase "${{PHASE}}")' in agent
         assert "```bash\ngpd config ensure-section\n" not in workflow
+        assert 'if ! gpd verify plan "$plan"; then' not in execute_phase
         assert 'INIT=$(gpd init plan-phase "${PHASE}")' not in agent
 
     def test_install_does_not_expose_agents_as_skills(

@@ -4046,8 +4046,6 @@ def _resolve_cli_target_dir(target_dir: str) -> Path:
     if resolved.is_absolute():
         return resolved
     return _get_cwd() / resolved
-
-
 @app.command("install")
 def install(
     runtimes: list[str] | None = typer.Argument(
@@ -4227,7 +4225,10 @@ def uninstall(
             if not _raw:
                 console.print(f"  [yellow]⊘[/] {adapter.display_name} — not installed at {_format_display_path(target)}")
             continue
-        result = adapter.uninstall(target)
+        try:
+            result = adapter.uninstall(target)
+        except Exception as exc:
+            _error(str(exc))
         removed_items = result.get("removed", [])
         if not _raw:
             if removed_items:

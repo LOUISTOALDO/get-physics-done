@@ -762,13 +762,19 @@ def test_plan_checker_requires_contract_gate_and_reference_artifacts() -> None:
 
 def test_roadmap_template_and_workflows_surface_phase_contract_coverage() -> None:
     roadmap_template = (TEMPLATES_DIR / "roadmap.md").read_text(encoding="utf-8")
+    state_template = (TEMPLATES_DIR / "state.md").read_text(encoding="utf-8")
     roadmapper_agent = (AGENTS_DIR / "gpd-roadmapper.md").read_text(encoding="utf-8")
     new_project = (WORKFLOWS_DIR / "new-project.md").read_text(encoding="utf-8")
     new_milestone = (WORKFLOWS_DIR / "new-milestone.md").read_text(encoding="utf-8")
 
     assert "## Contract Overview" in roadmap_template
     assert "**Contract Coverage:**" in roadmap_template
+    assert "@{GPD_INSTALL_DIR}/templates/roadmap.md" in roadmapper_agent
+    assert "@{GPD_INSTALL_DIR}/templates/state.md" in roadmapper_agent
     assert "Contract coverage" in roadmapper_agent
+    assert "Phase Details" in roadmapper_agent
+    assert "Active Calculations" in roadmapper_agent
+    assert "Intermediate Results" in state_template
     assert "forbidden proxies a phase must carry" in roadmapper_agent
     assert "Phase counts are heuristics, not quotas" in roadmapper_agent
     assert "Do not pad the roadmap with speculative phases just to make it look complete." in roadmapper_agent
@@ -839,6 +845,10 @@ def test_revision_and_audit_workflows_verify_artifacts_before_trusting_success_t
     respond = (WORKFLOWS_DIR / "respond-to-referees.md").read_text(encoding="utf-8")
     audit = (WORKFLOWS_DIR / "audit-milestone.md").read_text(encoding="utf-8")
 
+    assert "response_to: REFEREE-REPORT{round_suffix}.md" in respond
+    assert "## Point-by-Point Responses" in respond
+    assert "**Classification:** fixed" in respond
+    assert "Use `**Evidence:**` blocks for rebuttals" in respond
     assert "verify the promised artifacts before trusting the handoff text" in respond
     assert "If the agent claimed success but the files did not change, treat that section as failed" in respond
     assert "Re-open `AUTHOR-RESPONSE.md` and `REFEREE_RESPONSE.md`" in respond

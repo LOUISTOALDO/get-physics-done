@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import abc
+import json
 import logging
 import os
 from collections.abc import Mapping
@@ -220,6 +221,33 @@ class RuntimeAdapter(abc.ABC):
         """Return whether *target_dir* satisfies the shared install contract."""
         return not self.missing_install_artifacts(target_dir)
 
+    def _installed_manifest_runtime(self, target_dir: Path) -> str | None:
+        """Return the manifest runtime for *target_dir* when present."""
+        manifest_path = target_dir / MANIFEST_NAME
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        runtime = payload.get("runtime")
+        if not isinstance(runtime, str):
+            return None
+        normalized = runtime.strip()
+        return normalized or None
+
+    def _validate_target_runtime(self, target_dir: Path, *, action: str) -> None:
+        """Reject explicit target dirs that already belong to another runtime."""
+        manifest_runtime = self._installed_manifest_runtime(target_dir)
+        if manifest_runtime is None or manifest_runtime == self.runtime_name:
+            return
+
+        other_runtime = get_runtime_descriptor(manifest_runtime).display_name if manifest_runtime else manifest_runtime
+        raise RuntimeError(
+            f"Refusing to {action} `{target_dir}` because its GPD manifest belongs to "
+            f"{other_runtime} (`{manifest_runtime}`), not {self.display_name} (`{self.runtime_name}`)."
+        )
+
     def runtime_cli_bridge_command(self, target_dir: Path) -> str:
         """Return the shared runtime CLI bridge command for installed shell calls."""
         return build_runtime_cli_bridge_command(
@@ -266,6 +294,8 @@ class RuntimeAdapter(abc.ABC):
             self._install_is_global = is_global
             try:
                 self._validate(gpd_root)
+                if explicit_target:
+                    self._validate_target_runtime(target_dir, action="install into")
                 path_prefix = self._compute_path_prefix(target_dir, is_global)
                 self._pre_cleanup(target_dir)
                 install_version = version_for_gpd_root(gpd_root) or __version__
@@ -429,6 +459,7 @@ class RuntimeAdapter(abc.ABC):
         from gpd.core.observability import gpd_span
 
         with gpd_span("adapter.uninstall", runtime=self.runtime_name, target=str(target_dir)) as span:
+            self._validate_target_runtime(target_dir, action="uninstall from")
             removed: list[str] = []
 
             # Remove nested commands/gpd/ directory

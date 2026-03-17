@@ -43,7 +43,6 @@ from gpd.adapters.install_utils import (
     write_manifest,
 )
 from gpd.adapters.tool_names import build_runtime_alias_map, reference_translation_map, translate_for_runtime
-from gpd.core.constants import ENV_GPD_ACTIVE_RUNTIME
 from gpd.core.observability import gpd_span
 from gpd.registry import AgentDef, load_agents_from_dir
 
@@ -86,7 +85,7 @@ _CODEX_COMMAND_RUNTIME_NOTE = (
     "<codex_runtime_notes>\n"
     "Codex shell compatibility:\n"
     "- When shell steps call the GPD CLI, use {launcher} instead of the ambient `gpd` on PATH.\n"
-    f"- If you intentionally need the repo environment, keep the runtime pin: `{ENV_GPD_ACTIVE_RUNTIME}=codex uv run gpd ...`.\n"
+    "- The bridge already pins Codex and validates the install contract, so keep using it for normal CLI execution.\n"
     "</codex_runtime_notes>\n\n"
 )
 _CODEX_QUESTION_MARKERS = (
@@ -441,7 +440,7 @@ def _is_gpd_command_start(line: str, index: int) -> bool:
     if probe < 0:
         return True
 
-    if line[probe] in "|;(":
+    if line[probe] in "|;(!":
         return True
 
     if probe >= 1 and line[probe - 1 : probe + 1] in {"&&", "||", "$("}:

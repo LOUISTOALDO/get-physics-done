@@ -462,7 +462,7 @@ def _is_gpd_command_start(line: str, index: int) -> bool:
     if probe < 0:
         return True
 
-    if line[probe] in "|;(":
+    if line[probe] in "|;(!":
         return True
 
     if probe >= 1 and line[probe - 1 : probe + 1] in {"&&", "||", "$("}:
