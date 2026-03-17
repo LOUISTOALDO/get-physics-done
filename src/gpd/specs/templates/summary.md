@@ -32,6 +32,10 @@ Keep this ledger user-visible: record what claim was established, what artifact 
 Use `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` as the schema source of truth for these fields. If `contract_results` or `comparison_verdicts` are present, `plan_contract_ref` is also required. If a decisive comparison is required, omitting its `comparison_verdicts` entry is a validation failure, not a stylistic omission.
 Every declared claim, deliverable, acceptance test, reference, and forbidden proxy ID from the source PLAN contract must appear in the matching `contract_results` section. Use explicit statuses like `not_attempted`, `missing`, `not_applicable`, or `unresolved` instead of silently omitting contract IDs.
 `plan_contract_ref` must end with the exact `#/contract` fragment. For reference-backed decisive comparisons, `comparison_kind: benchmark|prior_work|experiment|baseline|cross_method` can satisfy the requirement; `comparison_kind: other` cannot.
+For `contract_results.references`, keep the action ledger consistent: `completed` needs non-empty `completed_actions`, `missing` needs non-empty `missing_actions`, `not_applicable` keeps both lists empty, and the two lists must not overlap.
+Every `comparison_verdicts` entry must declare `subject_role` explicitly. If a decisive external anchor was used, include `reference_id`; if the decisive anchor is itself the compared subject, use `subject_kind: reference`.
+Emit decisive `comparison_verdicts` whenever the PLAN contract includes `benchmark` or `cross_method` acceptance tests, whenever a benchmark/compare-driven reference anchors the subject, or whenever you performed a decisive comparison in practice.
+Do not invent extra keys in `contract_results`, `comparison_verdicts`, or `suggested_contract_checks`; those ledgers are closed schemas.
 
 Canonical ledger schema and validator-enforced rules to load before writing frontmatter:
 
@@ -147,7 +151,7 @@ contract_results (required for contract-backed plans):
 comparison_verdicts (required when a decisive comparison was required or attempted):
   - subject_id: claim-id
     subject_kind: claim|deliverable|acceptance_test|reference
-    subject_role: decisive|supporting|supplemental|other
+    subject_role: decisive|supporting|supplemental|other  # Must be explicit on every verdict
     reference_id: reference-id
     comparison_kind: benchmark|prior_work|experiment|cross_method|baseline|other
     metric: relative_error

@@ -57,6 +57,17 @@ def test_approved_mode_accepts_target_not_yet_chosen_phrase_in_weakest_anchors()
     assert result.mode == "approved"
 
 
+def test_approved_mode_accepts_comparison_source_still_undecided_phrase() -> None:
+    contract = _load_contract_fixture()
+    _remove_incidental_grounding(contract)
+    contract["context_intake"]["context_gaps"] = ["Comparison source still undecided before planning"]
+
+    result = validate_project_contract(contract, mode="approved")
+
+    assert result.valid is True
+    assert result.mode == "approved"
+
+
 def test_approved_mode_still_rejects_generic_open_gap_without_anchor_unknown_phrase() -> None:
     contract = _load_contract_fixture()
     _remove_incidental_grounding(contract)

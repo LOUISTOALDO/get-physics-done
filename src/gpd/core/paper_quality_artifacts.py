@@ -29,6 +29,8 @@ from gpd.core.paper_quality import (
     VerificationConfidence,
     VerificationQualityInput,
 )
+from gpd.mcp.paper.bibliography import BibliographyAudit
+from gpd.mcp.paper.models import ArtifactManifest
 
 __all__ = ["build_paper_quality_input"]
 
@@ -98,6 +100,26 @@ def _load_json(path: Path) -> dict[str, object]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _load_artifact_manifest(path: Path) -> ArtifactManifest | None:
+    payload = _load_json(path)
+    if not payload:
+        return None
+    try:
+        return ArtifactManifest.model_validate(payload)
+    except PydanticValidationError:
+        return None
+
+
+def _load_bibliography_audit(path: Path) -> BibliographyAudit | None:
+    payload = _load_json(path)
+    if not payload:
+        return None
+    try:
+        return BibliographyAudit.model_validate(payload)
+    except PydanticValidationError:
+        return None
+
+
 def _extract_meta(path: Path) -> dict[str, object]:
     content = _read_text(path)
     if content is None:
@@ -136,17 +158,13 @@ def _resolve_manuscript_dir(project_root: Path) -> Path:
     return project_root / "paper"
 
 
-def _available_citation_keys(manuscript_dir: Path, bibliography_audit: dict[str, object]) -> set[str]:
+def _available_citation_keys(manuscript_dir: Path, bibliography_audit: BibliographyAudit | None) -> set[str]:
     keys: set[str] = set()
 
-    entries = bibliography_audit.get("entries")
-    if isinstance(entries, list):
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            key = entry.get("key")
-            if isinstance(key, str) and key.strip():
-                keys.add(key.strip())
+    if bibliography_audit is not None:
+        for entry in bibliography_audit.entries:
+            if entry.key.strip():
+                keys.add(entry.key.strip())
 
     for bib_path in sorted(manuscript_dir.glob("*.bib")):
         content = _read_text(bib_path)
@@ -467,13 +485,21 @@ def build_paper_quality_input(project_root: Path) -> PaperQualityInput:
 
     root = Path(project_root)
     paper_dir = _resolve_manuscript_dir(root)
-    artifact_manifest = _load_json(paper_dir / "ARTIFACT-MANIFEST.json")
+    artifact_manifest = _load_artifact_manifest(paper_dir / "ARTIFACT-MANIFEST.json")
     paper_config = _load_json(paper_dir / "PAPER-CONFIG.json")
-    bibliography_audit = _load_json(paper_dir / "BIBLIOGRAPHY-AUDIT.json")
+    bibliography_audit = _load_bibliography_audit(paper_dir / "BIBLIOGRAPHY-AUDIT.json")
 
     tex_files, tex_content = _collect_tex_content(paper_dir)
-    title = str(artifact_manifest.get("paper_title") or paper_config.get("title") or paper_config.get("paper_title") or "")
-    journal = str(artifact_manifest.get("journal") or paper_config.get("journal") or "generic")
+    title = (
+        artifact_manifest.paper_title
+        if artifact_manifest is not None
+        else str(paper_config.get("title") or paper_config.get("paper_title") or "")
+    )
+    journal = (
+        artifact_manifest.journal
+        if artifact_manifest is not None
+        else str(paper_config.get("journal") or "generic")
+    )
 
     figure_registry = _load_figure_registry(root)
     verdicts = _collect_comparison_verdicts(root)
@@ -497,11 +523,11 @@ def build_paper_quality_input(project_root: Path) -> PaperQualityInput:
     if _CONCLUSION_RE.search(tex_content):
         present_sections += 1
 
-    resolved_sources = int(bibliography_audit.get("resolved_sources") or 0)
-    total_sources = int(bibliography_audit.get("total_sources") or 0)
-    partial_sources = int(bibliography_audit.get("partial_sources") or 0)
-    unverified_sources = int(bibliography_audit.get("unverified_sources") or 0)
-    failed_sources = int(bibliography_audit.get("failed_sources") or 0)
+    resolved_sources = bibliography_audit.resolved_sources if bibliography_audit is not None else 0
+    total_sources = bibliography_audit.total_sources if bibliography_audit is not None else 0
+    partial_sources = bibliography_audit.partial_sources if bibliography_audit is not None else 0
+    unverified_sources = bibliography_audit.unverified_sources if bibliography_audit is not None else 0
+    failed_sources = bibliography_audit.failed_sources if bibliography_audit is not None else 0
     available_citation_keys = _available_citation_keys(paper_dir, bibliography_audit)
 
     if cite_keys:
@@ -518,7 +544,7 @@ def build_paper_quality_input(project_root: Path) -> PaperQualityInput:
         key_prior_work_cited=BinaryCheck(passed=bool(verdicts) or bool(cite_keys)),
         hallucination_free=BinaryCheck(
             passed=failed_sources == 0 and partial_sources == 0 and unverified_sources == 0,
-            not_applicable=not bibliography_audit,
+            not_applicable=bibliography_audit is None,
         ),
     )
     completeness = CompletenessQualityInput(

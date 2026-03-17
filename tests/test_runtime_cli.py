@@ -12,7 +12,7 @@ import pytest
 import gpd.runtime_cli as runtime_cli
 from gpd.adapters import get_adapter
 from gpd.core.constants import ENV_GPD_ACTIVE_RUNTIME, ENV_GPD_DISABLE_CHECKOUT_REEXEC
-from gpd.runtime_cli import main
+from gpd.runtime_cli import _parse_args, _resolve_cli_cwd_from_argv, main
 
 
 def _mark_complete_install(config_dir: Path, *, runtime: str, install_scope: str = "local") -> None:
@@ -172,6 +172,91 @@ def test_runtime_cli_preserves_subcommand_runtime_flags(monkeypatch, tmp_path: P
     assert exit_code == 0
     assert observed["argv"] == ["gpd", "resolve-model", "gpd-executor", "--runtime", "gemini"]
     assert observed["runtime"] == "codex"
+
+
+def test_runtime_cli_bridge_parse_preserves_passthrough_after_double_dash() -> None:
+    options, gpd_args = _parse_args(
+        [
+            "--runtime",
+            "codex",
+            "--config-dir",
+            "./.codex",
+            "--install-scope",
+            "local",
+            "--",
+            "--raw",
+            "state",
+            "load",
+        ]
+    )
+
+    assert options.runtime == "codex"
+    assert gpd_args == ["--raw", "state", "load"]
+
+
+def test_runtime_cli_resolves_cli_cwd_from_equals_style_flag(monkeypatch, tmp_path: Path) -> None:
+    launcher_cwd = tmp_path / "launcher"
+    launcher_cwd.mkdir()
+    forwarded_cwd = tmp_path / "workspace" / "nested"
+    forwarded_cwd.mkdir(parents=True)
+    monkeypatch.chdir(launcher_cwd)
+
+    assert _resolve_cli_cwd_from_argv(["--cwd=" + str(forwarded_cwd), "state", "load"]) == forwarded_cwd
+
+
+def test_runtime_cli_preserves_root_global_flags_before_subcommand(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / ".codex"
+    _mark_complete_install(config_dir, runtime="codex")
+    forwarded_cwd = tmp_path / "workspace"
+    forwarded_cwd.mkdir()
+
+    exit_code, observed = _run_runtime_cli_with_recording(
+        monkeypatch,
+        cwd=tmp_path,
+        argv=[
+            "--runtime",
+            "codex",
+            "--config-dir",
+            str(config_dir),
+            "--install-scope",
+            "local",
+            "--raw",
+            "--cwd",
+            str(forwarded_cwd),
+            "state",
+            "load",
+        ],
+    )
+
+    assert exit_code == 0
+    assert observed["argv"] == ["gpd", "--raw", "--cwd", str(forwarded_cwd), "state", "load"]
+
+
+def test_runtime_cli_keeps_double_dash_passthrough_arguments_verbatim(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / ".codex"
+    _mark_complete_install(config_dir, runtime="codex")
+
+    exit_code, observed = _run_runtime_cli_with_recording(
+        monkeypatch,
+        cwd=tmp_path,
+        argv=[
+            "--runtime",
+            "codex",
+            "--config-dir",
+            str(config_dir),
+            "--install-scope",
+            "local",
+            "state",
+            "load",
+            "--",
+            "--raw",
+            "--cwd",
+            "literal",
+        ],
+    )
+
+    assert exit_code == 0
+    assert observed["argv"] == ["gpd", "state", "load", "--", "--raw", "--cwd", "literal"]
 
 
 def test_runtime_cli_reexecs_from_installed_package_using_forwarded_cli_cwd(monkeypatch, tmp_path: Path) -> None:

@@ -37,12 +37,15 @@ _ANCHOR_UNKNOWN_TOPIC_PATTERNS = (
     re.compile(r"\banchor\b"),
     re.compile(r"\bbenchmark\b"),
     re.compile(r"\bbaseline\b"),
+    re.compile(r"\bcomparison source\b"),
+    re.compile(r"\bdecisive source\b"),
     re.compile(r"\breference\b"),
     re.compile(r"\bground[- ]truth\b"),
     re.compile(r"\bsmoking gun\b"),
 )
 _ANCHOR_UNKNOWN_BLOCKER_PATTERNS = (
     re.compile(r"\bunknown\b"),
+    re.compile(r"\bundecided\b"),
     re.compile(r"\bunclear\b"),
     re.compile(r"\bmissing\b"),
     re.compile(r"\bnot (?:yet )?established\b"),

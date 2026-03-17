@@ -17,21 +17,50 @@ import re
 import subprocess
 from pathlib import Path
 
+from gpd.adapters import iter_adapters
+from gpd.adapters.runtime_catalog import iter_runtime_descriptors
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+_RUNTIME_DESCRIPTORS = iter_runtime_descriptors()
+
+
+def _runtime_env_prefix_patterns() -> list[str]:
+    patterns: set[str] = set()
+    for descriptor in _RUNTIME_DESCRIPTORS:
+        for env_var in descriptor.activation_env_vars:
+            patterns.add(re.escape(env_var))
+            prefix = env_var.rsplit("_", 1)[0] if "_" in env_var else env_var
+            patterns.add(rf"{re.escape(prefix)}_[A-Z0-9_]*")
+    return sorted(patterns)
+
+
+def _runtime_owned_path_patterns() -> list[str]:
+    patterns: set[str] = set()
+    for descriptor in _RUNTIME_DESCRIPTORS:
+        config_dir = re.escape(descriptor.config_dir_name)
+        patterns.add(rf"{config_dir}/agents")
+        patterns.add(rf"{config_dir}/commands")
+        patterns.add(rf"{config_dir}/command")
+    return sorted(patterns)
+
 _RUNTIME_PATTERN = (
-    r"(Claude Code|Gemini CLI|Codex|OpenCode|claude-code|gemini|codex|opencode|"
-    r"\.claude|\.gemini|\.codex|\.opencode|"
-    r"CLAUDE_[A-Z0-9_]*|GEMINI_[A-Z0-9_]*|CODEX_[A-Z0-9_]*|OPENCODE_[A-Z0-9_]*|"
-    r"codex_notify\.py)"
+    "("
+    + "|".join(
+        [
+            *(re.escape(descriptor.display_name) for descriptor in _RUNTIME_DESCRIPTORS),
+            *(re.escape(descriptor.runtime_name) for descriptor in _RUNTIME_DESCRIPTORS),
+            *(re.escape(descriptor.config_dir_name) for descriptor in _RUNTIME_DESCRIPTORS),
+            *_runtime_env_prefix_patterns(),
+            r"codex_notify\.py",
+        ]
+    )
+    + ")"
 )
 
 _DOC_SUFFIXES = {".md"}
 _RUNTIME_OWNED_PREFIXES = (
-    ".claude/",
-    ".codex/",
-    ".gemini/",
-    ".opencode/",
+    *(f"{descriptor.config_dir_name}/" for descriptor in _RUNTIME_DESCRIPTORS),
     "src/gpd/adapters/",
 )
 _ALLOWED_RUNTIME_FILES = {
@@ -51,10 +80,7 @@ _SHARED_ADAPTER_INFRA_FILES = {
     "src/gpd/adapters/tool_names.py",
 }
 _ALLOWED_RUNTIME_ADAPTER_FILES = {
-    "src/gpd/adapters/claude_code.py",
-    "src/gpd/adapters/codex.py",
-    "src/gpd/adapters/gemini.py",
-    "src/gpd/adapters/opencode.py",
+    *(f"src/gpd/adapters/{adapter.__class__.__module__.rsplit('.', 1)[-1]}.py" for adapter in iter_adapters()),
     "src/gpd/adapters/runtime_catalog.py",
     "src/gpd/adapters/runtime_catalog.json",
 }
@@ -62,8 +88,16 @@ _SHARED_ADAPTER_RUNTIME_BRANCH_PATTERN = (
     r'(runtime\s*==\s*"|runtime\s+in\s+\(|runtime_name\s*==\s*"|runtime_name\s+in\s+\()'
 )
 _RUNTIME_INSTALL_ARTIFACT_PATTERN = re.compile(
-    r"(SKILL\.md|CODEX_SKILLS_DIR|~\/\.agents/skills|\.claude/agents|\.codex/agents|"
-    r"\.gemini/agents|\.opencode/agents|\.claude/commands|\.gemini/commands|\.opencode/commands)"
+    "("
+    + "|".join(
+        [
+            r"SKILL\.md",
+            r"CODEX_SKILLS_DIR",
+            r"~\/\.agents/skills",
+            *_runtime_owned_path_patterns(),
+        ]
+    )
+    + ")"
 )
 _SHARED_COMMAND_SURFACE_PATTERN = re.compile(r"/gpd:")
 _SHARED_BOOTSTRAP_COMMAND_PATTERN = re.compile(

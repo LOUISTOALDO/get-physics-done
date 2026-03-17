@@ -20,7 +20,11 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import ValidationError as PydanticValidationError
 
 from gpd.contracts import ResearchContract
-from gpd.core.contract_validation import _sanitize_contract_scalars, salvage_project_contract
+from gpd.core.contract_validation import (
+    _sanitize_contract_scalars,
+    _split_project_contract_schema_findings,
+    salvage_project_contract,
+)
 from gpd.core.observability import gpd_span
 from gpd.core.protocol_bundles import ResolvedProtocolBundle, get_protocol_bundle, render_protocol_bundle_context
 from gpd.core.verification_checks import (
@@ -272,6 +276,15 @@ def _normalize_optional_scalar_str(value: object) -> object:
     return stripped or None
 
 
+def _validate_optional_string(value: object, *, field_name: str) -> tuple[str | None, str | None]:
+    if value is None:
+        return None, None
+    if not isinstance(value, str):
+        return None, f"{field_name} must be a string"
+    stripped = value.strip()
+    return stripped or None, None
+
+
 def _normalize_string_list(value: object) -> object:
     if not isinstance(value, list):
         return value
@@ -313,7 +326,10 @@ def _normalize_contract_metadata(metadata: dict[str, object]) -> tuple[dict[str,
     normalized = dict(metadata)
     for key in ("regime_label", "expected_behavior", "source_reference_id", "declared_family"):
         if key in normalized:
-            normalized[key] = _normalize_optional_scalar_str(normalized[key])
+            normalized_value, error = _validate_optional_string(normalized[key], field_name=f"metadata.{key}")
+            if error is not None:
+                return {}, error
+            normalized[key] = normalized_value
     for key in ("allowed_families", "forbidden_families"):
         if key in normalized:
             error = _validate_string_list_members(normalized[key], field_name=f"metadata.{key}")
@@ -1086,10 +1102,17 @@ def _parse_contract_payload(contract_raw: dict[str, object]) -> tuple[ResearchCo
         return None, [], scalar_error
     try:
         return ResearchContract.model_validate(contract_raw), [], None
-    except Exception as exc:  # pragma: no cover - pydantic version specifics
+    except PydanticValidationError as exc:
         contract, salvage_errors = salvage_project_contract(contract_raw)
         if contract is not None:
-            return contract, salvage_errors, None
+            recoverable, blocking = _split_project_contract_schema_findings(
+                salvage_errors,
+                allow_singleton_defaults=False,
+            )
+            if not blocking:
+                return contract, recoverable, None
+            summary = _summarize_contract_salvage_errors(blocking)
+            return None, [], _error_result(f"Invalid contract payload: {summary}")
         summary = _summarize_contract_salvage_errors(salvage_errors)
         detail = summary or str(exc)
         return None, [], _error_result(f"Invalid contract payload: {detail}")
@@ -1335,7 +1358,14 @@ def run_contract_check(request: dict) -> dict:
             if metadata_error is not None:
                 return _error_result(metadata_error)
             observed = observed_raw or {}
-            artifact_content = str(request.get("artifact_content") or "")
+            artifact_content_raw = request.get("artifact_content")
+            artifact_content, artifact_content_error = _validate_optional_string(
+                artifact_content_raw,
+                field_name="artifact_content",
+            )
+            if artifact_content_error is not None:
+                return _error_result(artifact_content_error)
+            artifact_content = artifact_content or ""
             binding_ids, binding_issues, contract_impacts = _collect_binding_context(
                 check_targets=check_meta.binding_targets,
                 binding=binding,
@@ -1380,7 +1410,12 @@ def run_contract_check(request: dict) -> dict:
                 limit_passed, error = _validate_boolean(observed.get("limit_passed"), field_name="observed.limit_passed")
                 if error is not None:
                     return error
-                observed_limit = observed.get("observed_limit")
+                observed_limit, error_message = _validate_optional_string(
+                    observed.get("observed_limit"),
+                    field_name="observed.observed_limit",
+                )
+                if error_message is not None:
+                    return _error_result(error_message)
                 metrics["regime_label"] = regime_label
                 metrics["observed_limit"] = observed_limit
                 if limit_passed is True and not missing_inputs:
@@ -1487,7 +1522,12 @@ def run_contract_check(request: dict) -> dict:
 
             elif check_meta.check_key == "contract.fit_family_mismatch":
                 declared_family = _normalize_optional_scalar_str(metadata.get("declared_family"))
-                selected_family = observed.get("selected_family")
+                selected_family, error_message = _validate_optional_string(
+                    observed.get("selected_family"),
+                    field_name="observed.selected_family",
+                )
+                if error_message is not None:
+                    return _error_result(error_message)
                 allowed = {str(item) for item in metadata.get("allowed_families", []) if isinstance(item, str)}
                 forbidden = {str(item) for item in metadata.get("forbidden_families", []) if isinstance(item, str)}
                 competing_checked, error = _validate_boolean(
@@ -1527,7 +1567,12 @@ def run_contract_check(request: dict) -> dict:
 
             elif check_meta.check_key == "contract.estimator_family_mismatch":
                 declared_family = _normalize_optional_scalar_str(metadata.get("declared_family"))
-                selected_family = observed.get("selected_family")
+                selected_family, error_message = _validate_optional_string(
+                    observed.get("selected_family"),
+                    field_name="observed.selected_family",
+                )
+                if error_message is not None:
+                    return _error_result(error_message)
                 allowed = {str(item) for item in metadata.get("allowed_families", []) if isinstance(item, str)}
                 forbidden = {str(item) for item in metadata.get("forbidden_families", []) if isinstance(item, str)}
                 bias_checked, error = _validate_boolean(observed.get("bias_checked"), field_name="observed.bias_checked")
@@ -1810,7 +1855,7 @@ def dimensional_check(expressions: list[str]) -> dict:
         validated_expressions, error = _validate_string_list(expressions, field_name="expressions")
         if error is not None:
             return error
-        return _dimensional_check_inner(validated_expressions)
+        return stable_mcp_response(_dimensional_check_inner(validated_expressions))
 
 
 def _dimensional_check_inner(expressions: list[str]) -> dict:
@@ -1889,7 +1934,7 @@ def limiting_case_check(expression: str, limits: dict[str, str]) -> dict:
         validated_limits, error = _validate_string_mapping(limits, field_name="limits")
         if error is not None:
             return error
-        return _limiting_case_inner(validated_expression, validated_limits)
+        return stable_mcp_response(_limiting_case_inner(validated_expression, validated_limits))
 
 
 def _limiting_case_inner(expression: str, limits: dict[str, str]) -> dict:
@@ -1968,7 +2013,7 @@ def symmetry_check(expression: str, symmetries: list[str]) -> dict:
         validated_symmetries, error = _validate_string_list(symmetries, field_name="symmetries")
         if error is not None:
             return error
-        return _symmetry_check_inner(validated_expression, validated_symmetries)
+        return stable_mcp_response(_symmetry_check_inner(validated_expression, validated_symmetries))
 
 
 def _symmetry_check_inner(expression: str, symmetries: list[str]) -> dict:
@@ -2044,7 +2089,7 @@ def get_verification_coverage(error_class_ids: list[int], active_checks: list[st
         validated_active_checks, error = _validate_string_list(active_checks, field_name="active_checks")
         if error is not None:
             return error
-        return _coverage_inner(validated_error_class_ids, validated_active_checks)
+        return stable_mcp_response(_coverage_inner(validated_error_class_ids, validated_active_checks))
 
 
 def _coverage_inner(error_class_ids: list[int], active_checks: list[str]) -> dict:

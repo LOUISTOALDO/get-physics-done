@@ -32,6 +32,7 @@ def test_verifier_prompt_surfaces_validator_enforced_contract_ledger_rules() -> 
     assert "record `verdict: inconclusive` or `verdict: tension` instead of omitting the entry." in verifier
     assert "For reference-backed decisive comparisons, only `comparison_kind: benchmark|prior_work|experiment|baseline|cross_method` satisfies the requirement; `comparison_kind: other` does not." in verifier
     assert "`suggested_contract_checks` entries in `VERIFICATION.md` may only use `check`, `reason`, `suggested_subject_kind`, `suggested_subject_id`, and `evidence_path`." in verifier
+    assert "required reference actions missing" in verifier
 
 
 def test_verifier_prompt_frontmatter_example_includes_contract_ledgers() -> None:

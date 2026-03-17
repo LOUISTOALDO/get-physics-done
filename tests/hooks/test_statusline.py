@@ -460,7 +460,7 @@ class TestCheckUpdateHook:
             patch("gpd.hooks.runtime_detect.detect_active_runtime_with_gpd_install", return_value="claude-code"),
         ):
             result = _check_update()
-            assert "/gpd:update" in result
+            assert "npx -y get-physics-done --claude" in result
 
     def test_cache_with_no_update(self, tmp_path: Path) -> None:
         gpd_cache = tmp_path / ".gpd" / "cache"
@@ -516,7 +516,7 @@ class TestCheckUpdateHook:
         ):
             result = _check_update()
 
-        assert "/gpd:update" in result
+        assert "npx -y get-physics-done --claude" in result
 
     def test_local_runtime_cache_uses_cache_runtime_when_install_exists(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -543,7 +543,7 @@ class TestCheckUpdateHook:
         ):
             result = _check_update()
 
-        assert "$gpd-update" in result
+        assert "npx -y get-physics-done --codex --local" in result
 
     def test_active_runtime_cache_beats_newer_unrelated_runtime_cache(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
@@ -573,7 +573,7 @@ class TestCheckUpdateHook:
         ):
             result = _check_update()
 
-        assert "$gpd-update" in result
+        assert "npx -y get-physics-done --codex --local" in result
         assert "/gpd:update" not in result
 
     def test_installed_global_scope_cache_beats_stale_local_scope_cache(self, tmp_path: Path) -> None:
@@ -622,7 +622,7 @@ class TestCheckUpdateHook:
         ):
             result = _check_update(str(workspace))
 
-        assert "$gpd-update" in result
+        assert "npx -y get-physics-done --codex --local" in result
 
     def test_explicit_target_hook_cache_uses_target_dir_update_command(self, tmp_path: Path) -> None:
         workspace = tmp_path / "workspace"
@@ -741,8 +741,8 @@ class TestCheckUpdateHook:
 
         assert "gpd-update" in result
 
-    def test_known_runtime_does_not_call_detect_install_scope(self, tmp_path: Path) -> None:
-        """When get_adapter succeeds, detect_install_scope should not be called (lazy evaluation)."""
+    def test_known_runtime_resolves_scope_for_bootstrap_update_command(self, tmp_path: Path) -> None:
+        """Known runtimes should still resolve scope before rendering the bootstrap command."""
         gpd_cache = tmp_path / ".gpd" / "cache"
         gpd_cache.mkdir(parents=True)
         (gpd_cache / "gpd-update-check.json").write_text(json.dumps({"update_available": True}))
@@ -755,7 +755,7 @@ class TestCheckUpdateHook:
         ):
             result = _check_update()
 
-        mock_scope.assert_not_called()
+        mock_scope.assert_called_once_with("claude-code", cwd=None)
         assert result != ""
 
 

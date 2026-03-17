@@ -46,6 +46,8 @@ class FigureRef(BaseModel):
 class ArtifactSourceRef(BaseModel):
     """A source artifact or upstream input associated with an emitted paper artifact."""
 
+    model_config = ConfigDict(extra="forbid")
+
     path: str
     role: str = ""
 
@@ -53,10 +55,12 @@ class ArtifactSourceRef(BaseModel):
 class ArtifactRecord(BaseModel):
     """Machine-readable record for an emitted paper artifact."""
 
+    model_config = ConfigDict(extra="forbid")
+
     artifact_id: str
     category: Literal["tex", "bib", "figure", "pdf", "audit"]
     path: str
-    sha256: str
+    sha256: Sha256Hex
     produced_by: str
     sources: list[ArtifactSourceRef] = Field(default_factory=list)
     metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
@@ -65,7 +69,9 @@ class ArtifactRecord(BaseModel):
 class ArtifactManifest(BaseModel):
     """Manifest describing the concrete paper artifacts emitted by the build."""
 
-    version: int = 1
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[1] = 1
     paper_title: str
     journal: str
     created_at: str

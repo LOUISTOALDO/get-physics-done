@@ -61,11 +61,66 @@ scope:
 Rules:
 
 - Every claim must declare a stable `id`.
+- `observables[]` may only reference declared `observables[].id`.
 - `deliverables[]` must not be empty.
 - `acceptance_tests[]` must not be empty.
 - `deliverables[]` may only reference declared `deliverables[].id`.
 - `acceptance_tests[]` may only reference declared `acceptance_tests[].id`.
 - `references[]` may only reference declared `references[].id`.
+
+### `context_intake`
+
+```yaml
+context_intake:
+  must_read_refs: [ref-main]
+  must_include_prior_outputs: ["Phase 00 benchmark table"]
+  user_asserted_anchors: ["Use the lattice normalization from the user notes"]
+  known_good_baselines: ["Published large-N curve from Smith et al."]
+  context_gaps: ["Comparison source still undecided before planning"]
+  crucial_inputs: ["Check the user's finite-volume cutoff choice before proceeding"]
+```
+
+Rules:
+
+- `context_intake` must be an object, not a string or list.
+- Every field above is optional, but when present it must be an array of non-empty strings.
+- `must_read_refs[]` may only reference declared `references[].id`.
+- Use `context_gaps`, `scope.unresolved_questions`, or `uncertainty_markers.weakest_anchors` for unresolved anchors; do not invent placeholder references.
+
+### `approach_policy`
+
+```yaml
+approach_policy:
+  formulations: [Euclidean correlator fit]
+  allowed_estimator_families: [bootstrap]
+  forbidden_estimator_families: [jackknife]
+  allowed_fit_families: [power_law]
+  forbidden_fit_families: [polynomial]
+  stop_and_rethink_conditions: ["Benchmark normalization shifts outside tolerance"]
+```
+
+Rules:
+
+- `approach_policy` must be an object, not a string or list.
+- Every field above is optional, but when present it must be an array of non-empty strings.
+- `allowed_*` and `forbidden_*` lists are closed-world guardrails for downstream check selection; do not bury them in prose.
+
+### `observables[]`
+
+```yaml
+- id: obs-main
+  name: "Benchmark residual"
+  kind: scalar|curve|map|classification|proof_obligation|other
+  definition: "[What quantity or behavior is being established]"
+  regime: "large-k"
+  units: "dimensionless"
+```
+
+Rules:
+
+- Every observable must declare `id`, `name`, and `definition`.
+- `regime` and `units` are optional strings; omit them instead of fabricating placeholders.
+- Claims may only reference observables that appear in `observables[]`.
 
 ### `deliverables[]`
 

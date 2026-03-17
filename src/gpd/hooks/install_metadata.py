@@ -8,7 +8,7 @@ from pathlib import Path
 from gpd.adapters import get_adapter, iter_adapters
 from gpd.adapters.install_utils import build_runtime_install_repair_command
 from gpd.adapters.runtime_catalog import iter_runtime_descriptors
-from gpd.hooks.runtime_detect import SCOPE_LOCAL
+from gpd.hooks.runtime_detect import SCOPE_LOCAL, _runtime_from_manifest_or_path
 
 
 def load_install_manifest(config_dir: Path) -> dict[str, object]:
@@ -79,7 +79,27 @@ def _infer_runtime_from_config_dir(config_dir: Path) -> str | None:
 def installed_runtime(config_dir: Path) -> str | None:
     """Return the runtime associated with *config_dir* when it can be inferred."""
 
-    return _infer_runtime_from_manifest(config_dir) or _infer_runtime_from_config_dir(config_dir)
+    return _infer_runtime_from_manifest(config_dir) or _runtime_from_manifest_or_path(config_dir)
+
+
+def _infer_explicit_target(
+    config_dir: Path,
+    *,
+    adapter,
+    install_scope: str | None,
+    install_target: Path,
+) -> bool:
+    """Infer whether the install target was explicitly selected.
+
+    This must stay independent of the current process cwd so installed hooks
+    behave deterministically even when invoked from nested workspaces or other
+    directories.
+    """
+    if install_scope == SCOPE_LOCAL:
+        if not _paths_equal(install_target, config_dir):
+            return True
+        return config_dir.name != adapter.local_config_dir_name
+    return not _paths_equal(install_target, adapter.global_config_dir)
 
 
 def config_dir_has_complete_install(config_dir: Path) -> bool:
@@ -115,10 +135,12 @@ def installed_update_command(config_dir: Path) -> str | None:
     explicit_target = _manifest_explicit_target(config_dir)
 
     if explicit_target is None:
-        if scope == SCOPE_LOCAL:
-            explicit_target = not _paths_equal(install_target, Path.cwd() / adapter.local_config_dir_name)
-        else:
-            explicit_target = not _paths_equal(install_target, adapter.global_config_dir)
+        explicit_target = _infer_explicit_target(
+            config_dir,
+            adapter=adapter,
+            install_scope=scope,
+            install_target=install_target,
+        )
 
     return build_runtime_install_repair_command(
         runtime,

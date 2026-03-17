@@ -512,7 +512,6 @@ def _check_update(workspace_dir: str | None = None) -> str:
             command = _self_update_command(config_dir) or update_command_for_runtime(RUNTIME_UNKNOWN, scope=fallback_scope)
             return f"\x1b[33m\u2b06 {command}\x1b[0m \u2502 "
 
-        from gpd.adapters import get_adapter
         from gpd.hooks.runtime_detect import (
             RUNTIME_UNKNOWN,
             _runtime_dir_has_gpd_install,
@@ -529,12 +528,9 @@ def _check_update(workspace_dir: str | None = None) -> str:
             scope = None
         if runtime == RUNTIME_UNKNOWN:
             runtime = detect_active_runtime_with_gpd_install(cwd=workspace_path)
-        try:
-            command = get_adapter(runtime).format_command("update")
-        except KeyError:
-            if scope is None and runtime != RUNTIME_UNKNOWN:
-                scope = detect_install_scope(runtime, cwd=workspace_path)
-            command = update_command_for_runtime(runtime, scope=scope)
+        if scope is None and runtime != RUNTIME_UNKNOWN:
+            scope = detect_install_scope(runtime, cwd=workspace_path)
+        command = update_command_for_runtime(runtime, scope=scope)
         return f"\x1b[33m\u2b06 {command}\x1b[0m \u2502 "
     return ""
 

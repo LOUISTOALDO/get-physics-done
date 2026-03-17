@@ -157,7 +157,6 @@ def test_suggest_contract_checks_surfaces_salvage_warnings() -> None:
     from gpd.mcp.servers.verification_server import suggest_contract_checks
 
     contract = _load_project_contract_fixture()
-    contract["context_intake"] = "not-a-dict"
     contract["references"][0]["notes"] = "legacy extra field"
 
     result = suggest_contract_checks(contract)
@@ -304,6 +303,96 @@ def test_run_contract_check_rejects_coercive_numeric_and_boolean_fields(
     assert result == {"error": expected_error, "schema_version": 1}
 
 
+@pytest.mark.parametrize(
+    ("request_payload", "expected_error"),
+    [
+        (
+            {
+                "check_key": "contract.limit_recovery",
+                "metadata": {"expected_behavior": 5},
+                "observed": {"limit_passed": True, "observed_limit": "large-k"},
+            },
+            "metadata.expected_behavior must be a string",
+        ),
+        (
+            {
+                "check_key": "contract.benchmark_reproduction",
+                "metadata": {"source_reference_id": 5},
+                "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+            },
+            "metadata.source_reference_id must be a string",
+        ),
+        (
+            {
+                "check_key": "contract.fit_family_mismatch",
+                "metadata": {"declared_family": 5},
+                "observed": {"selected_family": "power_law", "competing_family_checked": True},
+            },
+            "metadata.declared_family must be a string",
+        ),
+        (
+            {
+                "check_key": "contract.limit_recovery",
+                "metadata": {"regime_label": "large-k", "expected_behavior": "matches"},
+                "observed": {"limit_passed": True, "observed_limit": 9},
+            },
+            "observed.observed_limit must be a string",
+        ),
+        (
+            {
+                "check_key": "contract.fit_family_mismatch",
+                "metadata": {"declared_family": "power_law"},
+                "observed": {"selected_family": 9, "competing_family_checked": True},
+            },
+            "observed.selected_family must be a string",
+        ),
+        (
+            {
+                "check_key": "contract.benchmark_reproduction",
+                "metadata": {"source_reference_id": "ref-benchmark"},
+                "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+                "artifact_content": {"text": "benchmark"},
+            },
+            "artifact_content must be a string",
+        ),
+    ],
+)
+def test_run_contract_check_rejects_non_string_request_fields(
+    request_payload: dict[str, object],
+    expected_error: str,
+) -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check
+
+    result = run_contract_check(request_payload)
+
+    assert result == {"error": expected_error, "schema_version": 1}
+
+
+def test_contract_tools_reject_blocking_salvage_schema_drift() -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check, suggest_contract_checks
+
+    contract = _load_project_contract_fixture()
+    contract["acceptance_tests"] = "not-a-list"
+
+    run_result = run_contract_check(
+        {
+            "check_key": "contract.benchmark_reproduction",
+            "contract": contract,
+            "binding": {"claim_ids": ["claim-benchmark"]},
+            "metadata": {"source_reference_id": "ref-benchmark"},
+            "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+        }
+    )
+    suggest_result = suggest_contract_checks(contract)
+
+    expected = {
+        "error": "Invalid contract payload: acceptance_tests must be a list, not str",
+        "schema_version": 1,
+    }
+    assert run_result == expected
+    assert suggest_result == expected
+
+
 def test_verification_server_success_responses_keep_stable_envelope_equality() -> None:
     from gpd.mcp.servers.verification_server import get_checklist, run_contract_check, suggest_contract_checks
 
@@ -328,3 +417,18 @@ def test_verification_server_success_responses_keep_stable_envelope_equality() -
     checklist_expected = dict(checklist_result)
     checklist_expected.pop("schema_version")
     assert checklist_result == checklist_expected
+
+
+def test_verification_server_pure_success_tools_return_stable_envelopes() -> None:
+    from gpd.mcp.servers import StableMCPEnvelope
+    from gpd.mcp.servers.verification_server import (
+        dimensional_check,
+        get_verification_coverage,
+        limiting_case_check,
+        symmetry_check,
+    )
+
+    assert isinstance(dimensional_check(["[M] = [M]"]), StableMCPEnvelope)
+    assert isinstance(limiting_case_check("E = m c^2", {"c -> infinity": "non-rel"}), StableMCPEnvelope)
+    assert isinstance(symmetry_check("M(s,t)", ["parity"]), StableMCPEnvelope)
+    assert isinstance(get_verification_coverage([15], ["5.1"]), StableMCPEnvelope)

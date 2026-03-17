@@ -605,7 +605,7 @@ def test_validate_frontmatter_verification_rejects_undocumented_suggested_contra
     )
 
     assert result.valid is False
-    assert any("suggested_contract_checks:" in error and "Field required" in error for error in result.errors)
+    assert any("suggested_contract_checks: [0] check is required" in error for error in result.errors)
 
 
 def test_validate_frontmatter_summary_rejects_plan_contract_ref_that_points_to_different_plan(
@@ -1362,8 +1362,101 @@ def test_validate_frontmatter_verification_rejects_extra_keys_in_suggested_contr
 
     assert result.valid is False
     assert any(
-        "suggested_contract_checks:" in error and "Extra inputs are not permitted" in error for error in result.errors
+        "suggested_contract_checks: [0] check_id: Extra inputs are not permitted" in error
+        for error in result.errors
     )
+
+
+def test_validate_frontmatter_verification_rejects_passed_status_with_partial_contract_results(tmp_path: Path) -> None:
+    phase_dir = tmp_path / ".gpd" / "phases" / "01-benchmark"
+    phase_dir.mkdir(parents=True)
+    (phase_dir / "01-01-PLAN.md").write_text(
+        (FIXTURES_STAGE0 / "plan_with_contract.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    verification_path = phase_dir / "01-VERIFICATION.md"
+    verification_path.write_text(
+        (FIXTURES_STAGE4 / "verification_with_contract_results.md")
+        .read_text(encoding="utf-8")
+        .replace(
+            "      status: passed\n      summary: Claim independently verified.\n",
+            "      status: partial\n      summary: Claim still needs the decisive rerun.\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate_frontmatter(
+        verification_path.read_text(encoding="utf-8"),
+        "verification",
+        source_path=verification_path,
+    )
+
+    assert result.valid is False
+    assert any(
+        "status: passed is inconsistent with non-passed contract_results targets: claim claim-benchmark" in error
+        for error in result.errors
+    )
+
+
+def test_validate_frontmatter_verification_rejects_passed_status_with_suggested_contract_checks(tmp_path: Path) -> None:
+    phase_dir = tmp_path / ".gpd" / "phases" / "01-benchmark"
+    phase_dir.mkdir(parents=True)
+    (phase_dir / "01-01-PLAN.md").write_text(
+        (FIXTURES_STAGE0 / "plan_with_contract.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    verification_path = phase_dir / "01-VERIFICATION.md"
+    verification_path.write_text(
+        (FIXTURES_STAGE4 / "verification_with_contract_results.md")
+        .read_text(encoding="utf-8")
+        .replace(
+            "comparison_verdicts:\n",
+            "suggested_contract_checks:\n"
+            "  - check: Add decisive normalization benchmark comparison\n"
+            "    reason: The decisive check is still pending.\n"
+            "    suggested_subject_kind: claim\n"
+            "    suggested_subject_id: claim-benchmark\n"
+            "    evidence_path: .gpd/phases/01-benchmark/01-VERIFICATION.md\n"
+            "comparison_verdicts:\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate_frontmatter(
+        verification_path.read_text(encoding="utf-8"),
+        "verification",
+        source_path=verification_path,
+    )
+
+    assert result.valid is False
+    assert "status: passed is inconsistent with non-empty suggested_contract_checks" in result.errors
+
+
+def test_validate_frontmatter_verification_rejects_passed_status_with_unresolved_forbidden_proxy(tmp_path: Path) -> None:
+    phase_dir = tmp_path / ".gpd" / "phases" / "01-benchmark"
+    phase_dir.mkdir(parents=True)
+    (phase_dir / "01-01-PLAN.md").write_text(
+        (FIXTURES_STAGE0 / "plan_with_contract.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    verification_path = phase_dir / "01-VERIFICATION.md"
+    verification_path.write_text(
+        (FIXTURES_STAGE4 / "verification_with_contract_results.md")
+        .read_text(encoding="utf-8")
+        .replace("      status: rejected\n", "      status: unresolved\n", 1),
+        encoding="utf-8",
+    )
+
+    result = validate_frontmatter(
+        verification_path.read_text(encoding="utf-8"),
+        "verification",
+        source_path=verification_path,
+    )
+
+    assert result.valid is False
+    assert "status: passed is inconsistent with unresolved forbidden_proxies: fp-benchmark" in result.errors
 
 
 def test_verify_summary_requires_must_surface_reference_actions(tmp_path: Path) -> None:

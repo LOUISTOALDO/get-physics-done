@@ -132,6 +132,21 @@ def test_installed_update_command_uses_manifest_runtime_metadata_for_custom_targ
     assert str(explicit_target) in command
 
 
+def test_installed_update_command_ignores_process_cwd_for_nested_default_local_install(tmp_path: Path) -> None:
+    from gpd.hooks.install_metadata import installed_update_command
+
+    default_local_target = tmp_path / "workspace" / ".codex"
+    default_local_target.mkdir(parents=True)
+    (default_local_target / "gpd-file-manifest.json").write_text(
+        json.dumps({"install_scope": "local", "runtime": "codex"}),
+        encoding="utf-8",
+    )
+
+    command = installed_update_command(default_local_target)
+
+    assert command == "npx -y get-physics-done --codex --local"
+
+
 @pytest.mark.parametrize("runtime", ["claude-code", "codex", "gemini", "opencode"])
 @pytest.mark.parametrize("scope", ["local", "global"])
 def test_installed_update_command_preserves_explicit_target_named_like_runtime_default(
@@ -186,3 +201,15 @@ def test_installed_runtime_infers_runtime_from_catalog_owned_manifest_prefixes(
     )
 
     assert installed_runtime(explicit_target) == expected_runtime
+
+
+def test_installed_runtime_recovers_opencode_from_global_path_when_manifest_is_corrupt(tmp_path: Path) -> None:
+    from gpd.hooks.install_metadata import installed_runtime
+
+    home = tmp_path / "home"
+    opencode_dir = home / ".config" / "opencode"
+    opencode_dir.mkdir(parents=True)
+    (opencode_dir / "gpd-file-manifest.json").write_text("not-json", encoding="utf-8")
+
+    with patch("gpd.hooks.runtime_detect.Path.home", return_value=home):
+        assert installed_runtime(opencode_dir) == "opencode"

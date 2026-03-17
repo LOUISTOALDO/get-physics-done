@@ -986,6 +986,8 @@ def test_contract_schema_references_stay_wired_into_templates_and_review_docs() 
     assert "templates/contract-results-schema.md" in executor_completion
     assert "claim_id: claim-main" in executor_completion
     assert "completed_actions: [read, compare, cite]" in executor_completion
+    assert "`completed` requires non-empty `completed_actions`" in executor_completion
+    assert "`subject_role` explicitly" in executor_completion
     assert "forbidden_proxies:" in executor_completion
     assert "uncertainty_markers:" in executor_completion
     assert "REFEREE-DECISION{round_suffix}.json --strict --ledger" in referee_decision_schema
@@ -1179,6 +1181,12 @@ def test_plan_contract_schema_surfaces_downstream_contract_fields_and_normalizat
     plan_schema = (TEMPLATES_DIR / "plan-contract-schema.md").read_text(encoding="utf-8")
 
     assert "schema_version: 1" in plan_schema
+    assert "context_intake:" in plan_schema
+    assert "must_read_refs: [ref-main]" in plan_schema
+    assert "approach_policy:" in plan_schema
+    assert "allowed_fit_families: [power_law]" in plan_schema
+    assert "`context_intake` must be an object, not a string or list." in plan_schema
+    assert "`observables[]` may only reference declared `observables[].id`." in plan_schema
     assert "aliases: [\"optional stable label or citation shorthand\"]" in plan_schema
     assert "carry_forward_to: [planning, verification]" in plan_schema
     assert "automation: automated | hybrid | human" in plan_schema

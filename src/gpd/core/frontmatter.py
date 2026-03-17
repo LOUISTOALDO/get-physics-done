@@ -24,7 +24,7 @@ from gpd.core.constants import (
     STANDALONE_SUMMARY,
     SUMMARY_SUFFIX,
 )
-from gpd.core.contract_validation import _sanitize_contract_scalars
+from gpd.core.contract_validation import _format_schema_error, _sanitize_contract_scalars
 from gpd.core.errors import GPDError
 from gpd.core.observability import instrument_gpd_function
 from gpd.core.utils import safe_read_file
@@ -199,6 +199,28 @@ class _PlanContractResolution:
     errors: list[str] = field(default_factory=list)
 
 
+def _format_pydantic_validation_errors(exc: PydanticValidationError) -> list[str]:
+    """Return concise field-level validation errors."""
+
+    messages: list[str] = []
+    seen: set[str] = set()
+    for error in exc.errors():
+        formatted = _format_schema_error(error)
+        if formatted in seen:
+            continue
+        seen.add(formatted)
+        messages.append(formatted)
+    return messages or [str(exc)]
+
+
+def _prefixed_validation_errors(field_name: str, exc: Exception) -> list[str]:
+    """Return user-facing validation errors prefixed by the frontmatter field name."""
+
+    if isinstance(exc, PydanticValidationError):
+        return [f"{field_name}: {message}" for message in _format_pydantic_validation_errors(exc)]
+    return [f"{field_name}: {exc}"]
+
+
 def _validate_contract_mapping(
     contract_data: object,
     *,
@@ -219,7 +241,7 @@ def _validate_contract_mapping(
     try:
         contract = ResearchContract.model_validate(sanitized_contract_data)
     except PydanticValidationError as exc:
-        return _PlanContractResolution(errors=[str(exc)])
+        return _PlanContractResolution(errors=_format_pydantic_validation_errors(exc))
 
     if not enforce_plan_semantics:
         return _PlanContractResolution(contract=contract)
@@ -487,7 +509,14 @@ def _parse_comparison_verdicts(meta: dict) -> list[ComparisonVerdict]:
         return []
     if not isinstance(raw, list):
         raise ValueError("expected a list")
-    return [ComparisonVerdict.model_validate(entry) for entry in raw]
+    verdicts: list[ComparisonVerdict] = []
+    for index, entry in enumerate(raw):
+        try:
+            verdicts.append(ComparisonVerdict.model_validate(entry))
+        except PydanticValidationError as exc:
+            details = "; ".join(f"[{index}] {message}" for message in _format_pydantic_validation_errors(exc))
+            raise ValueError(details) from exc
+    return verdicts
 
 
 def _parse_suggested_contract_checks(meta: dict) -> list[SuggestedContractCheck]:
@@ -498,10 +527,14 @@ def _parse_suggested_contract_checks(meta: dict) -> list[SuggestedContractCheck]
     if not isinstance(raw, list):
         raise ValueError("expected a list")
     suggestions: list[SuggestedContractCheck] = []
-    for item in raw:
+    for index, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ValueError("entries must be objects")
-        suggestions.append(SuggestedContractCheck.model_validate(item))
+        try:
+            suggestions.append(SuggestedContractCheck.model_validate(item))
+        except PydanticValidationError as exc:
+            details = "; ".join(f"[{index}] {message}" for message in _format_pydantic_validation_errors(exc))
+            raise ValueError(details) from exc
     return suggestions
 
 
@@ -1053,18 +1086,18 @@ def validate_frontmatter(content: str, schema_name: str, source_path: Path | Non
         try:
             contract_results = _parse_contract_results(meta)
         except (PydanticValidationError, TypeError, ValueError) as exc:
-            errors.append(f"contract_results: {exc}")
+            errors.extend(_prefixed_validation_errors("contract_results", exc))
 
         try:
             comparison_verdicts = _parse_comparison_verdicts(meta)
         except (PydanticValidationError, TypeError, ValueError) as exc:
-            errors.append(f"comparison_verdicts: {exc}")
+            errors.extend(_prefixed_validation_errors("comparison_verdicts", exc))
 
         if schema_name == "verification":
             try:
                 suggested_contract_checks = _parse_suggested_contract_checks(meta)
             except ValueError as exc:
-                errors.append(f"suggested_contract_checks: {exc}")
+                errors.extend(_prefixed_validation_errors("suggested_contract_checks", exc))
 
         if source_path is not None:
             plan_contract_resolution = _find_matching_plan_contract(Path(source_path).parent, meta)
@@ -1272,7 +1305,7 @@ def verify_summary(
         return SummaryVerification(
             passed=False,
             summary_exists=True,
-            errors=[f"Invalid contract_results: {exc}"],
+            errors=_prefixed_validation_errors("contract_results", exc),
         )
 
     try:
@@ -1281,7 +1314,7 @@ def verify_summary(
         return SummaryVerification(
             passed=False,
             summary_exists=True,
-            errors=[f"Invalid comparison_verdicts: {exc}"],
+            errors=_prefixed_validation_errors("comparison_verdicts", exc),
         )
 
     plan_contract_ref = meta.get("plan_contract_ref")

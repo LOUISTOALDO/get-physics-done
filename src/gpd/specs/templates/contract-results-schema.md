@@ -86,12 +86,18 @@ contract_results:
 Rules:
 
 - Ledger keys must be real IDs from the referenced PLAN contract.
+- `contract_results` and every nested entry use a closed schema. Only the documented keys are allowed; invented keys such as `context_usage` fail validation.
 - Missing contract-backed `contract_results` is invalid.
 - Every declared claim, deliverable, acceptance test, reference, and forbidden proxy ID from the referenced PLAN contract must appear in its matching section.
 - Do not silently omit unfinished work. Use `not_attempted`, `missing`, `not_applicable`, or `unresolved` explicitly when a contract ID is still open.
 - `linked_ids` and evidence sub-IDs (`claim_id`, `deliverable_id`, `acceptance_test_id`, `reference_id`) must point to declared contract IDs.
 - If a PLAN reference has `must_surface: true`, the ledger must include a matching `contract_results.references.<reference-id>` entry.
 - For `must_surface` references, `completed_actions` must cover every `required_actions` item; do not mark the anchor as handled while leaving required actions only in prose.
+- For `contract_results.references`:
+  `status: completed` requires non-empty `completed_actions` and empty `missing_actions`.
+  `status: missing` requires non-empty `missing_actions`.
+  `status: not_applicable` requires both `completed_actions` and `missing_actions` to stay empty.
+  `completed_actions` and `missing_actions` must not overlap.
 
 ---
 
@@ -116,11 +122,14 @@ Rules:
 - `subject_id` must be a real ID from the referenced PLAN contract.
 - `subject_kind` must be `claim`, `deliverable`, `acceptance_test`, or `reference`, and it must match the actual contract ID kind referenced by `subject_id`.
 - Do not invent `artifact` or `other` subject kinds for contract-backed verdicts. If the thing you compared is a file, plot, or table, point the verdict at the deliverable or reference ID that owns it.
+- `subject_role` must be explicit on every verdict. Do not assume a missing role defaults to `decisive`.
 - Only `subject_role: decisive` satisfies a required decisive comparison or participates in pass/fail consistency checks against `contract_results`. `supporting` and `supplemental` verdicts are informative context only.
+- If a decisive external anchor was used, include `reference_id`. If the decisive anchor is itself the compared subject, use `subject_kind: reference` and `subject_id: <reference-id>`.
 - If a decisive comparison is required, omitting its verdict makes the artifact incomplete.
 - If the decisive comparison is still open, emit `verdict: inconclusive` or `verdict: tension` instead of omitting the entry.
 - A prose sentence like “agrees with literature” does not replace a verdict entry.
 - When a reference-backed decisive comparison is required, use `comparison_kind: benchmark`, `prior_work`, `experiment`, `baseline`, or `cross_method`. `comparison_kind: other` does not satisfy that requirement.
+- A decisive verdict is required whenever the PLAN contract includes an acceptance test with `kind: benchmark` or `kind: cross_method`, whenever a benchmark-style reference anchors the subject, whenever a reference lists `required_actions` containing `compare`, or whenever you performed a decisive comparison in practice.
 
 ---
 

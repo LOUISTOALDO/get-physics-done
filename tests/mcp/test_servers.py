@@ -1976,7 +1976,6 @@ class TestVerificationServer:
         from gpd.mcp.servers.verification_server import run_contract_check
 
         contract = copy.deepcopy(_load_project_contract_fixture())
-        contract["context_intake"] = "not-a-dict"
         contract["claims"][0]["notes"] = "legacy extra field"
 
         result = run_contract_check(
@@ -2037,7 +2036,6 @@ class TestVerificationServer:
         from gpd.mcp.servers.verification_server import suggest_contract_checks
 
         contract = copy.deepcopy(_load_project_contract_fixture())
-        contract["context_intake"] = "not-a-dict"
         contract["references"][0]["notes"] = "legacy extra field"
 
         result = suggest_contract_checks(contract)

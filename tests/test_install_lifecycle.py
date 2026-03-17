@@ -18,8 +18,21 @@ from pathlib import Path
 
 import pytest
 
-from gpd.adapters import get_adapter
+from gpd.adapters import get_adapter, list_runtimes
 from gpd.adapters.install_utils import MANIFEST_NAME, file_hash
+
+_ALL_RUNTIMES = tuple(list_runtimes())
+
+
+def _install_kwargs_for_runtime(tmp_path: Path, runtime: str, *, is_global: bool, explicit_target: bool = False) -> dict[str, object]:
+    install_kwargs: dict[str, object] = {"is_global": is_global}
+    if explicit_target:
+        install_kwargs["explicit_target"] = True
+    if runtime == "codex":
+        skills_dir = tmp_path / ".agents" / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        install_kwargs["skills_dir"] = skills_dir
+    return install_kwargs
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -586,7 +599,7 @@ class TestOpenCodeLifecycle:
 class TestManifestConsistency:
     """Verify manifest read/write is correct across install cycles."""
 
-    @pytest.mark.parametrize("runtime", ["claude-code", "gemini"])
+    @pytest.mark.parametrize("runtime", _ALL_RUNTIMES)
     def test_manifest_version_matches_package(self, runtime: str, tmp_path: Path, gpd_root: Path) -> None:
         from gpd.version import version_for_gpd_root
 
@@ -594,23 +607,18 @@ class TestManifestConsistency:
         target = tmp_path / adapter.config_dir_name
         target.mkdir()
 
-        if runtime == "codex":
-            skills_dir = tmp_path / ".agents" / "skills"
-            skills_dir.mkdir(parents=True)
-            adapter.install(gpd_root, target, is_global=True, skills_dir=skills_dir)
-        else:
-            adapter.install(gpd_root, target, is_global=True)
+        adapter.install(gpd_root, target, **_install_kwargs_for_runtime(tmp_path, runtime, is_global=True))
 
         manifest = json.loads((target / MANIFEST_NAME).read_text(encoding="utf-8"))
         assert manifest["version"] == version_for_gpd_root(gpd_root)
 
-    @pytest.mark.parametrize("runtime", ["claude-code", "gemini"])
+    @pytest.mark.parametrize("runtime", _ALL_RUNTIMES)
     def test_manifest_has_timestamp(self, runtime: str, tmp_path: Path, gpd_root: Path) -> None:
         adapter = get_adapter(runtime)
         target = tmp_path / adapter.config_dir_name
         target.mkdir()
 
-        adapter.install(gpd_root, target, is_global=True)
+        adapter.install(gpd_root, target, **_install_kwargs_for_runtime(tmp_path, runtime, is_global=True))
 
         manifest = json.loads((target / MANIFEST_NAME).read_text(encoding="utf-8"))
         assert "timestamp" in manifest
@@ -633,7 +641,7 @@ class TestManifestConsistency:
         assert manifest2["version"] == manifest1["version"]
         assert len(manifest2["files"]) > 0
 
-    @pytest.mark.parametrize("runtime", ["claude-code", "codex", "gemini", "opencode"])
+    @pytest.mark.parametrize("runtime", _ALL_RUNTIMES)
     @pytest.mark.parametrize("is_global, expected_scope", [(False, "local"), (True, "global")])
     def test_manifest_records_install_scope(
         self,
@@ -647,31 +655,13 @@ class TestManifestConsistency:
         target = tmp_path / adapter.config_dir_name
         target.mkdir(parents=True, exist_ok=True)
 
-        install_kwargs: dict[str, object] = {"is_global": is_global}
-        if runtime == "codex":
-            skills_dir = tmp_path / ".agents" / "skills"
-            skills_dir.mkdir(parents=True, exist_ok=True)
-            install_kwargs["skills_dir"] = skills_dir
-
-        adapter.install(gpd_root, target, **install_kwargs)
+        adapter.install(gpd_root, target, **_install_kwargs_for_runtime(tmp_path, runtime, is_global=is_global))
 
         manifest = json.loads((target / MANIFEST_NAME).read_text(encoding="utf-8"))
         assert manifest["runtime"] == runtime
         assert manifest["install_scope"] == expected_scope
 
-    @pytest.mark.parametrize(
-        ("runtime", "is_global"),
-        [
-            ("claude-code", False),
-            ("claude-code", True),
-            ("gemini", False),
-            ("gemini", True),
-            ("codex", False),
-            ("codex", True),
-            ("opencode", False),
-            ("opencode", True),
-        ],
-    )
+    @pytest.mark.parametrize(("runtime", "is_global"), [(runtime, is_global) for runtime in _ALL_RUNTIMES for is_global in (False, True)])
     def test_manifest_records_explicit_target_metadata(
         self,
         runtime: str,
@@ -683,13 +673,11 @@ class TestManifestConsistency:
         target = tmp_path / "custom-targets" / adapter.config_dir_name
         target.mkdir(parents=True, exist_ok=True)
 
-        install_kwargs: dict[str, object] = {"is_global": is_global, "explicit_target": True}
-        if runtime == "codex":
-            skills_dir = tmp_path / ".agents" / "skills"
-            skills_dir.mkdir(parents=True, exist_ok=True)
-            install_kwargs["skills_dir"] = skills_dir
-
-        adapter.install(gpd_root, target, **install_kwargs)
+        adapter.install(
+            gpd_root,
+            target,
+            **_install_kwargs_for_runtime(tmp_path, runtime, is_global=is_global, explicit_target=True),
+        )
 
         manifest = json.loads((target / MANIFEST_NAME).read_text(encoding="utf-8"))
         assert manifest["install_target_dir"] == str(target)
@@ -829,19 +817,12 @@ class TestInstallIdempotent:
 class TestUpgradePrunesRemovedFiles:
     """Reinstall should remove files that were managed by an older version but are no longer shipped."""
 
-    @pytest.mark.parametrize("runtime", ["claude-code", "gemini", "codex", "opencode"])
+    @pytest.mark.parametrize("runtime", _ALL_RUNTIMES)
     def test_reinstall_removes_manifest_tracked_stale_file(self, runtime: str, tmp_path: Path, gpd_root: Path) -> None:
         adapter = get_adapter(runtime)
         target = tmp_path / adapter.config_dir_name
         target.mkdir(parents=True, exist_ok=True)
-
-        install_kwargs: dict[str, object] = {"is_global": True}
-        if runtime == "codex":
-            skills_dir = tmp_path / ".agents" / "skills"
-            skills_dir.mkdir(parents=True, exist_ok=True)
-            install_kwargs["skills_dir"] = skills_dir
-        elif runtime == "opencode":
-            install_kwargs = {}
+        install_kwargs = _install_kwargs_for_runtime(tmp_path, runtime, is_global=True)
 
         adapter.install(gpd_root, target, **install_kwargs)
 
