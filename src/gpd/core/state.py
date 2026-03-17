@@ -44,6 +44,7 @@ from gpd.core.constants import (
 )
 from gpd.core.contract_validation import salvage_project_contract, validate_project_contract
 from gpd.core.conventions import KNOWN_CONVENTIONS, is_bogus_value
+from gpd.core.checkpoints import sync_phase_checkpoints
 from gpd.core.errors import StateError
 from gpd.core.extras import Approximation
 from gpd.core.extras import Uncertainty as PropagatedUncertainty
@@ -311,6 +312,7 @@ class UpdateProgressResult(BaseModel):
     completed: int = 0
     total: int = 0
     bar: str = ""
+    checkpoint_files: list[str] = Field(default_factory=list)
 
 
 class AddDecisionResult(BaseModel):
@@ -2110,8 +2112,14 @@ def state_update_progress(cwd: Path) -> UpdateProgressResult:
         if progress_pattern.search(content):
             new_content = progress_pattern.sub(lambda m: m.group(1) + progress_str, content, count=1)
             _write_state_markdown_locked(cwd, new_content)
+            checkpoints_result = sync_phase_checkpoints(cwd)
             return UpdateProgressResult(
-                updated=True, percent=percent, completed=total_completed, total=total_plans, bar=progress_str
+                updated=True,
+                percent=percent,
+                completed=total_completed,
+                total=total_plans,
+                bar=progress_str,
+                checkpoint_files=checkpoints_result.updated_files,
             )
 
         return UpdateProgressResult(updated=False, reason="Progress field not found in STATE.md")

@@ -39,6 +39,7 @@ from gpd.core.constants import (
     VERIFICATION_SUFFIX,
     ProjectLayout,
 )
+from gpd.core.checkpoints import sync_phase_checkpoints
 from gpd.core.errors import GPDError
 from gpd.core.frontmatter import FrontmatterParseError
 from gpd.core.observability import gpd_span
@@ -1906,6 +1907,8 @@ def phase_complete(cwd: Path, phase_num: str) -> PhaseCompleteResult:
 
                     _save_state_markdown(cwd, state_content)
 
+            sync_phase_checkpoints(cwd)
+
         return PhaseCompleteResult(
             completed_phase=phase_num,
             phase_name=phase_info.phase_name,
@@ -2054,6 +2057,8 @@ def milestone_complete(cwd: Path, version: str, *, name: str | None = None) -> M
                         state_content, "Last Activity Description", f"{version} milestone completed and archived"
                     )
                     _save_state_markdown(cwd, state_content)
+
+            sync_phase_checkpoints(cwd)
 
         return MilestoneCompleteResult(
             version=version,
