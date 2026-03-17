@@ -105,6 +105,7 @@ def gpd_project(tmp_path: Path) -> Path:
     paper_dir = tmp_path / "paper"
     paper_dir.mkdir()
     (paper_dir / "main.tex").write_text("\\documentclass{article}\n\\begin{document}\nTest manuscript.\n\\end{document}\n")
+    (paper_dir / "main.pdf").write_bytes(b"%PDF-1.4\n% fake arxiv submission pdf\n")
     (paper_dir / "ARTIFACT-MANIFEST.json").write_text(
         json.dumps({"version": 1, "paper_title": "Test", "journal": "prl", "created_at": "2026-03-10T00:00:00+00:00", "artifacts": []}),
         encoding="utf-8",
@@ -1299,6 +1300,45 @@ class TestReviewValidationCommands:
         checks = {check["name"]: check for check in payload["checks"]}
         assert checks["artifact_manifest"]["passed"] is False
         assert checks["bibliography_audit"]["passed"] is False
+        assert checks["compiled_manuscript"]["passed"] is True
+
+    def test_review_preflight_arxiv_submission_strict_blocks_publication_blockers(self, gpd_project: Path) -> None:
+        planning = gpd_project / ".gpd"
+        state = json.loads((planning / "state.json").read_text(encoding="utf-8"))
+        state["blockers"] = ["Publication blocker: unresolved venue fit"]
+        (planning / "state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+        (planning / "STATE.md").write_text(generate_state_markdown(state), encoding="utf-8")
+
+        result = runner.invoke(
+            app,
+            ["--raw", "validate", "review-preflight", "arxiv-submission", "--strict"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.output)
+        checks = {check["name"]: check for check in payload["checks"]}
+        assert checks["compiled_manuscript"]["passed"] is True
+        assert checks["publication_blockers"]["passed"] is False
+        assert checks["publication_blockers"]["blocking"] is True
+
+    def test_review_preflight_arxiv_submission_ignores_generic_non_publication_blockers(self, gpd_project: Path) -> None:
+        planning = gpd_project / ".gpd"
+        state = json.loads((planning / "state.json").read_text(encoding="utf-8"))
+        state["blockers"] = ["IR divergence in loop integral"]
+        (planning / "state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+        (planning / "STATE.md").write_text(generate_state_markdown(state), encoding="utf-8")
+
+        result = runner.invoke(
+            app,
+            ["--raw", "validate", "review-preflight", "arxiv-submission", "--strict"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        checks = {check["name"]: check for check in payload["checks"]}
+        assert checks["publication_blockers"]["passed"] is True
 
     def test_review_preflight_arxiv_submission_accepts_explicit_non_default_paper_directory(
         self,
@@ -1313,6 +1353,7 @@ class TestReviewValidationCommands:
             "\\documentclass{article}\n\\begin{document}\nSubmission manuscript.\n\\end{document}\n",
             encoding="utf-8",
         )
+        (submission_dir / "main.pdf").write_bytes(b"%PDF-1.4\n% fake arxiv submission pdf\n")
         for artifact_name in ("ARTIFACT-MANIFEST.json", "BIBLIOGRAPHY-AUDIT.json"):
             (submission_dir / artifact_name).write_text(
                 (paper_dir / artifact_name).read_text(encoding="utf-8"),
@@ -1332,10 +1373,40 @@ class TestReviewValidationCommands:
         checks = {check["name"]: check for check in payload["checks"]}
         assert checks["manuscript"]["passed"] is True
         assert "submission" in checks["manuscript"]["detail"]
+        assert checks["compiled_manuscript"]["passed"] is True
         assert checks["artifact_manifest"]["passed"] is True
         assert checks["bibliography_audit"]["passed"] is True
-        assert checks["reproducibility_manifest"]["passed"] is False
-        assert checks["reproducibility_manifest"]["blocking"] is False
+        assert checks["publication_blockers"]["passed"] is True
+
+    def test_review_preflight_arxiv_submission_accepts_explicit_manuscript_file(self, gpd_project: Path) -> None:
+        paper_dir = gpd_project / "paper"
+        (paper_dir / "main.tex").unlink()
+
+        submission_dir = gpd_project / "submission"
+        submission_dir.mkdir()
+        (submission_dir / "main.tex").write_text(
+            "\\documentclass{article}\n\\begin{document}\nSubmission manuscript.\n\\end{document}\n",
+            encoding="utf-8",
+        )
+        (submission_dir / "main.pdf").write_bytes(b"%PDF-1.4\n% fake arxiv submission pdf\n")
+        for artifact_name in ("ARTIFACT-MANIFEST.json", "BIBLIOGRAPHY-AUDIT.json"):
+            (submission_dir / artifact_name).write_text(
+                (paper_dir / artifact_name).read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+        result = runner.invoke(
+            app,
+            ["--raw", "validate", "review-preflight", "arxiv-submission", "submission/main.tex", "--strict"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        checks = {check["name"]: check for check in payload["checks"]}
+        assert checks["manuscript"]["passed"] is True
+        assert "submission/main.tex" in checks["manuscript"]["detail"]
+        assert checks["compiled_manuscript"]["passed"] is True
 
     def test_validate_paper_quality_command(self, gpd_project: Path) -> None:
         quality_path = gpd_project / "paper-quality.json"

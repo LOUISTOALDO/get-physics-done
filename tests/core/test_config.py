@@ -251,7 +251,7 @@ class TestLoadConfig:
     ):
         (tmp_path / ".gpd").mkdir()
         (tmp_path / ".gpd" / "config.json").write_text(
-            json.dumps({"model_overrides": {"codex": {"tier-1": "gpt-5"}}})
+            json.dumps({"model_overrides": {"codex": {"tier-1": "gpt-5.4"}}})
         )
 
         _valid_runtime_names.cache_clear()
@@ -311,7 +311,7 @@ class TestResolveModel:
                 {
                     "model_overrides": {
                         "claude-code": {"tier-1": "opus"},
-                        "codex": {"tier-1": "gpt-5"},
+                        "codex": {"tier-1": "gpt-5.4"},
                     },
                 }
             )

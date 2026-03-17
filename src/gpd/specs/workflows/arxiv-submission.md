@@ -45,12 +45,13 @@ if [ $? -ne 0 ]; then
 fi
 ```
 
-If review preflight exits nonzero because of missing project state, missing manuscript, degraded review integrity, missing conventions, or missing publication-support artifacts, STOP and fix those blockers before packaging.
+If review preflight exits nonzero because of missing project state, missing manuscript, missing compiled manuscript, unresolved publication blockers, degraded review integrity, or missing conventions, STOP and fix those blockers before packaging.
 
-**Resolve paper directory from $ARGUMENTS:**
+**Resolve manuscript target from $ARGUMENTS:**
 
-1. If `$ARGUMENTS` specifies a path, use it directly.
-2. Otherwise, search standard locations:
+1. If `$ARGUMENTS` specifies a `.tex` or `.md` file, set `resolved_main_tex` to that file and `resolved_dir` to its parent directory.
+2. If `$ARGUMENTS` specifies a directory, resolve `main.tex` or `main.md` under that directory, set `resolved_main_tex` to the resolved entry point, and `resolved_dir` to the directory.
+3. Otherwise, search standard locations:
 
 ```bash
 for DIR in paper manuscript draft; do
@@ -61,7 +62,7 @@ for DIR in paper manuscript draft; do
 done
 ```
 
-3. If still not found: `find . -name "main.tex" -maxdepth 2`
+4. If still not found: `find . -name "main.tex" -maxdepth 2`
 
 **If no paper found:**
 
@@ -77,7 +78,7 @@ Exit.
 
 ```bash
 PAPER_DIR="${resolved_dir}"
-MAIN_TEX="${PAPER_DIR}/main.tex"
+MAIN_TEX="${resolved_main_tex}"
 SUBMISSION_DIR="arxiv-submission"
 ```
 </step>

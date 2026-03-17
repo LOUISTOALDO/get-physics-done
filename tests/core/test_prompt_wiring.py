@@ -11,6 +11,7 @@ import pytest
 from gpd import registry
 from gpd.adapters.install_utils import expand_at_includes
 from gpd.contracts import ResearchContract, VerificationEvidence
+from gpd.registry import _parse_frontmatter, _parse_tools
 from scripts.repo_graph_contract import parse_scope_count
 
 
@@ -911,11 +912,19 @@ def test_stage4_templates_and_workflows_surface_contract_results_and_verdict_led
     assert "session_status: validating" in verify_workflow
     assert "Mirror decisive verdicts into frontmatter `comparison_verdicts`." in verify_workflow
     assert "structured `suggested_contract_checks` entry before final validation" in verify_workflow
+    assert "request_template" in verify_workflow
+    assert "required_request_fields" in verify_workflow
+    assert "supported_binding_fields" in verify_workflow
+    assert "run_contract_check(request=...)" in verify_workflow
     assert "`contract_results` is authoritative." in execute_plan
     assert "Autonomy mode (`supervised` / `balanced` / `yolo`) and profile may change cadence or verbosity, but they do NOT relax contract-result emission." in execute_plan
     assert "contract_results" in verify_phase
     assert "Verification targets must stay user-visible" in verify_phase
     assert "must_haves" not in verify_phase
+    assert "request_template" in verify_phase
+    assert "required_request_fields" in verify_phase
+    assert "supported_binding_fields" in verify_phase
+    assert "run_contract_check(request=...)" in verify_phase
     assert "comparison_verdicts" in compare_workflow
     assert "selected_protocol_bundle_ids" in compare_workflow
     assert "protocol_bundle_context" in compare_workflow
@@ -947,6 +956,21 @@ def test_verification_prompts_keep_suggested_contract_check_bindings_schema_tigh
     assert "omit both keys instead of leaving one blank" in research_verification
     assert "omit both keys instead of leaving one blank" in verify_workflow
     assert "omit both keys instead of leaving one blank" in verifier_agent
+
+
+def test_verifier_entry_points_expose_contract_check_tools() -> None:
+    verify_work_meta, _ = _parse_frontmatter((COMMANDS_DIR / "verify-work.md").read_text(encoding="utf-8"))
+    verifier_meta, _ = _parse_frontmatter((AGENTS_DIR / "gpd-verifier.md").read_text(encoding="utf-8"))
+
+    verify_work_tools = verify_work_meta.get("allowed-tools", [])
+    verifier_tools = _parse_tools(verifier_meta.get("tools"))
+
+    for tool_name in (
+        "mcp__gpd_verification__suggest_contract_checks",
+        "mcp__gpd_verification__run_contract_check",
+    ):
+        assert tool_name in verify_work_tools
+        assert tool_name in verifier_tools
 
 
 def test_contract_schema_references_stay_wired_into_templates_and_review_docs() -> None:

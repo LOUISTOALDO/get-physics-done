@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import re
-from collections import Counter
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -40,7 +39,6 @@ _ANCHOR_UNKNOWN_TOPIC_PATTERNS = (
     re.compile(r"\bbaseline\b"),
     re.compile(r"\bcomparison source\b"),
     re.compile(r"\bdecisive source\b"),
-    re.compile(r"\breference\b"),
     re.compile(r"\bground[- ]truth\b"),
     re.compile(r"\bsmoking gun\b"),
 )
@@ -61,6 +59,15 @@ _ANCHOR_UNKNOWN_BLOCKER_PATTERNS = (
 _ANCHOR_UNKNOWN_QUESTION_PATTERNS = (
     re.compile(r"^\s*(?:which|what)\b"),
     re.compile(r"\?$"),
+)
+_ANCHOR_UNKNOWN_SELECTION_PATTERNS = (
+    re.compile(r"\bserve as\b"),
+    re.compile(r"\btreat as\b"),
+    re.compile(r"\buse as\b"),
+    re.compile(r"\bchoose\b"),
+    re.compile(r"\bselect\b"),
+    re.compile(r"\bpick\b"),
+    re.compile(r"\bdecisive\b"),
 )
 _RECOVERABLE_SCHEMA_WARNING_PATTERNS = (
     re.compile(r"^.+: Extra inputs are not permitted$"),
@@ -87,12 +94,6 @@ class ProjectContractValidationResult(BaseModel):
     guidance_signal_count: int = 0
     reference_count: int = 0
     mode: Literal["draft", "approved"] = "draft"
-
-
-def _append_duplicates(errors: list[str], kind: str, ids: list[str]) -> None:
-    for item_id, count in Counter(ids).items():
-        if count > 1:
-            errors.append(f"duplicate {kind} id {item_id}")
 
 
 def _format_schema_error(error: dict[str, object]) -> str:
@@ -156,7 +157,7 @@ def _sanitize_contract_scalars(
             key = str(raw_key)
             location = f"{path_prefix}.{key}" if path_prefix else key
 
-            if key == "schema_version":
+            if location == "schema_version":
                 if type(raw_item) is not int:
                     sink.append("schema_version must be the integer 1")
                     continue
@@ -166,7 +167,7 @@ def _sanitize_contract_scalars(
                 cleaned[raw_key] = raw_item
                 continue
 
-            if key == "must_surface":
+            if re.fullmatch(r"references\.\d+\.must_surface", location):
                 if type(raw_item) is not bool:
                     sink.append(f"{location} must be a boolean")
                     continue
@@ -393,12 +394,6 @@ def _light_contract_consistency_errors(contract: ResearchContract) -> list[str]:
     """Return cross-link errors without forcing mature-phase completeness."""
 
     errors: list[str] = collect_contract_integrity_errors(contract)
-    _append_duplicates(errors, "claim", [claim.id for claim in contract.claims])
-    _append_duplicates(errors, "deliverable", [deliverable.id for deliverable in contract.deliverables])
-    _append_duplicates(errors, "acceptance_test", [test.id for test in contract.acceptance_tests])
-    _append_duplicates(errors, "reference", [reference.id for reference in contract.references])
-    _append_duplicates(errors, "forbidden_proxy", [proxy.id for proxy in contract.forbidden_proxies])
-    _append_duplicates(errors, "link", [link.id for link in contract.links])
 
     observable_ids = {observable.id for observable in contract.observables}
     claim_ids = {claim.id for claim in contract.claims}
@@ -476,7 +471,10 @@ def _has_explicit_anchor_unknown(contract: ResearchContract) -> bool:
             continue
         if any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_BLOCKER_PATTERNS):
             return True
-        if all(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_QUESTION_PATTERNS):
+        if (
+            all(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_QUESTION_PATTERNS)
+            and any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_SELECTION_PATTERNS)
+        ):
             return True
     return False
 

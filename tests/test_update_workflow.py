@@ -7,6 +7,7 @@ import pytest
 
 from gpd.adapters import get_adapter
 from gpd.adapters.runtime_catalog import iter_runtime_descriptors
+from gpd.hooks.install_metadata import installed_update_command
 
 GPD_ROOT = Path(__file__).resolve().parent.parent / "src" / "gpd"
 _RUNTIME_DESCRIPTORS = iter_runtime_descriptors()
@@ -62,8 +63,29 @@ def test_default_local_install_keeps_local_update_scope_and_manifest(
     assert 'INSTALL_SCOPE="--local"' in content
     assert 'INSTALL_SCOPE="--global"' not in content
     assert manifest["install_scope"] == "local"
+    assert installed_update_command(target) == f"{adapter.update_command} --local"
     if "skills/" in descriptor.manifest_file_prefixes:
-        assert manifest["codex_skills_dir"] == str(tmp_path / ".agents" / "skills")
+        files = manifest.get("files", {})
+        assert isinstance(files, dict)
+        assert any(key.startswith("skills/") for key in files)
+
+
+@pytest.mark.parametrize("descriptor", _RUNTIME_DESCRIPTORS, ids=lambda descriptor: descriptor.runtime_name)
+def test_installed_update_command_is_derived_from_adapter_metadata(
+    tmp_path: Path,
+    descriptor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = get_adapter(descriptor.runtime_name)
+    target = tmp_path / adapter.config_dir_name
+    target.mkdir(parents=True)
+
+    if "skills/" in descriptor.manifest_file_prefixes:
+        monkeypatch.setenv("CODEX_SKILLS_DIR", str(tmp_path / "shared-skills"))
+
+    _install_and_finalize(adapter, GPD_ROOT, target, is_global=False)
+
+    assert installed_update_command(target) == f"{adapter.update_command} --local"
 
 
 @pytest.mark.parametrize("descriptor", _RUNTIME_DESCRIPTORS, ids=lambda descriptor: descriptor.runtime_name)

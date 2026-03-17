@@ -242,6 +242,19 @@ def test_validate_project_contract_rejects_duplicate_ids() -> None:
 
     assert result.valid is False
     assert "duplicate claim id claim-benchmark" in result.errors
+    assert result.errors.count("duplicate claim id claim-benchmark") == 1
+
+
+def test_validate_project_contract_reports_duplicate_acceptance_test_ids_once_with_human_readable_label() -> None:
+    contract = _load_contract_fixture()
+    contract["acceptance_tests"].append(dict(contract["acceptance_tests"][0]))
+
+    result = validate_project_contract(contract)
+
+    assert result.valid is False
+    assert "duplicate acceptance test id test-benchmark" in result.errors
+    assert result.errors.count("duplicate acceptance test id test-benchmark") == 1
+    assert not any("duplicate acceptance_test id test-benchmark" in error for error in result.errors)
 
 
 def test_validate_project_contract_rejects_cross_type_id_collisions() -> None:
@@ -405,6 +418,19 @@ def test_validate_project_contract_reports_extra_item_keys_without_dropping_sema
     assert "claims.0.notes: Extra inputs are not permitted" in result.warnings
     assert result.question == "What benchmark must the project recover?"
     assert result.decisive_target_count > 0
+
+
+def test_validate_project_contract_ignores_nested_metadata_must_surface_without_false_boolean_error() -> None:
+    contract = _load_contract_fixture()
+    contract["references"][0]["metadata"] = {"must_surface": "yes"}
+
+    result = validate_project_contract(contract)
+
+    assert result.valid is True
+    assert "references.0.metadata: Extra inputs are not permitted" in result.warnings
+    assert not any(
+        "references.0.metadata.must_surface must be a boolean" in issue for issue in result.errors + result.warnings
+    )
 
 
 def test_validate_project_contract_approved_mode_rejects_background_only_reference() -> None:

@@ -316,7 +316,7 @@ The convention_lock in state.json tracks these 18 canonical types. Your complian
 
 **Build the active convention set:** For each convention category, determine which entry is currently active. If a convention was changed, verify the change entry exists with a valid conversion procedure.
 
-**This step replaces grep-based pattern matching.** Instead of searching for string patterns like "(-,+,+,+)", you now have a structured ledger of what every convention IS and how to test it.
+**This step replaces search_files-based pattern matching.** Instead of searching for string patterns like "(-,+,+,+)", you now have a structured ledger of what every convention IS and how to test it.
 
 ## Step 2: Semantic Provides/Consumes Verification
 
@@ -935,7 +935,7 @@ Return structured report to milestone auditor:
 
 <critical_rules>
 
-**Reason about physics, do not grep for patterns.** The old approach of searching for "(-,+,+,+)" or "hbar = 1" catches only the most superficial inconsistencies. A phase can state the right convention and use the wrong one. Semantic reasoning --- understanding what quantities mean, what units they carry, what signs they should have --- catches the errors that matter.
+**Reason about physics, do not search_files for patterns.** The old approach of searching for "(-,+,+,+)" or "hbar = 1" catches only the most superficial inconsistencies. A phase can state the right convention and use the wrong one. Semantic reasoning --- understanding what quantities mean, what units they carry, what signs they should have --- catches the errors that matter.
 
 **Substitute test values for every cross-phase transfer.** This is the single most powerful consistency check. If Phase 2 provides E(k) and Phase 4 consumes it, pick a specific k, evaluate E(k) in Phase 2's expression, and verify that Phase 4's expression gives the same number. This catches factors of 2, pi, i, hbar, c, and sign errors with certainty.
 

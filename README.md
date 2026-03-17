@@ -437,7 +437,7 @@ Available profiles are `deep-theory`, `numerical`, `exploratory`, `review`, and 
 When you set explicit tier overrides, the model string is runtime-native. GPD passes it through unchanged, so it must match what that runtime already accepts:
 
 - **Claude Code**: aliases like `opus`, `sonnet`, `haiku`, `default`, `sonnet[1m]`, or a provider-native pinned model ID. If your Claude Code install is backed by Bedrock, Vertex, or Foundry, use that provider's deployment/version identifier.
-- **Codex**: the exact string Codex accepts for its `model` setting. If you configured a non-default Codex `model_provider`, keep that provider's exact model ID format.
+- **Codex**: the exact string Codex accepts for its `model` setting. If you configured a non-default Codex `model_provider`, keep that provider's exact model ID format. For OpenAI-hosted Codex tiers, the recommended mapping is `tier-1 = gpt-5.4`, `tier-2 = gpt-5.4-mini`, `tier-3 = gpt-5.4-nano`.
 - **Gemini CLI**: an exact Gemini model name accepted by your installed Gemini runtime. Prefer exact model names for GPD tier overrides rather than the interactive Auto picker.
 - **OpenCode**: a full `provider/model` string such as `anthropic/<model>`, `openai/<model>`, or `google/<model>`.
 
@@ -453,9 +453,9 @@ Per-project tier settings live in `.gpd/config.json` under `model_overrides`:
   "model_profile": "review",
   "model_overrides": {
     "codex": {
-      "tier-1": "your-tier-1-codex-model",
-      "tier-2": "your-tier-2-codex-model",
-      "tier-3": "your-tier-3-codex-model"
+      "tier-1": "gpt-5.4",
+      "tier-2": "gpt-5.4-mini",
+      "tier-3": "gpt-5.4-nano"
     },
     "claude-code": {
       "tier-1": "opus",

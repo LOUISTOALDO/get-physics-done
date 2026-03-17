@@ -14,6 +14,46 @@ def _tool_description(mcp_server: object, tool_name: str) -> str:
     return anyio.run(_load)
 
 
+def _tool_input_schema(mcp_server: object, tool_name: str) -> dict[str, object]:
+    async def _load() -> dict[str, object]:
+        tools = await mcp_server.list_tools()
+        return next(tool.inputSchema for tool in tools if tool.name == tool_name)
+
+    return anyio.run(_load)
+
+
+def _schema_ref(schema_fragment: dict[str, object]) -> str:
+    if "$ref" in schema_fragment:
+        return str(schema_fragment["$ref"])
+    for branch in schema_fragment.get("anyOf", []):
+        if isinstance(branch, dict) and "$ref" in branch:
+            return str(branch["$ref"])
+    raise AssertionError(f"No schema reference found in {schema_fragment!r}")
+
+
+def _schema_object(schema: dict[str, object], schema_fragment: dict[str, object]) -> dict[str, object]:
+    if "properties" in schema_fragment:
+        return schema_fragment
+    ref = _schema_ref(schema_fragment)
+    target: object = schema
+    for segment in ref.removeprefix("#/").split("/"):
+        if not isinstance(target, dict):
+            raise AssertionError(f"Schema pointer {ref} resolved to non-object {target!r}")
+        target = target[segment]
+    if not isinstance(target, dict):
+        raise AssertionError(f"Schema pointer {ref} resolved to non-object {target!r}")
+    return target
+
+
+def _schema_anyof_object(schema_fragment: dict[str, object]) -> dict[str, object]:
+    if schema_fragment.get("type") == "object":
+        return schema_fragment
+    for branch in schema_fragment.get("anyOf", []):
+        if isinstance(branch, dict) and branch.get("type") == "object":
+            return branch
+    raise AssertionError(f"No object branch found in {schema_fragment!r}")
+
+
 def test_run_contract_check_tool_description_surfaces_request_requirements() -> None:
     from gpd.mcp.servers.verification_server import mcp
 
@@ -44,6 +84,36 @@ def test_suggest_contract_checks_tool_description_surfaces_contract_requirements
     assert "``supported_binding_fields``" in description
     assert "``references[].carry_forward_to`` only for workflow scope labels" in description
     assert "``run_contract_check(request=...)``" in description
+
+
+def test_contract_tools_list_tools_expose_structured_request_schemas() -> None:
+    from gpd.mcp.servers.verification_server import mcp
+
+    run_schema = _tool_input_schema(mcp, "run_contract_check")
+    run_request = _schema_object(run_schema, run_schema["properties"]["request"])
+
+    assert {"check_key", "check_id", "contract", "binding", "metadata", "observed", "artifact_content"} <= set(
+        run_request["properties"]
+    )
+
+    binding = _schema_anyof_object(run_request["properties"]["binding"])
+    assert {"claim_ids", "reference_ids", "forbidden_proxy_ids"} <= set(binding["properties"])
+
+    metadata = _schema_anyof_object(run_request["properties"]["metadata"])
+    assert {"source_reference_id", "allowed_families", "forbidden_families"} <= set(metadata["properties"])
+
+    observed = _schema_anyof_object(run_request["properties"]["observed"])
+    assert {"metric_value", "threshold_value", "selected_family", "bias_checked"} <= set(observed["properties"])
+
+    contract_schema = _schema_anyof_object(run_request["properties"]["contract"])
+    assert {"schema_version", "scope", "claims", "references"} <= set(contract_schema["properties"])
+
+    suggest_schema = _tool_input_schema(mcp, "suggest_contract_checks")
+    contract_schema = _schema_anyof_object(suggest_schema["properties"]["contract"])
+    assert {"schema_version", "scope", "claims", "references"} <= set(contract_schema["properties"])
+    active_checks = suggest_schema["properties"]["active_checks"]
+    assert active_checks["anyOf"][0]["type"] == "array"
+    assert active_checks["anyOf"][0]["items"]["type"] == "string"
 
 
 def test_assert_convention_validate_description_surfaces_required_headers() -> None:

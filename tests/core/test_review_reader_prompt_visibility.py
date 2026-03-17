@@ -13,6 +13,7 @@ from gpd.mcp.paper.models import (
     ReviewFinding,
     ReviewIssueSeverity,
     ReviewRecommendation,
+    ReviewStageKind,
     ReviewSupportStatus,
     StageReviewReport,
 )
@@ -50,16 +51,38 @@ def _assert_stage_review_schema_tokens_visible(text: str) -> None:
         assert recommendation.value in text, f"Missing recommendation: {recommendation.value}"
 
 
+def _assert_stage_review_contract_visible(text: str, stage_kind: str) -> None:
+    _assert_stage_review_schema_tokens_visible(text)
+    assert f"`stage_id` and `stage_kind` must both be `{stage_kind}`" in text
+    assert "`claims_reviewed` must be an array of Stage 1 `CLM-...` claim IDs" in text
+    assert "closed schema" in text
+    assert "do not invent extra keys" in text
+    assert "`claim_ids` must reuse Stage 1 `CLM-...` claim IDs" in text
+    assert "`issue_id` must use `REF-...`" in text
+
+
 def test_review_reader_prompt_surfaces_full_claim_index_schema() -> None:
     review_reader = (AGENTS_DIR / "gpd-review-reader.md").read_text(encoding="utf-8")
     claims_schema = _between(
         review_reader,
         "Required schema for `CLAIMS.json` (`ClaimIndex`):",
-        "Required details for `STAGE-reader.json`:",
+        "Required schema for `STAGE-reader.json` (`StageReviewReport`, mirroring the staged-review contract):",
     )
 
     _assert_schema_tokens_visible(claims_schema)
     assert "do not omit them" in claims_schema
+
+
+def test_review_reader_prompt_surfaces_full_stage_review_schema() -> None:
+    review_reader = (AGENTS_DIR / "gpd-review-reader.md").read_text(encoding="utf-8")
+    stage_schema = _between(
+        review_reader,
+        "Required schema for `STAGE-reader.json` (`StageReviewReport`, mirroring the staged-review contract):",
+        "</artifact_format>",
+    )
+
+    _assert_stage_review_contract_visible(stage_schema, ReviewStageKind.reader.value)
+    assert "not the final referee decision" in stage_schema
 
 
 def test_peer_review_panel_reference_surfaces_stage1_claim_index_schema() -> None:
@@ -85,6 +108,17 @@ def test_expanded_review_reader_prompt_keeps_claim_index_metadata_visible() -> N
     assert '"manuscript_path": "paper/main.tex"' in expanded
     assert '"manuscript_sha256": "<sha256>"' in expanded
     assert '"supporting_artifacts": ["paper/figures/main-result.pdf"]' in expanded
+
+
+def test_review_literature_prompt_surfaces_full_stage_review_schema() -> None:
+    literature = (AGENTS_DIR / "gpd-review-literature.md").read_text(encoding="utf-8")
+    stage_schema = _between(
+        literature,
+        "Required schema for `STAGE-literature.json` (`StageReviewReport`, mirroring the staged-review contract):",
+        "Required finding coverage:",
+    )
+
+    _assert_stage_review_contract_visible(stage_schema, ReviewStageKind.literature.value)
 
 
 def test_stage_review_agents_surface_compact_stage_review_schema() -> None:

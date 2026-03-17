@@ -776,7 +776,7 @@ class TestResolveModelCommand:
     def test_resolve_model_prefers_installed_runtime_override(self, gpd_project: Path) -> None:
         config_path = gpd_project / ".gpd" / "config.json"
         config = json.loads(config_path.read_text(encoding="utf-8"))
-        config["model_overrides"] = {"codex": {"tier-1": "gpt-5"}}
+        config["model_overrides"] = {"codex": {"tier-1": "gpt-5.4"}}
         config_path.write_text(json.dumps(config), encoding="utf-8")
         (gpd_project / ".claude").mkdir()
         _mark_complete_runtime_install(gpd_project / ".codex", runtime="codex")
@@ -788,12 +788,12 @@ class TestResolveModelCommand:
             assert result.output.strip() == ""
 
             planner_result = _invoke("resolve-model", "gpd-planner")
-            assert planner_result.output.strip() == "gpt-5"
+            assert planner_result.output.strip() == "gpt-5.4"
 
     def test_init_execute_phase_prefers_installed_runtime_for_model_fields(self, gpd_project: Path) -> None:
         config_path = gpd_project / ".gpd" / "config.json"
         config = json.loads(config_path.read_text(encoding="utf-8"))
-        config["model_overrides"] = {"codex": {"tier-1": "gpt-5", "tier-2": "gpt-5-mini"}}
+        config["model_overrides"] = {"codex": {"tier-1": "gpt-5.4", "tier-2": "gpt-5.4-mini"}}
         config_path.write_text(json.dumps(config), encoding="utf-8")
         (gpd_project / ".claude").mkdir()
         _mark_complete_runtime_install(gpd_project / ".codex", runtime="codex")
@@ -804,8 +804,8 @@ class TestResolveModelCommand:
             result = _invoke("--raw", "init", "execute-phase", "1")
             payload = json.loads(result.output)
 
-            assert payload["executor_model"] == "gpt-5-mini"
-            assert payload["verifier_model"] == "gpt-5"
+            assert payload["executor_model"] == "gpt-5.4-mini"
+            assert payload["verifier_model"] == "gpt-5.4"
 
     def test_resolve_model_rejects_unknown_agent(self) -> None:
         result = _invoke("--raw", "resolve-model", "not-an-agent", "--runtime", "codex", expect_ok=False)

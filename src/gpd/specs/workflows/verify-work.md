@@ -114,7 +114,7 @@ Use `protocol_bundle_context` from init JSON as additive specialized guidance.
 - Call `get_bundle_checklist(selected_protocol_bundle_ids)` through the verification server only when the init payload lacks those extensions or when you need a fallback consistency check.
 - Bundle guidance may add estimator checks, decisive artifact expectations, or domain-specific audits, but it does NOT replace the plan contract or reduce anchor obligations.
 - Use `protocol_bundle_verifier_extensions` as the machine-readable quick map when deciding which contract-aware checks deserve deeper scrutiny first.
-- If the phase has a PLAN `contract`, call `suggest_contract_checks(contract)` through the verification server before finalizing the check inventory. Treat the returned items as the default contract-aware check seed unless they are clearly inapplicable to this phase.
+- If the phase has a PLAN `contract`, call `suggest_contract_checks(contract)` through the verification server before finalizing the check inventory. Treat the returned items as the default contract-aware check seed unless they are clearly inapplicable to this phase. For each returned check, use the returned `request_template` as the starting request, fill the listed `required_request_fields`, stay within the returned `supported_binding_fields`, and then call `run_contract_check(request=...)` so contract-aware checks are executed rather than only discovered.
 </step>
 
 <step name="check_active_session">

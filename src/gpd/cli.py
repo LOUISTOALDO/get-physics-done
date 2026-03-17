@@ -18,6 +18,7 @@ import asyncio
 import dataclasses
 import json
 import os
+import re
 import shlex
 import sys
 from collections.abc import Callable
@@ -2415,6 +2416,52 @@ def _current_review_phase_subject(cwd: Path) -> str | None:
     return current_phase or None
 
 
+_PUBLICATION_BLOCKER_PATTERNS = (
+    re.compile(r"\bpublication\b"),
+    re.compile(r"\b(arxiv|submission|manuscript)\b"),
+    re.compile(r"\b(peer review|peer-review|review round|referee)\b"),
+    re.compile(r"\b(journal|venue)\b"),
+)
+
+
+def _looks_like_publication_blocker(text: str) -> bool:
+    """Return True when text clearly refers to publication/review readiness."""
+    lowered = text.casefold().strip()
+    return any(pattern.search(lowered) for pattern in _PUBLICATION_BLOCKER_PATTERNS)
+
+
+def _current_publication_blockers(cwd: Path) -> list[str]:
+    """Return unresolved publication blockers from state.json."""
+    from gpd.core.state import load_state_json
+
+    state_obj = load_state_json(cwd)
+    if not isinstance(state_obj, dict):
+        return []
+
+    raw_blockers = state_obj.get("blockers") or []
+    blockers: list[str] = []
+    for item in raw_blockers:
+        if isinstance(item, str):
+            text = item.strip()
+            if not text:
+                continue
+            lowered = text.lower()
+            if "[resolved]" in lowered or "~~" in text:
+                continue
+            if _looks_like_publication_blocker(text):
+                blockers.append(text)
+        elif isinstance(item, dict) and not item.get("resolved", False):
+            text = str(item.get("text") or item.get("description") or "").strip()
+            labels = " ".join(
+                str(item.get(key) or "").strip()
+                for key in ("kind", "type", "category", "tag", "scope")
+                if str(item.get(key) or "").strip()
+            )
+            if text and (_looks_like_publication_blocker(text) or (labels and _looks_like_publication_blocker(labels))):
+                blockers.append(text)
+    return blockers
+
+
 def _has_any_phase_summary(phases_dir: Path) -> bool:
     """Return True when any numbered or standalone summary exists."""
     if not phases_dir.exists():
@@ -2986,15 +3033,40 @@ def _build_review_preflight(
                     else "no BIBLIOGRAPHY-AUDIT.json found near the manuscript"
                 ),
             )
-            add_check(
-                "reproducibility_manifest",
-                reproducibility_manifest is not None,
-                (
-                    f"{_format_display_path(reproducibility_manifest)} present"
-                    if reproducibility_manifest is not None
-                    else "no reproducibility manifest found near the manuscript"
-                ),
-            )
+            if command.name == "gpd:arxiv-submission":
+                compiled_manuscript = manuscript.with_suffix(".pdf")
+                add_check(
+                    "compiled_manuscript",
+                    compiled_manuscript.exists(),
+                    (
+                        f"{_format_display_path(compiled_manuscript)} present"
+                        if compiled_manuscript.exists()
+                        else f"missing compiled manuscript {_format_display_path(compiled_manuscript)}"
+                    ),
+                    blocking=True,
+                )
+                publication_blockers = _current_publication_blockers(cwd)
+                add_check(
+                    "publication_blockers",
+                    not publication_blockers,
+                    (
+                        "no unresolved publication blockers"
+                        if not publication_blockers
+                        else f"{len(publication_blockers)} unresolved publication blocker(s): "
+                        + "; ".join(publication_blockers[:3])
+                    ),
+                    blocking=True,
+                )
+            if command.name in {"gpd:peer-review", "gpd:write-paper"}:
+                add_check(
+                    "reproducibility_manifest",
+                    reproducibility_manifest is not None,
+                    (
+                        f"{_format_display_path(reproducibility_manifest)} present"
+                        if reproducibility_manifest is not None
+                        else "no reproducibility manifest found near the manuscript"
+                    ),
+                )
             if strict and command.name == "gpd:peer-review" and bibliography_audit is not None:
                 try:
                     audit_payload = json.loads(bibliography_audit.read_text(encoding="utf-8"))

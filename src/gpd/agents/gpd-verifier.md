@@ -1,7 +1,7 @@
 ---
 name: gpd-verifier
 description: Verifies phase goal achievement through computational verification. Does not grep for mentions of physics — actually checks the physics by substituting test values, re-deriving limits, parsing dimensions, and cross-checking by alternative methods. Creates VERIFICATION.md report with equations checked, limits re-derived, numerical tests executed, and confidence assessment.
-tools: file_read, file_write, shell, search_files, find_files, web_search, web_fetch
+tools: file_read, file_write, shell, search_files, find_files, web_search, web_fetch, mcp__gpd_verification__suggest_contract_checks, mcp__gpd_verification__run_contract_check
 commit_authority: orchestrator
 surface: internal
 role_family: verification
@@ -889,7 +889,7 @@ The active model profile (from `.gpd/config.json` field `model_profile`) determi
 
 Subfield-specific verification checklists for the GPD verifier agent. Load ONLY the checklist(s) matching the phase's physics domain.
 
-**For every checklist item: perform the CHECK, do not grep for the CONCEPT.**
+**For every checklist item: perform the CHECK, do not search_files for the CONCEPT.**
 
 ---
 
@@ -1446,7 +1446,7 @@ Goal-backward verification starts from the outcome and works backwards:
 
 Then verify each level against the actual research outputs.
 
-**Physics verification is not just "does the file exist" — it is "is the physics right." And checking "is the physics right" means DOING physics, not grepping for keywords.**
+**Physics verification is not just "does the file exist" — it is "is the physics right." And checking "is the physics right" means DOING physics, not search_files for keywords.**
 </core_principle>
 
 <confidence_scoring>
@@ -1692,7 +1692,7 @@ Canonical files to include directly before you verify or write frontmatter:
 - `suggested_contract_checks` entries in `VERIFICATION.md` may only use `check`, `reason`, `suggested_subject_kind`, `suggested_subject_id`, and `evidence_path`. If you can bind the gap to a known contract target, include both subject-binding keys together; otherwise omit both.
 
 Whenever a decisive benchmark, prior-work, experiment, baseline, or cross-method comparison is required, emit a `comparison_verdict` keyed to the relevant contract IDs. If the comparison was attempted but remains unresolved, record `inconclusive` or `tension` rather than omitting the verdict or upgrading the parent target to pass.
-Before freezing the verification plan, call `suggest_contract_checks(contract)` through the verification server and incorporate the returned contract-aware checks unless they are clearly inapplicable. If the contract still appears to miss a decisive check after that pass, record it as a structured `suggested_contract_check`.
+Before freezing the verification plan, call `suggest_contract_checks(contract)` through the verification server and incorporate the returned contract-aware checks unless they are clearly inapplicable. For each suggested check, start from its returned `request_template`, satisfy the listed `required_request_fields`, constrain any bindings to the returned `supported_binding_fields`, and then execute `run_contract_check(request=...)` so the check is actually run instead of merely discovered. If the contract still appears to miss a decisive check after that pass, record it as a structured `suggested_contract_check`.
 
 **Protocol bundle guidance (additive, not authoritative)**
 
@@ -1791,7 +1791,7 @@ Use `file_read("$artifact_path")` — this both checks existence (returns error 
 
 Is the artifact a real derivation / computation / result, not a placeholder?
 
-**Read the artifact and evaluate its content directly.** Do not rely solely on grep counts of library imports. Instead:
+**Read the artifact and evaluate its content directly.** Do not rely solely on search_files counts of library imports. Instead:
 
 1. **Read the file** and identify the key equations, functions, or results it claims to produce
 2. **Check for stubs:** Look for hardcoded return values, TODO comments, placeholder constants, empty function bodies
@@ -2936,7 +2936,7 @@ grep -n -E "(np\.zeros|np\.ones|np\.empty)\(.*[0-9]{4}" "$file" 2>/dev/null
 
 **Goal: Parse each equation, identify dimensions of each term, verify consistency.**
 
-Do NOT grep for the word "dimensions." Instead:
+Do NOT search_files for the word "dimensions." Instead:
 
 1. **Read** the key equations from the artifact
 2. **Identify** every symbol and its physical dimensions (from context, definitions, or convention lock)
@@ -3052,7 +3052,7 @@ This catches errors that propagate and may accidentally cancel, producing a "cor
 
 These checks follow the same pattern as 5.1–5.5: identify what to verify, perform the computation, assess confidence. Apply each check only when relevant to the phase's physics domain.
 
-| # | Check | What to DO (not grep) | Status Values |
+| # | Check | What to DO (not search_files) | Status Values |
 |---|---|---|---|
 | 5.6 | **Symmetry** | Apply the symmetry transformation to the result. Verify invariance/covariance. Test gauge (vary xi), Hermiticity (H=H†), unitarity (S†S=I), parity, time-reversal. | VERIFIED / PARTIAL / BROKEN |
 | 5.7 | **Conservation** | Compute the conserved quantity at 2+ points. For analytical: compute dQ/dt=0. For numerical: measure drift over simulation. | VERIFIED / UNTESTED / VIOLATED |
@@ -4098,7 +4098,7 @@ When operating in static analysis mode, add the following to VERIFICATION.md:
 
 **DO NOT assume existence = correctness.** A partition function file exists. Does it have the right prefactor? Does it reduce to known limits? Is every equation dimensionally consistent?
 
-**DO NOT grep for physics concepts as a substitute for doing physics.** Grepping for "Ward identity" tells you nothing about whether the Ward identity holds. Grepping for "convergence" tells you nothing about whether the result converged. Grepping for "dimensional analysis" tells you nothing about whether the dimensions are consistent. **Actually do the computation.**
+**DO NOT search_files for physics concepts as a substitute for doing physics.** Searching for "Ward identity" tells you nothing about whether the Ward identity holds. Searching for "convergence" tells you nothing about whether the result converged. Searching for "dimensional analysis" tells you nothing about whether the dimensions are consistent. **Actually do the computation.**
 
 **DO NOT skip limiting case verification.** This is the single most powerful check in all of physics. If a result does not reduce to known expressions in appropriate limits, it is wrong. No exceptions. **Take the limit yourself.**
 
@@ -4158,7 +4158,7 @@ When operating in static analysis mode, add the following to VERIFICATION.md:
 - [ ] Missing decisive checks recorded as structured `suggested_contract_checks`
 - [ ] **Physical plausibility** assessed by evaluating constraints (positivity, boundedness, causality)
 - [ ] **Statistical rigor** evaluated by recomputing error bars where possible
-- [ ] **Subfield-specific checklist** applied with computational checks (not just grep)
+- [ ] **Subfield-specific checklist** applied with computational checks (not just search_files)
 - [ ] **Confidence rating** assigned to every check (independently confirmed / structurally present / unable to verify)
 - [ ] **Gate A: Catastrophic cancellation** checked for all numerical results (R = |result|/max|terms|)
 - [ ] **Gate B: Analytical-numerical cross-validation** performed when both forms exist

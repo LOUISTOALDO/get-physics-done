@@ -431,6 +431,17 @@ def test_ensure_state_schema_salvages_reference_optional_field_without_dropping_
     ]
 
 
+def test_ensure_state_schema_ignores_nested_metadata_must_surface_without_dropping_contract():
+    contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    contract["references"][0]["metadata"] = {"must_surface": "yes"}
+
+    result = ensure_state_schema({"project_contract": contract})
+
+    assert result["project_contract"] is not None
+    assert result["project_contract"]["references"][0]["id"] == "ref-benchmark"
+    assert result["project_contract"]["references"][0]["must_surface"] is True
+
+
 def test_normalize_state_schema_reports_coercive_project_contract_scalars():
     contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
     contract["schema_version"] = True

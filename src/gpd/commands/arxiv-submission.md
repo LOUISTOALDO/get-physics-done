@@ -43,6 +43,8 @@ Prepare a completed paper for arXiv submission. Handles the full submission pipe
 **Why a dedicated command:** arXiv has specific requirements (no subdirectories in uploads, .bbl instead of .bib, specific figure formats, 00README.XXX for multi-file submissions). Getting these wrong means rejected submissions and wasted time. This command automates the tedious compliance steps.
 
 Output: A submission-ready tarball and checklist of manual steps remaining.
+
+The workflow's preflight gate checks the explicit paper target, the compiled manuscript, and unresolved publication blockers before packaging begins.
 </objective>
 
 <execution_context>

@@ -10,6 +10,7 @@ import pytest
 from gpd.core.context import (
     _generate_slug,
     _is_phase_complete,
+    _load_project_contract,
     _normalize_phase_name,
     init_execute_phase,
     init_map_research,
@@ -1300,6 +1301,28 @@ class TestInitProgress:
         assert loaded.state["project_contract"]["claims"][0]["id"] == "claim-benchmark"
         assert loaded.state["project_contract"]["references"][0]["aliases"] == []
         assert "notes" not in loaded.state["project_contract"]["claims"][0]
+
+    def test_load_project_contract_fallback_salvages_nested_metadata_must_surface(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _setup_project(tmp_path)
+
+        contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+        contract["references"][0]["metadata"] = {"must_surface": "yes"}
+
+        from gpd.core.state import ensure_state_schema
+
+        normalized_state = ensure_state_schema({"project_contract": contract})
+        monkeypatch.setattr("gpd.core.context._load_state_json", lambda cwd: normalized_state)
+        monkeypatch.setattr("gpd.core.context._load_raw_project_contract_payload", lambda cwd: None)
+
+        loaded = _load_project_contract(tmp_path)
+
+        assert loaded is not None
+        assert loaded.references[0].id == "ref-benchmark"
+        assert loaded.references[0].must_surface is True
 
 
 # ─── _extract_frontmatter_field ──────────────────────────────────────────────

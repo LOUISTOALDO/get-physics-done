@@ -46,6 +46,28 @@ def test_approved_mode_accepts_need_grounding_phrase_without_other_anchor_tokens
     assert result.mode == "approved"
 
 
+def test_approved_mode_does_not_treat_reference_frame_questions_as_anchor_unknown() -> None:
+    contract = _load_contract_fixture()
+    _remove_incidental_grounding(contract)
+    contract["context_intake"]["context_gaps"] = ["What reference frame should we use for the analysis?"]
+
+    result = validate_project_contract(contract, mode="approved")
+
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
+
+
+def test_approved_mode_does_not_treat_generic_benchmark_parameter_questions_as_anchor_unknown() -> None:
+    contract = _load_contract_fixture()
+    _remove_incidental_grounding(contract)
+    contract["scope"]["unresolved_questions"] = ["What benchmark tolerance should we use?"]
+
+    result = validate_project_contract(contract, mode="approved")
+
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
+
+
 def test_approved_mode_accepts_target_not_yet_chosen_phrase_in_weakest_anchors() -> None:
     contract = _load_contract_fixture()
     _remove_incidental_grounding(contract)

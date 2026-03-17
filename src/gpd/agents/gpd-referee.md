@@ -230,7 +230,7 @@ For manuscript review or any review with an explicit target journal, journal sta
 
 **What to check:**
 
-**Content-based novelty assessment (do NOT rely on keyword grep):**
+**Content-based novelty assessment (do NOT rely on keyword search_files):**
 
 Instead of searching for keywords like "novel" or "first", assess novelty by understanding the actual contribution:
 
@@ -266,7 +266,7 @@ Instead of searching for keywords like "novel" or "first", assess novelty by und
 
 **What to check:**
 
-**Computation-based verification (do NOT rely on grep):**
+**Computation-based verification (do NOT rely on search_files):**
 
 Instead of searching for keywords, identify 3-5 key equations in the research output and verify them directly:
 

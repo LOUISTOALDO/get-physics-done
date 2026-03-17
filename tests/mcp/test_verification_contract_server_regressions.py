@@ -4,6 +4,7 @@ import copy
 import json
 from pathlib import Path
 
+import anyio
 import pytest
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "stage0"
@@ -11,6 +12,25 @@ FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "stage0"
 
 def _load_project_contract_fixture() -> dict[str, object]:
     return json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+
+
+def _call_verification_tool(tool_name: str, arguments: dict[str, object]) -> dict[str, object]:
+    from gpd.mcp.servers.verification_server import mcp
+
+    async def _call() -> dict[str, object]:
+        result = await mcp.call_tool(tool_name, arguments)
+        if isinstance(result, dict):
+            return result
+        if (
+            isinstance(result, list)
+            and len(result) == 1
+            and hasattr(result[0], "text")
+            and isinstance(result[0].text, str)
+        ):
+            return json.loads(result[0].text)
+        raise AssertionError(f"Unexpected MCP call result: {result!r}")
+
+    return anyio.run(_call)
 
 
 def _derived_template_contract() -> dict[str, object]:
@@ -213,6 +233,45 @@ def test_suggest_contract_checks_rejects_non_list_active_checks(active_checks: o
     result = suggest_contract_checks(_derived_template_contract(), active_checks=active_checks)  # type: ignore[arg-type]
 
     assert result == {"error": "active_checks must be a list of strings", "schema_version": 1}
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "expected"),
+    [
+        (
+            "run_contract_check",
+            {"request": "not-a-dict"},
+            {"error": "request must be an object", "schema_version": 1},
+        ),
+        (
+            "run_contract_check",
+            {
+                "request": {
+                    "check_key": "contract.benchmark_reproduction",
+                    "binding": {"claim_ids": ["claim-benchmark", 9]},
+                    "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+                }
+            },
+            {"error": "binding.claim_ids[1] must be a non-empty string", "schema_version": 1},
+        ),
+        (
+            "suggest_contract_checks",
+            {"contract": "not-a-dict"},
+            {"error": "contract must be an object", "schema_version": 1},
+        ),
+        (
+            "suggest_contract_checks",
+            {"contract": _derived_template_contract(), "active_checks": 5},
+            {"error": "active_checks must be a list of strings", "schema_version": 1},
+        ),
+    ],
+)
+def test_contract_tools_preserve_stable_error_envelopes_at_mcp_boundary(
+    tool_name: str,
+    arguments: dict[str, object],
+    expected: dict[str, object],
+) -> None:
+    assert _call_verification_tool(tool_name, arguments) == expected
 
 
 @pytest.mark.parametrize("payload", ["not-a-dict", ["claim-benchmark"], 3])
@@ -438,6 +497,34 @@ def test_contract_tools_reject_blocking_salvage_schema_drift() -> None:
     }
     assert run_result == expected
     assert suggest_result == expected
+
+
+def test_contract_tool_responses_copy_binding_targets_lists() -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check, suggest_contract_checks
+
+    request = {
+        "check_key": "contract.benchmark_reproduction",
+        "contract": _load_project_contract_fixture(),
+        "binding": {"claim_ids": ["claim-benchmark"]},
+        "metadata": {"source_reference_id": "ref-benchmark"},
+        "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+    }
+
+    first_run = run_contract_check(request)
+    first_run["binding_targets"].append("poisoned")
+
+    second_run = run_contract_check(request)
+    assert second_run["binding_targets"] == ["claim", "deliverable", "acceptance_test", "reference"]
+
+    first_suggest = suggest_contract_checks(_load_project_contract_fixture())
+    benchmark = next(entry for entry in first_suggest["suggested_checks"] if entry["check_key"] == "contract.benchmark_reproduction")
+    benchmark["binding_targets"].append("poisoned")
+
+    second_suggest = suggest_contract_checks(_load_project_contract_fixture())
+    fresh_benchmark = next(
+        entry for entry in second_suggest["suggested_checks"] if entry["check_key"] == "contract.benchmark_reproduction"
+    )
+    assert fresh_benchmark["binding_targets"] == ["claim", "deliverable", "acceptance_test", "reference"]
 
 
 @pytest.mark.parametrize(

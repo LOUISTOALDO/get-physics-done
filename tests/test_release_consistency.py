@@ -343,7 +343,9 @@ def test_readme_documents_runtime_specific_tier_model_formats() -> None:
     assert "Runtime-specific model string examples" in readme
     assert "`opus`, `sonnet`, `haiku`" in readme
     assert "the exact string Codex accepts" in readme
-    assert '"your-tier-1-codex-model"' in readme
+    assert '"gpt-5.4"' in readme
+    assert '"gpt-5.4-mini"' in readme
+    assert '"gpt-5.4-nano"' in readme
     assert '"your-tier-1-gemini-model"' in readme
     assert "`provider/model`" in readme
 

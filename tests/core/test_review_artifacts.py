@@ -179,6 +179,32 @@ def test_stage_review_report_requires_issue_ids(tmp_path: Path) -> None:
         read_stage_review_report(stage_path)
 
 
+def test_stage_review_report_requires_stage_id_to_match_stage_kind(tmp_path: Path) -> None:
+    stage_path = tmp_path / "STAGE-reader.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "round": 1,
+                "stage_id": "literature",
+                "stage_kind": "reader",
+                "manuscript_path": "paper/main.tex",
+                "manuscript_sha256": "a" * 64,
+                "claims_reviewed": ["CLM-001"],
+                "summary": "Summary",
+                "strengths": [],
+                "findings": [],
+                "confidence": "medium",
+                "recommendation_ceiling": "major_revision",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match="stage_id must equal stage_kind"):
+        read_stage_review_report(stage_path)
+
+
 def test_review_ledger_rejects_unexpected_extra_fields(tmp_path: Path) -> None:
     ledger_path = tmp_path / "REVIEW-LEDGER.json"
     ledger_path.write_text(

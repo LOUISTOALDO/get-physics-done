@@ -15,8 +15,10 @@ import logging
 import re
 import sys
 from collections.abc import Iterable
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic import ValidationError as PydanticValidationError
 
 from gpd.contracts import ResearchContract, collect_contract_integrity_errors
@@ -149,6 +151,211 @@ _CONTRACT_CHECK_REQUEST_HINTS: dict[str, dict[str, object]] = {
         },
     },
 }
+
+
+class _ContractRequestBase(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class ContractBindingRequest(_ContractRequestBase):
+    observable_id: str | list[str] | None = Field(
+        default=None,
+        description="Binding to one observable id or a list of observable ids.",
+    )
+    observable_ids: str | list[str] | None = Field(
+        default=None,
+        description="Plural alias accepted for observable bindings.",
+    )
+    claim_id: str | list[str] | None = Field(
+        default=None,
+        description="Binding to one claim id or a list of claim ids.",
+    )
+    claim_ids: str | list[str] | None = Field(
+        default=None,
+        description="Plural alias accepted for claim bindings.",
+    )
+    deliverable_id: str | list[str] | None = Field(
+        default=None,
+        description="Binding to one deliverable id or a list of deliverable ids.",
+    )
+    deliverable_ids: str | list[str] | None = Field(
+        default=None,
+        description="Plural alias accepted for deliverable bindings.",
+    )
+    acceptance_test_id: str | list[str] | None = Field(
+        default=None,
+        description="Binding to one acceptance-test id or a list of acceptance-test ids.",
+    )
+    acceptance_test_ids: str | list[str] | None = Field(
+        default=None,
+        description="Plural alias accepted for acceptance-test bindings.",
+    )
+    reference_id: str | list[str] | None = Field(
+        default=None,
+        description="Binding to one reference id or a list of reference ids.",
+    )
+    reference_ids: str | list[str] | None = Field(
+        default=None,
+        description="Plural alias accepted for reference bindings.",
+    )
+    forbidden_proxy_id: str | list[str] | None = Field(
+        default=None,
+        description="Binding to one forbidden-proxy id or a list of forbidden-proxy ids.",
+    )
+    forbidden_proxy_ids: str | list[str] | None = Field(
+        default=None,
+        description="Plural alias accepted for forbidden-proxy bindings.",
+    )
+
+
+class ContractMetadataRequest(_ContractRequestBase):
+    regime_label: str | None = None
+    expected_behavior: str | None = None
+    source_reference_id: str | None = None
+    declared_family: str | None = None
+    allowed_families: list[str] | None = None
+    forbidden_families: list[str] | None = None
+
+
+class ContractObservedRequest(_ContractRequestBase):
+    limit_passed: bool | None = None
+    observed_limit: str | None = None
+    metric_value: int | float | None = None
+    threshold_value: int | float | None = None
+    proxy_only: bool | None = None
+    direct_available: bool | None = None
+    proxy_available: bool | None = None
+    consistency_passed: bool | None = None
+    selected_family: str | None = None
+    competing_family_checked: bool | None = None
+    bias_checked: bool | None = None
+    calibration_checked: bool | None = None
+
+
+class RunContractCheckRequest(_ContractRequestBase):
+    check_key: str | None = Field(default=None, description="Canonical contract-aware check key.")
+    check_id: str | None = Field(default=None, description="Compatibility alias for check_key.")
+    contract: dict[str, object] | ResearchContract | None = Field(
+        default=None,
+        description="Optional project or phase contract payload; salvage remains runtime-managed.",
+    )
+    binding: ContractBindingRequest | None = None
+    metadata: ContractMetadataRequest | None = None
+    observed: ContractObservedRequest | None = None
+    artifact_content: str | None = None
+
+
+_STRING_OR_STRING_LIST_OR_NULL_SCHEMA: dict[str, object] = {
+    "anyOf": [
+        {"type": "string"},
+        {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        {"type": "null"},
+    ]
+}
+_STRING_LIST_OR_NULL_SCHEMA: dict[str, object] = {
+    "anyOf": [
+        {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        {"type": "null"},
+    ]
+}
+_BOOLEAN_OR_NULL_SCHEMA: dict[str, object] = {
+    "anyOf": [{"type": "boolean"}, {"type": "null"}]
+}
+_NUMBER_OR_NULL_SCHEMA: dict[str, object] = {
+    "anyOf": [{"type": "number"}, {"type": "null"}]
+}
+_CONTRACT_BINDING_INPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        field_name: dict(_STRING_OR_STRING_LIST_OR_NULL_SCHEMA)
+        for field_name in (
+            "observable_id",
+            "observable_ids",
+            "claim_id",
+            "claim_ids",
+            "deliverable_id",
+            "deliverable_ids",
+            "acceptance_test_id",
+            "acceptance_test_ids",
+            "reference_id",
+            "reference_ids",
+            "forbidden_proxy_id",
+            "forbidden_proxy_ids",
+        )
+    },
+}
+_CONTRACT_METADATA_INPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "regime_label": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "expected_behavior": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "source_reference_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "declared_family": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "allowed_families": dict(_STRING_LIST_OR_NULL_SCHEMA),
+        "forbidden_families": dict(_STRING_LIST_OR_NULL_SCHEMA),
+    },
+}
+_CONTRACT_OBSERVED_INPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "limit_passed": dict(_BOOLEAN_OR_NULL_SCHEMA),
+        "observed_limit": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "metric_value": dict(_NUMBER_OR_NULL_SCHEMA),
+        "threshold_value": dict(_NUMBER_OR_NULL_SCHEMA),
+        "proxy_only": dict(_BOOLEAN_OR_NULL_SCHEMA),
+        "direct_available": dict(_BOOLEAN_OR_NULL_SCHEMA),
+        "proxy_available": dict(_BOOLEAN_OR_NULL_SCHEMA),
+        "consistency_passed": dict(_BOOLEAN_OR_NULL_SCHEMA),
+        "selected_family": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "competing_family_checked": dict(_BOOLEAN_OR_NULL_SCHEMA),
+        "bias_checked": dict(_BOOLEAN_OR_NULL_SCHEMA),
+        "calibration_checked": dict(_BOOLEAN_OR_NULL_SCHEMA),
+    },
+}
+_CONTRACT_PAYLOAD_INPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "schema_version": {"type": "integer", "const": 1},
+        "scope": {"type": "object"},
+        "context_intake": {"type": "object"},
+        "approach_policy": {"type": "object"},
+        "observables": {"type": "array", "items": {"type": "object"}},
+        "claims": {"type": "array", "items": {"type": "object"}},
+        "deliverables": {"type": "array", "items": {"type": "object"}},
+        "acceptance_tests": {"type": "array", "items": {"type": "object"}},
+        "references": {"type": "array", "items": {"type": "object"}},
+        "forbidden_proxies": {"type": "array", "items": {"type": "object"}},
+        "links": {"type": "array", "items": {"type": "object"}},
+        "uncertainty_markers": {"type": "object"},
+    },
+}
+_RUN_CONTRACT_CHECK_REQUEST_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "check_key": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "check_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "contract": {"anyOf": [dict(_CONTRACT_PAYLOAD_INPUT_SCHEMA), {"type": "null"}]},
+        "binding": {"anyOf": [dict(_CONTRACT_BINDING_INPUT_SCHEMA), {"type": "null"}]},
+        "metadata": {"anyOf": [dict(_CONTRACT_METADATA_INPUT_SCHEMA), {"type": "null"}]},
+        "observed": {"anyOf": [dict(_CONTRACT_OBSERVED_INPUT_SCHEMA), {"type": "null"}]},
+        "artifact_content": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    },
+}
+
+RunContractCheckPayload = Annotated[object, WithJsonSchema(_RUN_CONTRACT_CHECK_REQUEST_SCHEMA)]
+SuggestContractPayload = Annotated[object, WithJsonSchema(_CONTRACT_PAYLOAD_INPUT_SCHEMA)]
+StringListPayload = Annotated[object | None, WithJsonSchema(_STRING_LIST_OR_NULL_SCHEMA)]
 
 
 def _contract_check_request_hint(check_key: str, *, contract: ResearchContract | None = None) -> dict[str, object]:
@@ -480,6 +687,15 @@ DOMAIN_CHECKLISTS: dict[str, list[dict[str, str]]] = {
 def _error_result(message: object) -> dict[str, object]:
     """Return a stable MCP error envelope for verification tools."""
     return stable_mcp_error(message)
+
+
+def _payload_mapping(value: object, *, field_name: str) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+    """Return a defensive mapping copy from a dict or pydantic model."""
+    if isinstance(value, dict):
+        return copy.deepcopy(value), None
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="python", exclude_none=True), None
+    return None, _error_result(f"{field_name} must be an object")
 
 
 def _optional_mapping_field(request: dict[str, object], field_name: str) -> tuple[dict[str, object] | None, dict[str, object] | None]:
@@ -1384,7 +1600,7 @@ def _claim_ids_for_regime(contract: ResearchContract, regime_label: str) -> list
 
 
 @mcp.tool()
-def run_contract_check(request: dict) -> dict:
+def run_contract_check(request: RunContractCheckPayload) -> dict:
     """Run a contract-aware verification check from a single structured ``request`` object.
 
     ``request.check_key`` or ``request.check_id`` is required and must name a
@@ -1418,8 +1634,9 @@ def run_contract_check(request: dict) -> dict:
 
     with gpd_span("mcp.verification.run_contract_check"):
         try:
-            if not isinstance(request, dict):
-                return _error_result("request must be an object")
+            request, error = _payload_mapping(request, field_name="request")
+            if error is not None:
+                return error
             check_id = str(request.get("check_key") or request.get("check_id") or "").strip()
             if not check_id:
                 return _error_result("Missing check_key or check_id")
@@ -1742,7 +1959,7 @@ def run_contract_check(request: dict) -> dict:
                 "check_name": check_meta.name,
                 "check_class": check_meta.check_class,
                 "contract_aware": check_meta.contract_aware,
-                "binding_targets": check_meta.binding_targets,
+                "binding_targets": list(check_meta.binding_targets),
                 "supported_binding_fields": _supported_binding_fields_for_targets(check_meta.binding_targets),
                 "status": status,
                 "evidence_directness": evidence_directness,
@@ -1761,7 +1978,7 @@ def run_contract_check(request: dict) -> dict:
 
 
 @mcp.tool()
-def suggest_contract_checks(contract: dict, active_checks: list[str] | None = None) -> dict:
+def suggest_contract_checks(contract: SuggestContractPayload, active_checks: StringListPayload = None) -> dict:
     """Suggest contract-aware checks from a schema-validated project or phase ``contract``.
 
     ``contract`` must be an object with ``schema_version: 1`` and the normal GPD
@@ -1786,8 +2003,9 @@ def suggest_contract_checks(contract: dict, active_checks: list[str] | None = No
 
     with gpd_span("mcp.verification.suggest_contract_checks"):
         try:
-            if not isinstance(contract, dict):
-                return _error_result("contract must be an object")
+            contract, error = _payload_mapping(contract, field_name="contract")
+            if error is not None:
+                return error
             if active_checks is not None:
                 active_checks, error = _validate_string_list(active_checks, field_name="active_checks")
                 if error is not None:
@@ -1810,7 +2028,7 @@ def suggest_contract_checks(contract: dict, active_checks: list[str] | None = No
                         "name": meta.name,
                         "reason": reason,
                         "already_active": meta.check_id in active or meta.check_key in active,
-                        "binding_targets": meta.binding_targets,
+                        "binding_targets": list(meta.binding_targets),
                         **request_hint,
                     }
                 )

@@ -113,6 +113,7 @@ _SHARED_RUNTIME_AGNOSTIC_PATHS = (
 _SHARED_TEST_RUNTIME_SURFACE_PATHS = (
     REPO_ROOT / "tests/test_bootstrap_installer.py",
     REPO_ROOT / "tests/test_install_lifecycle.py",
+    REPO_ROOT / "tests/core/test_prompt_tool_name_consistency.py",
     REPO_ROOT / "tests/test_update_workflow.py",
 )
 _TEXT_SURFACE_SUFFIXES = {".md", ".py"}

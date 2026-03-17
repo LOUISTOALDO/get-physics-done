@@ -85,7 +85,7 @@ Use `protocol_bundle_context` from init JSON as additive review guidance.
 **Run the executable review preflight checks before spawning the review panel:**
 
 ```bash
-gpd validate review-preflight peer-review --strict
+gpd validate review-preflight peer-review "$ARGUMENTS" --strict
 ```
 
 If preflight exits nonzero because of missing project state, missing manuscript, degraded review integrity, or missing review-grade paper artifacts, STOP and show the blocking issues.

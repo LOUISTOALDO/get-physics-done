@@ -33,6 +33,8 @@ allowed-tools:
   - file_edit
   - file_write
   - task
+  - mcp__gpd_verification__suggest_contract_checks
+  - mcp__gpd_verification__run_contract_check
 ---
 
 <!-- Tool names and @ includes are platform-specific. The installer translates paths for your runtime. -->

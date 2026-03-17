@@ -29,6 +29,15 @@ def test_arxiv_submission_workflow_runs_centralized_review_preflight() -> None:
 
     assert 'gpd validate review-preflight arxiv-submission "$ARGUMENTS" --strict' in workflow
     assert "gpd validate review-preflight arxiv-submission --strict" in workflow
+    assert "If `$ARGUMENTS` specifies a `.tex` or `.md` file, set `resolved_main_tex` to that file" in workflow
+    assert 'MAIN_TEX="${resolved_main_tex}"' in workflow
+
+
+def test_peer_review_workflow_runs_centralized_review_preflight_with_explicit_arguments() -> None:
+    workflow = _workflow_text("peer-review.md")
+
+    assert 'gpd validate review-preflight peer-review "$ARGUMENTS" --strict' in workflow
+    assert "gpd validate review-preflight peer-review --strict" not in workflow
 
 
 def test_verify_work_workflow_runs_centralized_review_preflight() -> None:

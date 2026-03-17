@@ -6,7 +6,6 @@ from collections import defaultdict
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from pydantic import ValidationError as PydanticValidationError
 
 __all__ = [
     "ConventionLock",
@@ -726,11 +725,11 @@ def contract_from_data(data: object) -> ResearchContract | None:
 
     if not isinstance(data, dict):
         return None
-    if _collect_contract_scalar_errors(data):
-        return None
-    try:
-        contract = ResearchContract.model_validate(data)
-    except PydanticValidationError:
+    from gpd.core.contract_validation import _split_project_contract_schema_findings, salvage_project_contract
+
+    contract, schema_findings = salvage_project_contract(data)
+    _schema_warnings, schema_errors = _split_project_contract_schema_findings(schema_findings)
+    if schema_errors or contract is None:
         return None
     if collect_contract_integrity_errors(contract):
         return None

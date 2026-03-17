@@ -6,7 +6,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gpd.mcp.paper.bibliography import BibliographyAudit
 
@@ -203,6 +203,13 @@ class StageReviewReport(BaseModel):
     findings: list[ReviewFinding] = Field(default_factory=list)
     confidence: ReviewConfidence
     recommendation_ceiling: ReviewRecommendation
+
+    @model_validator(mode="after")
+    def _stage_id_matches_stage_kind(self) -> StageReviewReport:
+        expected_stage_id = self.stage_kind.value
+        if self.stage_id != expected_stage_id:
+            raise ValueError(f"stage_id must equal stage_kind ({expected_stage_id})")
+        return self
 
 
 class ReviewIssue(BaseModel):
