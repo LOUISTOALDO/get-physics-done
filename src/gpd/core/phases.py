@@ -19,6 +19,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from gpd.core.checkpoints import sync_phase_checkpoints
 from gpd.core.constants import (
     CONTEXT_SUFFIX,
     MILESTONES_DIR_NAME,
@@ -39,7 +40,6 @@ from gpd.core.constants import (
     VERIFICATION_SUFFIX,
     ProjectLayout,
 )
-from gpd.core.checkpoints import sync_phase_checkpoints
 from gpd.core.errors import GPDError
 from gpd.core.frontmatter import FrontmatterParseError
 from gpd.core.observability import gpd_span

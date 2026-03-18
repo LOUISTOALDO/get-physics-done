@@ -27,6 +27,7 @@ from gpd.contracts import (
     ResearchContract,
     VerificationEvidence,
 )
+from gpd.core.checkpoints import sync_phase_checkpoints
 from gpd.core.constants import (
     ENV_GPD_DEBUG,
     PHASES_DIR_NAME,
@@ -44,7 +45,6 @@ from gpd.core.constants import (
 )
 from gpd.core.contract_validation import salvage_project_contract, validate_project_contract
 from gpd.core.conventions import KNOWN_CONVENTIONS, is_bogus_value
-from gpd.core.checkpoints import sync_phase_checkpoints
 from gpd.core.errors import StateError
 from gpd.core.extras import Approximation
 from gpd.core.extras import Uncertainty as PropagatedUncertainty
