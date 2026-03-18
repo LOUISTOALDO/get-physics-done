@@ -46,7 +46,11 @@ from gpd.core.constants import (
     VERIFICATION_SUFFIX,
     ProjectLayout,
 )
-from gpd.core.contract_validation import _split_project_contract_schema_findings, salvage_project_contract
+from gpd.core.contract_validation import (
+    _split_project_contract_schema_findings,
+    salvage_project_contract,
+    validate_project_contract,
+)
 from gpd.core.errors import ValidationError
 from gpd.core.protocol_bundles import render_protocol_bundle_context, select_protocol_bundles
 from gpd.core.reference_ingestion import ingest_reference_artifacts
@@ -216,48 +220,62 @@ def _load_raw_project_contract_payload(cwd: Path) -> tuple[Path, object] | None:
 
 def _load_project_contract(cwd: Path) -> ResearchContract | None:
     """Load the canonical project contract from state.json when available."""
+    layout = ProjectLayout(cwd)
     state = _load_state_json(cwd)
     if not isinstance(state, dict):
         return None
 
     raw_payload = _load_raw_project_contract_payload(cwd)
+    source_path = raw_payload[0] if raw_payload is not None else layout.state_json
     if raw_payload is None:
-        return contract_from_data(state.get("project_contract"))
+        contract = contract_from_data(state.get("project_contract"))
+        if contract is None:
+            return None
+    else:
+        source_path, raw_contract = raw_payload
+        if raw_contract is None:
+            return None
+        if not isinstance(raw_contract, dict):
+            logger.warning("Skipping project_contract from %s because it is not a JSON object", source_path)
+            return None
 
-    source_path, raw_contract = raw_payload
-    if raw_contract is None:
-        return None
-    if not isinstance(raw_contract, dict):
-        logger.warning("Skipping project_contract from %s because it is not a JSON object", source_path)
-        return None
+        normalized_contract, schema_findings = salvage_project_contract(raw_contract)
+        schema_warnings, schema_errors = _split_project_contract_schema_findings(
+            schema_findings,
+            allow_singleton_defaults=False,
+        )
+        if schema_errors or normalized_contract is None:
+            logger.warning(
+                "Skipping project_contract from %s because blocking schema normalization would be required: %s",
+                source_path,
+                "; ".join(schema_errors) if schema_errors else "validation failed",
+            )
+            return None
+        integrity_errors = collect_contract_integrity_errors(normalized_contract)
+        if integrity_errors:
+            logger.warning(
+                "Skipping project_contract from %s because semantic integrity checks failed: %s",
+                source_path,
+                "; ".join(integrity_errors),
+            )
+            return None
+        if schema_warnings:
+            logger.warning(
+                "Loaded project_contract from %s after recoverable schema normalization: %s",
+                source_path,
+                "; ".join(schema_warnings),
+            )
+        contract = normalized_contract
 
-    normalized_contract, schema_findings = salvage_project_contract(raw_contract)
-    schema_warnings, schema_errors = _split_project_contract_schema_findings(
-        schema_findings,
-        allow_singleton_defaults=False,
-    )
-    if schema_errors or normalized_contract is None:
+    approval_validation = validate_project_contract(contract, mode="approved")
+    if not approval_validation.valid:
         logger.warning(
-            "Skipping project_contract from %s because blocking schema normalization would be required: %s",
+            "Skipping project_contract from %s because approved-mode validation failed: %s",
             source_path,
-            "; ".join(schema_errors) if schema_errors else "validation failed",
+            "; ".join(approval_validation.errors) if approval_validation.errors else "validation failed",
         )
         return None
-    integrity_errors = collect_contract_integrity_errors(normalized_contract)
-    if integrity_errors:
-        logger.warning(
-            "Skipping project_contract from %s because semantic integrity checks failed: %s",
-            source_path,
-            "; ".join(integrity_errors),
-        )
-        return None
-    if schema_warnings:
-        logger.warning(
-            "Loaded project_contract from %s after recoverable schema normalization: %s",
-            source_path,
-            "; ".join(schema_warnings),
-        )
-    return normalized_contract
+    return contract
 
 
 def _sorted_markdown_files(directory: Path) -> list[Path]:
@@ -754,13 +772,8 @@ def _build_reference_runtime_context(cwd: Path) -> dict[str, object]:
         artifact_ingestion.intake.to_dict(),
         active_references,
     )
-    canonical_contract = _canonicalize_project_contract(
-        contract,
-        active_references=active_references,
-        effective_reference_intake=effective_reference_intake,
-    )
     project_text = _safe_read_file(cwd / PLANNING_DIR_NAME / PROJECT_FILENAME)
-    selected_protocol_bundles = select_protocol_bundles(project_text, canonical_contract)
+    selected_protocol_bundles = select_protocol_bundles(project_text, contract)
 
     bundle_verifier_extensions: list[dict[str, object]] = []
     for bundle in selected_protocol_bundles:
@@ -774,8 +787,8 @@ def _build_reference_runtime_context(cwd: Path) -> dict[str, object]:
             )
 
     return {
-        "project_contract": canonical_contract.model_dump(mode="json") if canonical_contract is not None else None,
-        "contract_intake": canonical_contract.context_intake.model_dump(mode="json") if canonical_contract is not None else None,
+        "project_contract": contract.model_dump(mode="json") if contract is not None else None,
+        "contract_intake": contract.context_intake.model_dump(mode="json") if contract is not None else None,
         "effective_reference_intake": effective_reference_intake,
         "derived_active_references": derived_references,
         "derived_active_reference_count": len(derived_references),

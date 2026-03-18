@@ -23,6 +23,7 @@ from gpd.contracts import (
     ResearchContract,
     SuggestedContractCheck,
     collect_contract_integrity_errors,
+    normalize_contract_results_input,
 )
 from gpd.core.constants import (
     PLAN_SUFFIX,
@@ -32,7 +33,7 @@ from gpd.core.constants import (
 )
 from gpd.core.contract_validation import _format_schema_error, _sanitize_contract_scalars
 from gpd.core.errors import GPDError
-from gpd.core.observability import instrument_gpd_function
+from gpd.core.observability import instrument_gpd_function, resolve_project_root
 from gpd.core.utils import safe_read_file
 
 # ---------------------------------------------------------------------------
@@ -289,6 +290,7 @@ FRONTMATTER_SCHEMAS: dict[str, dict[str, list[str]]] = {
             "depends_on",
             "files_modified",
             "interactive",
+            "conventions",
             "contract",
         ],
     },
@@ -508,7 +510,7 @@ def _parse_contract_results(meta: dict) -> ContractResults | None:
     raw = meta.get("contract_results")
     if raw is None:
         return None
-    return ContractResults.model_validate(raw)
+    return ContractResults.model_validate(normalize_contract_results_input(raw))
 
 
 def _parse_comparison_verdicts(meta: dict) -> list[ComparisonVerdict]:
@@ -568,6 +570,28 @@ def _plan_contract_ref_fragment_error(plan_contract_ref: str) -> str | None:
         return "plan_contract_ref: must include a PLAN path before #/contract"
     if separator != "#" or fragment != "/contract":
         return "plan_contract_ref: must end with '#/contract'"
+    return None
+
+
+_PLAN_CONTRACT_REF_EXTERNAL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+
+
+def _plan_contract_ref_path_error(plan_contract_ref: str) -> str | None:
+    """Return a safety error when a PLAN reference escapes the project-local plan space."""
+
+    path_text = plan_contract_ref.strip().partition("#")[0].strip()
+    if not path_text:
+        return "plan_contract_ref: must reference a project-local PLAN path"
+    if _PLAN_CONTRACT_REF_EXTERNAL_RE.match(path_text):
+        return "plan_contract_ref: must reference a project-local PLAN path"
+    if re.match(r"^[A-Za-z]:[\\/]", path_text) or re.match(r"^[A-Za-z]:$", path_text):
+        return "plan_contract_ref: must reference a project-local PLAN path"
+
+    relative_plan_path = Path(path_text[2:] if path_text.startswith("./") else path_text)
+    if relative_plan_path.is_absolute():
+        return "plan_contract_ref: must reference a project-local PLAN path"
+    if any(part == ".." for part in relative_plan_path.parts):
+        return "plan_contract_ref: must not traverse parent directories"
     return None
 
 
@@ -994,12 +1018,25 @@ def _find_matching_plan_contract(summary_dir: Path, summary_meta: dict) -> _Plan
         plan_ref_path = plan_contract_ref.split("#", 1)[0].strip()
         if plan_ref_path:
             relative_plan_path = Path(plan_ref_path[2:] if plan_ref_path.startswith("./") else plan_ref_path)
+            path_error = _plan_contract_ref_path_error(plan_contract_ref)
+            if path_error is not None:
+                return _PlanContractResolution(errors=[path_error])
             candidates: list[Path]
             if relative_plan_path.is_absolute():
                 candidates = [relative_plan_path]
             else:
-                candidates = [summary_dir / relative_plan_path]
-                candidates.extend(parent / relative_plan_path for parent in summary_dir.parents)
+                candidate_bases = [summary_dir]
+                project_root = resolve_project_root(summary_dir)
+                if project_root is not None:
+                    try:
+                        summary_dir.relative_to(project_root)
+                    except ValueError:
+                        project_root = summary_dir
+                current = summary_dir
+                while project_root is not None and current != project_root:
+                    current = current.parent
+                    candidate_bases.append(current)
+                candidates = [base / relative_plan_path for base in candidate_bases]
 
             for candidate in candidates:
                 if not candidate.exists():

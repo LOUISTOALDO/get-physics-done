@@ -591,7 +591,7 @@ def test_runtime_cli_fails_when_resolved_local_config_dir_manifest_runtime_misma
     assert exit_code == 127
     assert f"GPD runtime bridge mismatch for {adapter.display_name}" in captured.err
     assert f"{get_adapter(foreign_runtime).display_name} (`{foreign_runtime}`)" in captured.err
-    assert f"npx -y get-physics-done {adapter.install_flag} --local" in captured.err
+    assert f"npx -y get-physics-done {get_adapter(foreign_runtime).install_flag} --local" in captured.err
 
 
 @pytest.mark.parametrize("descriptor", _RUNTIME_DESCRIPTORS, ids=lambda descriptor: descriptor.runtime_name)
@@ -627,6 +627,7 @@ def test_runtime_cli_fails_when_explicit_target_manifest_runtime_mismatches(
     assert f"GPD runtime bridge mismatch for {adapter.display_name}" in captured.err
     assert f"{get_adapter(foreign_runtime).display_name} (`{foreign_runtime}`)" in captured.err
     assert f"--target-dir {config_dir}" in captured.err
+    assert f"npx -y get-physics-done {get_adapter(foreign_runtime).install_flag} --local" in captured.err
 
 
 @pytest.mark.parametrize("descriptor", _RUNTIME_DESCRIPTORS, ids=lambda descriptor: descriptor.runtime_name)

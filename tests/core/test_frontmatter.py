@@ -42,6 +42,10 @@ def _valid_plan_contract_frontmatter(
         "depends_on: []\n"
         "files_modified: []\n"
         f"interactive: {interactive}\n"
+        "conventions:\n"
+        "  units: natural\n"
+        "  metric: (+,-,-,-)\n"
+        "  coordinates: Cartesian\n"
         "contract:\n"
         "  scope:\n"
         "    question: What benchmark must this plan recover?\n"
@@ -83,6 +87,20 @@ def _valid_plan_contract_frontmatter(
         "    disconfirming_observations: [Benchmark agreement disappears after normalization fix]"
         "\n"
         "---\n\n"
+    )
+
+
+def _add_plan_conventions(content: str) -> str:
+    if "conventions:" in content:
+        return content
+    return content.replace(
+        "interactive: false\n",
+        "interactive: false\n"
+        "conventions:\n"
+        "  units: natural\n"
+        "  metric: (+,-,-,-)\n"
+        "  coordinates: Cartesian\n",
+        1,
     )
 
 # ---------------------------------------------------------------------------
@@ -279,7 +297,7 @@ class TestParseContractBlock:
 
 class TestValidateFrontmatter:
     def test_valid_plan(self):
-        content = (FIXTURES_DIR / "plan_with_contract.md").read_text(encoding="utf-8")
+        content = _add_plan_conventions((FIXTURES_DIR / "plan_with_contract.md").read_text(encoding="utf-8"))
         result = validate_frontmatter(content, "plan")
         assert isinstance(result, FrontmatterValidation)
         assert result.valid is True
@@ -310,6 +328,21 @@ class TestValidateFrontmatter:
         assert len(result.missing) > 0
         assert "phase" not in result.missing
         assert "plan" in result.missing
+
+    def test_plan_requires_conventions(self):
+        content = _valid_plan_contract_frontmatter().replace(
+            "conventions:\n"
+            "  units: natural\n"
+            "  metric: (+,-,-,-)\n"
+            "  coordinates: Cartesian\n",
+            "",
+            1,
+        ) + "Body.\n"
+
+        result = validate_frontmatter(content, "plan")
+
+        assert result.valid is False
+        assert "conventions" in result.missing
 
     def test_hyphen_case_rejected(self):
         content = (
@@ -352,6 +385,22 @@ class TestValidateFrontmatter:
         assert result.valid is False
         assert any("comparison_verdicts: expected a list" in error for error in result.errors)
 
+    def test_summary_normalizes_empty_contract_results_section_lists(self):
+        content = (
+            "---\n"
+            "phase: 01\n"
+            "plan: 01\n"
+            "depth: standard\n"
+            "provides: []\n"
+            "completed: 2025-01-01\n"
+            "plan_contract_ref: .gpd/phases/01-test/01-01-PLAN.md#/contract\n"
+            "contract_results:\n"
+            "  claims: []\n"
+            "---\n\nBody."
+        )
+        result = validate_frontmatter(content, "summary")
+        assert result.valid is True
+
     def test_plan_rejects_unsupported_must_haves_field(self):
         content = _valid_plan_contract_frontmatter().replace(
             "---\n\n",
@@ -378,7 +427,7 @@ class TestValidateFrontmatter:
         assert any(error.startswith("verification_inputs:") for error in result.errors)
 
     def test_valid_plan_with_contract_only(self):
-        content = (FIXTURES_DIR / "plan_with_contract.md").read_text(encoding="utf-8")
+        content = _add_plan_conventions((FIXTURES_DIR / "plan_with_contract.md").read_text(encoding="utf-8"))
         result = validate_frontmatter(content, "plan")
         assert result.valid is True
         assert result.errors == []
@@ -409,6 +458,10 @@ class TestValidateFrontmatter:
             "depends_on: []\n"
             "files_modified: []\n"
             "interactive: false\n"
+            "conventions:\n"
+            "  units: natural\n"
+            "  metric: (+,-,-,-)\n"
+            "  coordinates: Cartesian\n"
             "contract:\n"
             "  scope:\n"
             "    in_scope: [benchmark]\n"
@@ -428,6 +481,10 @@ class TestValidateFrontmatter:
             "depends_on: []\n"
             "files_modified: []\n"
             "interactive: false\n"
+            "conventions:\n"
+            "  units: natural\n"
+            "  metric: (+,-,-,-)\n"
+            "  coordinates: Cartesian\n"
             "contract:\n"
             "  scope:\n"
             "    question: What benchmark must this plan recover?\n"
@@ -459,6 +516,10 @@ class TestValidateFrontmatter:
             "depends_on: []\n"
             "files_modified: []\n"
             "interactive: false\n"
+            "conventions:\n"
+            "  units: natural\n"
+            "  metric: (+,-,-,-)\n"
+            "  coordinates: Cartesian\n"
             "contract:\n"
             "  scope:\n"
             "    question: What setup output should be ready for later comparison?\n"
@@ -514,6 +575,10 @@ class TestValidateFrontmatter:
             "depends_on: []\n"
             "files_modified: []\n"
             "interactive: true\n"
+            "conventions:\n"
+            "  units: natural\n"
+            "  metric: (+,-,-,-)\n"
+            "  coordinates: Cartesian\n"
             "contract:\n"
             "  scope:\n"
             "    question: Which formulation and anchors deserve a first serious pass?\n"
@@ -541,6 +606,10 @@ class TestValidateFrontmatter:
             "depends_on: []\n"
             "files_modified: []\n"
             "interactive: false\n"
+            "conventions:\n"
+            "  units: natural\n"
+            "  metric: (+,-,-,-)\n"
+            "  coordinates: Cartesian\n"
             "contract:\n"
             "  scope:\n"
             "    question: What benchmark must this plan recover?\n"
@@ -594,6 +663,10 @@ class TestValidateFrontmatter:
             "depends_on: []\n"
             "files_modified: []\n"
             "interactive: false\n"
+            "conventions:\n"
+            "  units: natural\n"
+            "  metric: (+,-,-,-)\n"
+            "  coordinates: Cartesian\n"
             "contract:\n"
             "  scope:\n"
             "    question: What benchmark must this plan recover?\n"
@@ -649,6 +722,10 @@ class TestValidateFrontmatter:
             "depends_on: []\n"
             "files_modified: []\n"
             "interactive: false\n"
+            "conventions:\n"
+            "  units: natural\n"
+            "  metric: (+,-,-,-)\n"
+            "  coordinates: Cartesian\n"
             "contract:\n"
             "  scope:\n"
             "    question: What benchmark must this plan recover?\n"
@@ -1065,6 +1142,10 @@ class TestVerifyPlanStructure:
             "depends_on: []\n"
             "files_modified: []\n"
             "interactive: false\n"
+            "conventions:\n"
+            "  units: natural\n"
+            "  metric: (+,-,-,-)\n"
+            "  coordinates: Cartesian\n"
             "contract:\n"
             "  scope:\n"
             "    question: What benchmark must this plan recover?\n"

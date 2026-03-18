@@ -125,6 +125,7 @@ def _write_bundle_ready_contract_state(tmp_path: Path) -> None:
     state["project_contract"] = {
         "scope": {
             "question": "What finite-size scaling collapse and benchmark comparison does the simulation recover?",
+            "in_scope": ["Recover the decisive finite-size scaling benchmark for the simulation regime"],
         },
         "claims": [
             {
@@ -165,6 +166,8 @@ def _write_bundle_ready_contract_state(tmp_path: Path) -> None:
                 "locator": "Benchmark Monte Carlo paper",
                 "role": "benchmark",
                 "why_it_matters": "Decisive comparison for the simulation regime",
+                "applies_to": ["claim-critical"],
+                "must_surface": True,
                 "required_actions": ["read", "compare", "cite"],
             }
         ],
@@ -214,6 +217,7 @@ def _write_numerical_relativity_contract_state(tmp_path: Path) -> None:
     state["project_contract"] = {
         "scope": {
             "question": "Does the BSSN evolution reproduce benchmark waveform and remnant behavior?",
+            "in_scope": ["Recover the decisive waveform and remnant benchmark for the BSSN evolution"],
         },
         "claims": [
             {
@@ -254,6 +258,8 @@ def _write_numerical_relativity_contract_state(tmp_path: Path) -> None:
                 "locator": "Trusted numerical-relativity waveform catalog",
                 "role": "benchmark",
                 "why_it_matters": "Provides decisive waveform and remnant anchors",
+                "applies_to": ["claim-waveform"],
+                "must_surface": True,
                 "required_actions": ["read", "compare", "cite"],
             }
         ],
@@ -652,7 +658,8 @@ class TestInitPlanPhase:
 
         ctx = init_plan_phase(tmp_path, "2")
 
-        assert ctx["contract_intake"]["must_read_refs"] == ["ref-benchmark", "lit-anchor-benchmark-ref-2024"]
+        assert ctx["contract_intake"]["must_read_refs"] == ["ref-benchmark"]
+        assert ctx["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
         assert "ref-benchmark" in ctx["effective_reference_intake"]["must_read_refs"]
         assert "lit-anchor-benchmark-ref-2024" in ctx["effective_reference_intake"]["must_read_refs"]
         assert "benchmark-paper" not in ctx["effective_reference_intake"]["must_read_refs"]
@@ -661,7 +668,7 @@ class TestInitPlanPhase:
         assert ".gpd/research-map/REFERENCES.md" in ctx["active_reference_context"]
         assert "unresolved reference token" not in ctx["active_reference_context"]
 
-    def test_merges_structured_reference_fields_into_project_contract(self, tmp_path: Path) -> None:
+    def test_surfaces_derived_reference_fields_without_mutating_project_contract(self, tmp_path: Path) -> None:
         _setup_project(tmp_path)
         _create_phase_dir(tmp_path, "02-analysis")
         _write_project_contract_state(tmp_path)
@@ -669,16 +676,23 @@ class TestInitPlanPhase:
         _write_research_map_anchor_files(tmp_path)
 
         ctx = init_plan_phase(tmp_path, "2")
-        references = {ref["id"]: ref for ref in ctx["project_contract"]["references"]}
+        project_references = {ref["id"]: ref for ref in ctx["project_contract"]["references"]}
+        active_references = {ref["id"]: ref for ref in ctx["active_references"]}
 
-        assert references["ref-benchmark"]["aliases"] == ["benchmark-paper"]
-        assert references["ref-benchmark"]["applies_to"] == ["claim-benchmark"]
-        assert references["ref-benchmark"]["carry_forward_to"] == ["verification", "writing"]
-        assert references["ref-benchmark"]["required_actions"] == ["read", "compare", "cite"]
-        assert references["ref-benchmark"]["must_surface"] is True
-        assert references["prior-baseline"]["kind"] == "prior_artifact"
-        assert references["prior-baseline"]["required_actions"] == ["use"]
-        assert references["prior-baseline"]["carry_forward_to"] == ["planning", "execution"]
+        assert project_references["ref-benchmark"].get("aliases", []) == []
+        assert project_references["ref-benchmark"].get("applies_to", []) == ["claim-benchmark"]
+        assert project_references["ref-benchmark"].get("carry_forward_to", []) == []
+        assert project_references["ref-benchmark"]["required_actions"] == ["read", "compare", "cite"]
+        assert project_references["ref-benchmark"]["must_surface"] is True
+        assert "prior-baseline" not in project_references
+
+        assert active_references["ref-benchmark"]["aliases"] == ["benchmark-paper"]
+        assert active_references["ref-benchmark"]["applies_to"] == ["claim-benchmark"]
+        assert active_references["ref-benchmark"]["carry_forward_to"] == ["verification", "writing"]
+        assert active_references["ref-benchmark"]["required_actions"] == ["read", "compare", "cite"]
+        assert active_references["prior-baseline"]["kind"] == "prior_artifact"
+        assert active_references["prior-baseline"]["required_actions"] == ["use"]
+        assert active_references["prior-baseline"]["carry_forward_to"] == ["planning", "execution"]
 
     def test_does_not_persist_canonical_reference_merges(self, tmp_path: Path) -> None:
         _setup_project(tmp_path)
@@ -695,7 +709,10 @@ class TestInitPlanPhase:
         after = state_path.read_text(encoding="utf-8")
         stored = json.loads(after)
 
-        assert ctx["contract_intake"]["must_read_refs"] == ["ref-benchmark", "lit-anchor-benchmark-ref-2024"]
+        assert ctx["contract_intake"]["must_read_refs"] == ["ref-benchmark"]
+        assert ctx["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
+        assert "ref-benchmark" in ctx["effective_reference_intake"]["must_read_refs"]
+        assert "lit-anchor-benchmark-ref-2024" in ctx["effective_reference_intake"]["must_read_refs"]
         assert stored["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
         assert before == after
         assert not (tmp_path / ".gpd" / "STATE.md").exists()
@@ -781,8 +798,10 @@ class TestInitNewMilestone:
         ctx = init_new_milestone(tmp_path)
 
         assert ctx["project_contract"]["scope"]["question"] == "What benchmark must the project recover?"
-        assert ctx["contract_intake"]["must_read_refs"] == ["ref-benchmark", "lit-anchor-benchmark-ref-2024"]
+        assert ctx["contract_intake"]["must_read_refs"] == ["ref-benchmark"]
+        assert ctx["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
         assert "ref-benchmark" in ctx["effective_reference_intake"]["must_read_refs"]
+        assert "lit-anchor-benchmark-ref-2024" in ctx["effective_reference_intake"]["must_read_refs"]
         assert ".gpd/phases/01-test-phase/01-SUMMARY.md" in ctx["effective_reference_intake"]["must_include_prior_outputs"]
         assert "Benchmark Ref 2024" in ctx["active_reference_context"]
         assert ".gpd/research-map/REFERENCES.md" in ctx["reference_artifact_files"]

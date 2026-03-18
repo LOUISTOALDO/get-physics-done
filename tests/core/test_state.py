@@ -883,6 +883,24 @@ def test_state_validate_standard_warns_for_verified_result_without_records(tmp_p
     assert any("verified=true but no verification_records present" in warning for warning in result.warnings)
 
 
+def test_state_validate_standard_blocks_project_contract_approved_scoping_failure(tmp_path):
+    state = default_state_dict()
+    contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    contract["references"][0]["must_surface"] = False
+    state["project_contract"] = contract
+    save_state_json(tmp_path, state)
+
+    result = state_validate(tmp_path)
+
+    assert result.valid is False
+    assert result.integrity_mode == "standard"
+    assert result.integrity_status == "degraded"
+    assert any(
+        "project_contract: references must include at least one must_surface=true anchor" in issue
+        for issue in result.issues
+    )
+
+
 def test_state_validate_review_blocks_verified_result_without_records(tmp_path):
     state = _state_with_result(
         {

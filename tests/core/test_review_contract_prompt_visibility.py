@@ -46,6 +46,18 @@ def test_verify_work_review_contract_uses_phase_scoped_output_path() -> None:
     assert ".gpd/phases/XX-name/XX-VERIFICATION.md" in _read_command("verify-work")
 
 
+def test_respond_to_referees_review_contract_uses_round_suffixed_output_paths() -> None:
+    contract = registry.get_command("respond-to-referees").review_contract
+
+    assert contract is not None
+    assert contract.required_outputs == [
+        ".gpd/paper/REFEREE_RESPONSE{round_suffix}.md",
+        ".gpd/AUTHOR-RESPONSE{round_suffix}.md",
+    ]
+    assert ".gpd/paper/REFEREE_RESPONSE{round_suffix}.md" in _read_command("respond-to-referees")
+    assert ".gpd/AUTHOR-RESPONSE{round_suffix}.md" in _read_command("respond-to-referees")
+
+
 def test_summary_template_surfaces_plan_contract_ref_rule_for_contract_ledgers() -> None:
     summary_template = (TEMPLATES_DIR / "summary.md").read_text(encoding="utf-8")
 

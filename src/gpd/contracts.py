@@ -36,6 +36,14 @@ __all__ = [
     "contract_from_data",
 ]
 
+_CONTRACT_RESULTS_MAPPING_KEYS = (
+    "claims",
+    "deliverables",
+    "acceptance_tests",
+    "references",
+    "forbidden_proxies",
+)
+
 
 def _normalize_optional_str(value: object) -> object:
     if isinstance(value, str):
@@ -71,9 +79,27 @@ def _normalize_string_list(value: object) -> object:
 
 
 def _normalize_mapping_field(value: object) -> object:
-    if value is None or value == []:
+    if value is None:
         return {}
     return value
+
+
+def normalize_contract_results_input(value: object) -> object:
+    """Normalize boundary-format drift before strict ``ContractResults`` validation.
+
+    Some legacy YAML emits empty sections as ``[]`` instead of ``{}``. Accepting
+    only the empty-list form at parser boundaries preserves stability for old
+    summaries without reintroducing broad, silent coercion inside the shared
+    contract models.
+    """
+    if not isinstance(value, dict):
+        return value
+
+    normalized = dict(value)
+    for key in _CONTRACT_RESULTS_MAPPING_KEYS:
+        if normalized.get(key) == []:
+            normalized[key] = {}
+    return normalized
 
 
 def _collect_contract_scalar_errors(

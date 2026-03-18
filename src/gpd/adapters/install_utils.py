@@ -15,6 +15,7 @@ import shlex
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from pathlib import PurePosixPath
 
 from gpd.adapters.runtime_catalog import get_runtime_descriptor, resolve_global_config_dir
 from gpd.adapters.tool_names import CONTEXTUAL_TOOL_REFERENCE_NAMES
@@ -1138,13 +1139,37 @@ def _tracked_hook_paths_for_cleanup(
     if isinstance(manifest, dict):
         raw_files = manifest.get("files")
         if isinstance(raw_files, dict):
-            return {str(path) for path in raw_files if str(path).startswith("hooks/")}
+            tracked = {str(path) for path in raw_files if str(path).startswith("hooks/")}
+            if tracked:
+                return tracked
 
+    hooks_dir = config_dir / HOOKS_DIR_NAME
     return {
-        rel_path
-        for rel_path in _managed_install_paths(config_dir, skills_dir=skills_dir)
-        if rel_path.startswith("hooks/")
+        f"{HOOKS_DIR_NAME}/{hook_filename}"
+        for hook_filename in HOOK_SCRIPTS.values()
+        if (hooks_dir / hook_filename).is_file()
     }
+
+
+def tracked_hook_paths_from_manifest(config_dir: Path) -> set[str]:
+    """Return hook paths explicitly tracked in the install manifest."""
+    manifest_path = config_dir / MANIFEST_NAME
+    if not manifest_path.exists():
+        return set()
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return set()
+
+    if not isinstance(manifest, dict):
+        return set()
+
+    raw_files = manifest.get("files")
+    if not isinstance(raw_files, dict):
+        return set()
+
+    return {str(path) for path in raw_files if str(path).startswith("hooks/")}
 
 
 def _managed_install_paths(
@@ -1532,14 +1557,25 @@ def _is_hook_command_for_script(
     if config_dir_name:
         managed_paths.append(f"{config_dir_name}/hooks/{hook_filename}")
 
-    if managed_paths:
-        if any(managed_path in normalized_command for managed_path in managed_paths):
-            return True
-        # Some installs use bare filenames like `python3 check_update.py`.
-        # Match only filename tokens, not third-party paths ending in the same basename.
-        return re.search(rf"(^|[\s'\"`]){re.escape(hook_filename)}(['\"`]|$)", normalized_command) is not None
+    try:
+        command_tokens = shlex.split(normalized_command)
+    except ValueError:
+        command_tokens = normalized_command.split()
 
-    return hook_filename in normalized_command
+    if managed_paths:
+        managed_path_set = {path.replace("\\", "/") for path in managed_paths}
+        if any(token.replace("\\", "/") in managed_path_set for token in command_tokens):
+            return True
+
+    for token in command_tokens:
+        normalized_token = token.replace("\\", "/")
+        if normalized_token == hook_filename:
+            return True
+        path = PurePosixPath(normalized_token)
+        if path.name == hook_filename and path.parent.name == "hooks":
+            return True
+
+    return False
 
 
 def ensure_update_hook(

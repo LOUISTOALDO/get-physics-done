@@ -244,15 +244,15 @@ class TestGeminiLifecycle:
 
         _install_and_finalize(adapter, gpd_root, target, is_global=True)
 
-        # Write settings.json with GPD entries (install returns settings but doesn't write them)
-        settings = {
-            "statusLine": {"type": "command", "command": "python3 statusline.py"},
-            "hooks": {
-                "SessionStart": [{"hooks": [{"type": "command", "command": "python3 check_update.py"}]}],
-            },
-            "experimental": {"enableAgents": True},
-        }
-        (target / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+        settings_path = target / "settings.json"
+        assert settings_path.exists()
+        installed_settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert "statusLine" in installed_settings
+        assert any(
+            isinstance(entry, dict) and entry.get("hooks")
+            for entry in installed_settings.get("hooks", {}).get("SessionStart", [])
+        )
+        assert installed_settings.get("experimental", {}).get("enableAgents") is True
 
         adapter.uninstall(target)
 
@@ -261,8 +261,8 @@ class TestGeminiLifecycle:
         assert not (target / MANIFEST_NAME).exists()
 
         # Verify settings.json cleaned up
-        if (target / "settings.json").exists():
-            cleaned = json.loads((target / "settings.json").read_text(encoding="utf-8"))
+        if settings_path.exists():
+            cleaned = json.loads(settings_path.read_text(encoding="utf-8"))
             assert "statusLine" not in cleaned
             assert "experimental" not in cleaned or not cleaned.get("experimental", {}).get("enableAgents")
 

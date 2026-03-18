@@ -507,11 +507,17 @@ Planning requires an approved project contract. If `{project_contract}` is empty
 
 **Project State:** {state_content}
 **Project Contract:** {project_contract}
+**Contract Intake:** {contract_intake}
+**Effective Reference Intake:** {effective_reference_intake}
 **Roadmap:** {roadmap_content}
 **Requirements:** {requirements_content}
 **Protocol Bundles:** {protocol_bundle_context}
 **Active References:** {active_reference_context}
 **Reference Artifacts:** {reference_artifacts_content}
+
+## Canonical PLAN Contract Schema
+
+Use `templates/plan-contract-schema.md` as the canonical contract schema reference.
 
 **Phase Context:**
 IMPORTANT: If context exists below, it contains USER DECISIONS from /gpd:discuss-phase.
@@ -761,9 +767,15 @@ Revision prompt:
 **Existing plans:** {plans_content}
 **Checker issues:** {structured_issues_from_checker}
 **Protocol Bundles:** {protocol_bundle_context}
+**Contract Intake:** {contract_intake}
+**Effective Reference Intake:** {effective_reference_intake}
 **Active References:** {active_reference_context}
 **Project Contract:** {project_contract}
 **Reference Artifacts:** {reference_artifacts_content}
+
+## Canonical PLAN Contract Schema
+
+Use `templates/plan-contract-schema.md` as the canonical contract schema reference.
 
 **Phase Context:**
 Revisions MUST still honor user decisions.

@@ -25,8 +25,11 @@ def test_update_workflow_uses_current_runtime_agnostic_contract() -> None:
     assert "get-physics-done" in content
     assert "{GPD_RUNTIME_FLAG}" in content
     assert "{GPD_INSTALL_SCOPE_FLAG}" in content
+    assert "{GPD_GLOBAL_CONFIG_DIR}" in content
     assert "--target-dir" in content
+    assert "--global" in content
     assert "registry.npmjs.org/get-physics-done/latest" in content
+    assert 'PYTHON_BIN="${GPD_PYTHON:-}"' in content
     assert "pip index versions gpd" not in content
     assert "gpd install --all" not in content
     assert "gpd:update-check.json" not in content
@@ -110,7 +113,34 @@ def test_explicit_target_local_install_keeps_local_update_scope(tmp_path: Path, 
     assert 'INSTALL_SCOPE="--local"' in content
     assert f'GPD_CONFIG_DIR="{target.as_posix()}"' in content
     assert "{GPD_INSTALL_SCOPE_FLAG}" not in content
-    assert "TARGET_DIR_ARG=$(python3 - \"$GPD_CONFIG_DIR\"" in content
+    assert 'TARGET_DIR_ARG=$("$PYTHON_BIN" - "$INSTALL_SCOPE" "$GPD_CONFIG_DIR" "$GPD_GLOBAL_CONFIG_DIR"' in content
+
+
+@pytest.mark.parametrize("descriptor", _RUNTIME_DESCRIPTORS, ids=lambda descriptor: descriptor.runtime_name)
+def test_explicit_target_global_install_keeps_global_update_scope(tmp_path: Path, descriptor) -> None:
+    adapter = get_adapter(descriptor.runtime_name)
+    target = tmp_path / "explicit-global" / f"{descriptor.runtime_name}-config"
+    target.mkdir(parents=True)
+
+    install_kwargs: dict[str, object] = {"is_global": True, "explicit_target": True}
+    if "skills/" in descriptor.manifest_file_prefixes:
+        skills_dir = tmp_path / "explicit-global" / "skills"
+        skills_dir.mkdir(parents=True)
+        install_kwargs["skills_dir"] = skills_dir
+
+    _install_and_finalize(adapter, GPD_ROOT, target, **install_kwargs)
+
+    content = (target / "get-physics-done" / "workflows" / "update.md").read_text(encoding="utf-8")
+    manifest = json.loads((target / "gpd-file-manifest.json").read_text(encoding="utf-8"))
+    command = installed_update_command(target)
+
+    assert 'INSTALL_SCOPE="--global"' in content
+    assert f'GPD_CONFIG_DIR="{target.as_posix()}"' in content
+    assert "{GPD_INSTALL_SCOPE_FLAG}" not in content
+    assert 'TARGET_DIR_ARG=$("$PYTHON_BIN" - "$INSTALL_SCOPE" "$GPD_CONFIG_DIR" "$GPD_GLOBAL_CONFIG_DIR"' in content
+    assert manifest["install_scope"] == "global"
+    assert manifest["explicit_target"] is True
+    assert command == f"{adapter.update_command} --global --target-dir {target.as_posix()}"
 
 
 @pytest.mark.parametrize("descriptor", _RUNTIME_DESCRIPTORS, ids=lambda descriptor: descriptor.runtime_name)

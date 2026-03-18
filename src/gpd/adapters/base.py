@@ -27,6 +27,7 @@ from gpd.adapters.install_utils import (
     replace_placeholders,
     strip_sub_tags,
     translate_frontmatter_tool_names,
+    tracked_hook_paths_from_manifest,
     validate_package_integrity,
     write_manifest,
     write_version_file,
@@ -278,11 +279,26 @@ class RuntimeAdapter(abc.ABC):
 
     def _validate_target_runtime(self, target_dir: Path, *, action: str) -> None:
         """Reject explicit target dirs that already belong to another runtime."""
-        manifest_runtime = self._installed_manifest_runtime(target_dir)
-        if manifest_runtime is None or manifest_runtime == self.runtime_name:
+        manifest_path = target_dir / MANIFEST_NAME
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            return
+        if not isinstance(payload, dict):
             return
 
-        other_runtime = get_runtime_descriptor(manifest_runtime).display_name if manifest_runtime else manifest_runtime
+        manifest_runtime = payload.get("runtime")
+        if not isinstance(manifest_runtime, str):
+            return
+
+        manifest_runtime = manifest_runtime.strip()
+        if not manifest_runtime or manifest_runtime == self.runtime_name:
+            return
+
+        try:
+            other_runtime = get_runtime_descriptor(manifest_runtime).display_name
+        except KeyError:
+            other_runtime = "unknown runtime"
         raise RuntimeError(
             f"Refusing to {action} `{target_dir}` because its GPD manifest belongs to "
             f"{other_runtime} (`{manifest_runtime}`), not {self.display_name} (`{self.runtime_name}`)."
@@ -534,10 +550,9 @@ class RuntimeAdapter(abc.ABC):
             hooks_dir = target_dir / HOOKS_DIR_NAME
             if hooks_dir.is_dir():
                 hook_count = 0
-                for hook_path in hooks_dir.iterdir():
-                    if not hook_path.is_file():
-                        continue
-                    if hook_path.name in HOOK_SCRIPTS.values():
+                for rel_path in sorted(tracked_hook_paths_from_manifest(target_dir)):
+                    hook_path = target_dir / rel_path
+                    if hook_path.is_file():
                         hook_path.unlink()
                         hook_count += 1
                 if hook_count:

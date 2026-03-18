@@ -8,7 +8,7 @@ from pathlib import Path
 from gpd.adapters import get_adapter, iter_adapters
 from gpd.adapters.install_utils import build_runtime_install_repair_command
 from gpd.adapters.runtime_catalog import iter_runtime_descriptors
-from gpd.hooks.runtime_detect import SCOPE_LOCAL, _runtime_from_manifest_or_path
+from gpd.hooks.runtime_detect import RUNTIME_UNKNOWN, SCOPE_LOCAL, _runtime_from_manifest_or_path
 
 
 def load_install_manifest(config_dir: Path) -> dict[str, object]:
@@ -43,6 +43,13 @@ def _manifest_explicit_target(config_dir: Path) -> bool | None:
     return None
 
 
+def _has_generic_complete_install(config_dir: Path) -> bool:
+    """Return whether *config_dir* has runtime-agnostic GPD install markers."""
+    manifest_path = config_dir / "gpd-file-manifest.json"
+    gpd_dir = config_dir / "get-physics-done"
+    return manifest_path.is_file() and gpd_dir.is_dir()
+
+
 def _paths_equal(left: Path, right: Path) -> bool:
     try:
         return left.expanduser().resolve() == right.expanduser().resolve()
@@ -53,8 +60,15 @@ def _paths_equal(left: Path, right: Path) -> bool:
 def _infer_runtime_from_manifest(config_dir: Path) -> str | None:
     manifest = load_install_manifest(config_dir)
     runtime = manifest.get("runtime")
-    if isinstance(runtime, str) and runtime.strip():
-        return runtime.strip()
+    if "runtime" in manifest:
+        if not isinstance(runtime, str):
+            return None
+        normalized_runtime = runtime.strip()
+        if not normalized_runtime:
+            return None
+        if normalized_runtime in {descriptor.runtime_name for descriptor in iter_runtime_descriptors()}:
+            return normalized_runtime
+        return None
 
     files = manifest.get("files")
     if isinstance(files, dict):
@@ -79,7 +93,14 @@ def _infer_runtime_from_config_dir(config_dir: Path) -> str | None:
 def installed_runtime(config_dir: Path) -> str | None:
     """Return the runtime associated with *config_dir* when it can be inferred."""
 
-    return _infer_runtime_from_manifest(config_dir) or _runtime_from_manifest_or_path(config_dir)
+    manifest_runtime = _infer_runtime_from_manifest(config_dir)
+    if manifest_runtime is not None:
+        return manifest_runtime
+
+    path_runtime = _runtime_from_manifest_or_path(config_dir)
+    if path_runtime == RUNTIME_UNKNOWN:
+        return None
+    return path_runtime
 
 
 def _infer_explicit_target(
@@ -104,13 +125,16 @@ def _infer_explicit_target(
 
 def config_dir_has_complete_install(config_dir: Path) -> bool:
     """Return whether *config_dir* has the stable markers of a GPD install."""
+    manifest = load_install_manifest(config_dir)
     runtime = installed_runtime(config_dir)
     if runtime is not None:
         try:
-            return get_adapter(runtime).has_detectable_install(config_dir)
+            return get_adapter(runtime).has_complete_install(config_dir)
         except KeyError:
-            pass
-    return (config_dir / "gpd-file-manifest.json").is_file() and (config_dir / "get-physics-done").is_dir()
+            return False
+    if "runtime" in manifest:
+        return False
+    return _has_generic_complete_install(config_dir)
 
 
 def installed_update_command(config_dir: Path) -> str | None:

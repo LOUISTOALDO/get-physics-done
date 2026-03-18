@@ -897,6 +897,16 @@ task(
 
 **Phase:** {phase_number}
 **Mode:** gap_closure
+**Project Contract:** {project_contract}
+**Contract Intake:** {contract_intake}
+**Effective Reference Intake:** {effective_reference_intake}
+**Protocol Bundles:** {protocol_bundle_context}
+**Active References:** {active_reference_context}
+**Reference Artifacts:** {reference_artifacts_content}
+
+## Canonical PLAN Contract Schema
+
+Use `templates/plan-contract-schema.md` as the canonical contract schema reference.
 
 <files_to_read>
 Read these files using the file_read tool:
@@ -1001,6 +1011,16 @@ task(
 
 **Phase:** {phase_number}
 **Mode:** revision
+**Project Contract:** {project_contract}
+**Contract Intake:** {contract_intake}
+**Effective Reference Intake:** {effective_reference_intake}
+**Protocol Bundles:** {protocol_bundle_context}
+**Active References:** {active_reference_context}
+**Reference Artifacts:** {reference_artifacts_content}
+
+## Canonical PLAN Contract Schema
+
+Use `templates/plan-contract-schema.md` as the canonical contract schema reference.
 
 <files_to_read>
 Read all PLAN.md files in ${phase_dir}/ using the file_read tool.

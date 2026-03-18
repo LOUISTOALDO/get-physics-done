@@ -64,7 +64,7 @@ class TestUninstallBase:
         assert not (agents / "gpd-executor.md").exists()
         assert (agents / "custom-agent.md").exists()
 
-    def test_removes_gpd_hooks(self, tmp_path: Path) -> None:
+    def test_preserves_unmanaged_hooks_without_manifest(self, tmp_path: Path) -> None:
         adapter = get_adapter("claude-code")
         target = tmp_path / ".claude"
         hooks = target / "hooks"
@@ -72,6 +72,33 @@ class TestUninstallBase:
         (hooks / "statusline.py").write_text("s", encoding="utf-8")
         (hooks / "check_update.py").write_text("u", encoding="utf-8")
         (hooks / "user-hook.py").write_text("keep", encoding="utf-8")
+
+        adapter.uninstall(target)
+
+        assert (hooks / "statusline.py").exists()
+        assert (hooks / "check_update.py").exists()
+        assert (hooks / "user-hook.py").exists()
+
+    def test_removes_manifest_tracked_gpd_hooks(self, tmp_path: Path) -> None:
+        adapter = get_adapter("claude-code")
+        target = tmp_path / ".claude"
+        hooks = target / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "statusline.py").write_text("s", encoding="utf-8")
+        (hooks / "check_update.py").write_text("u", encoding="utf-8")
+        (hooks / "user-hook.py").write_text("keep", encoding="utf-8")
+        (target / "gpd-file-manifest.json").write_text(
+            json.dumps(
+                {
+                    "runtime": "claude-code",
+                    "files": {
+                        "hooks/statusline.py": "hash-1",
+                        "hooks/check_update.py": "hash-2",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
 
         adapter.uninstall(target)
 

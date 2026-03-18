@@ -293,7 +293,7 @@ def _runtime_mismatch_error_message(
 ) -> str:
     """Return repair guidance when the resolved config dir belongs to another runtime."""
     repair_command = build_runtime_install_repair_command(
-        runtime,
+        manifest_runtime,
         install_scope=install_scope,
         target_dir=config_dir,
         explicit_target=_uses_effective_explicit_target(
@@ -309,7 +309,7 @@ def _runtime_mismatch_error_message(
         f"GPD runtime bridge mismatch for {_runtime_display_name(runtime)} at `{config_dir}`.\n"
         f"Resolved install manifest pins {_runtime_display_name(manifest_runtime)} (`{manifest_runtime}`), "
         "so this bridge cannot safely continue.\n"
-        f"Repair the install with: `{repair_command}`\n"
+        f"Repair or reinstall with the owning runtime: `{repair_command}`\n"
     )
 
 

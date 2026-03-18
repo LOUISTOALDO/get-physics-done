@@ -703,7 +703,23 @@ def _validate_binding_field_value(value: object, *, field_name: str) -> str | No
     return f"{field_name} must be a string or list of strings"
 
 
+def _normalize_binding_alias_values(value: object) -> list[str]:
+    values: list[str] = []
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            values.append(stripped)
+    elif isinstance(value, list):
+        for item in value:
+            if isinstance(item, str):
+                stripped = item.strip()
+                if stripped:
+                    values.append(stripped)
+    return _unique_strings(values)
+
+
 def _validate_binding_payload(binding: dict[str, object], *, allowed_targets: Iterable[str]) -> str | None:
+    allowed_targets = tuple(allowed_targets)
     allowed_keys = {
         key
         for target in allowed_targets
@@ -714,6 +730,21 @@ def _validate_binding_payload(binding: dict[str, object], *, allowed_targets: It
         supported = ", ".join(_supported_binding_fields_for_targets(allowed_targets))
         joined = ", ".join(unknown_keys)
         return f"binding contains unsupported keys: {joined}; supported keys are {supported}"
+
+    for target in allowed_targets:
+        singular_key = f"{target}_id"
+        plural_key = f"{target}_ids"
+        if singular_key in binding and plural_key in binding:
+            singular_error = _validate_binding_field_value(binding[singular_key], field_name=f"binding.{singular_key}")
+            if singular_error is not None:
+                return singular_error
+            plural_error = _validate_binding_field_value(binding[plural_key], field_name=f"binding.{plural_key}")
+            if plural_error is not None:
+                return plural_error
+            singular_values = _normalize_binding_alias_values(binding[singular_key])
+            plural_values = _normalize_binding_alias_values(binding[plural_key])
+            if singular_values != plural_values:
+                return f"binding.{singular_key} and binding.{plural_key} must match when both are provided"
 
     for key in sorted(binding):
         raw = binding[key]
@@ -1890,7 +1921,17 @@ def run_contract_check(request: RunContractCheckPayload) -> dict:
             request, error = _payload_mapping(request, field_name="request")
             if error is not None:
                 return error
-            check_id = str(request.get("check_key") or request.get("check_id") or "").strip()
+            check_key = _normalize_optional_scalar_str(request.get("check_key"))
+            check_id_value = _normalize_optional_scalar_str(request.get("check_id"))
+            if (
+                isinstance(check_key, str)
+                and isinstance(check_id_value, str)
+                and check_key
+                and check_id_value
+                and check_key != check_id_value
+            ):
+                return _error_result("check_key and check_id must match when both are provided")
+            check_id = str(check_key or check_id_value or "").strip()
             if not check_id:
                 return _error_result("Missing check_key or check_id")
 

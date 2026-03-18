@@ -712,12 +712,12 @@ def test_hook_install_metadata_uses_adapter_detection_rules(tmp_path: Path):
     )
 
     adapter = MagicMock()
-    adapter.has_detectable_install.return_value = False
+    adapter.has_complete_install.return_value = False
 
     with patch("gpd.hooks.install_metadata.get_adapter", return_value=adapter):
         assert config_dir_has_complete_install(config_dir) is False
 
-    adapter.has_detectable_install.assert_called_once_with(config_dir)
+    adapter.has_complete_install.assert_called_once_with(config_dir)
 
 
 def test_uninstall_resolves_relative_target_dir_against_cli_cwd(tmp_path: Path):

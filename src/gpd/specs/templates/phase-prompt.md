@@ -6,7 +6,10 @@ template_version: 1
 
 Canonical PLAN.md structure for `gpd-planner`. PLAN.md is the executor prompt, so every field must be specific enough to execute and verify without interpretation.
 
-Before authoring or revising the `contract:` block, use `@{GPD_INSTALL_DIR}/templates/plan-contract-schema.md` as the schema source of truth. The contract must stay a YAML object with object arrays and fully resolved ID cross-links.
+Before authoring or revising the `contract:` block, use the canonical schema below as the source of truth. The include is intentionally standalone so the prompt expander can inline it.
+
+@{GPD_INSTALL_DIR}/templates/plan-contract-schema.md
+
 The validator is strict here: for ordinary execution plans, the contract must carry non-empty claims, deliverables, acceptance tests, forbidden proxies, and non-empty `uncertainty_markers.weakest_anchors` plus `uncertainty_markers.disconfirming_observations`. If references are present, at least one must set `must_surface: true`.
 
 ---

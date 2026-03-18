@@ -843,14 +843,41 @@ approximations: # Active approximations
 contract:
   scope:
     question: "[The decisive question this plan advances]"
-  claims: []
-  deliverables: []
-  references: []
-  acceptance_tests: []
-  forbidden_proxies: []
+  claims:
+    - id: "claim-polarization"
+      statement: "Vacuum polarization tensor is transverse in the chosen gauge and scheme"
+      deliverables: ["deliv-vac-pol"]
+      acceptance_tests: ["test-transversality"]
+      references: ["ref-textbook"]
+  deliverables:
+    - id: "deliv-vac-pol"
+      kind: "derivation"
+      path: "derivations/vacuum-polarization.tex"
+      description: "One-loop vacuum polarization derivation with explicit tensor contraction"
+  references:
+    - id: "ref-textbook"
+      kind: "paper"
+      locator: "Peskin & Schroeder, Ch. 7"
+      role: "benchmark"
+      why_it_matters: "Standard convention and benchmark derivation"
+      applies_to: ["claim-polarization"]
+      must_surface: true
+      required_actions: ["read", "compare", "cite"]
+  acceptance_tests:
+    - id: "test-transversality"
+      subject: "claim-polarization"
+      kind: "consistency"
+      procedure: "Contract Pi^{mu nu} with q_mu and verify the longitudinal part vanishes."
+      pass_condition: "q_mu Pi^{mu nu} = 0"
+      evidence_required: ["deliv-vac-pol", "ref-textbook"]
+  forbidden_proxies:
+    - id: "fp-clean-algebra"
+      subject: "claim-polarization"
+      proxy: "Clean-looking algebra without an explicit transversality check"
+      reason: "Would not establish the decisive gauge-consistency result"
   uncertainty_markers:
-    weakest_anchors: []
-    disconfirming_observations: []
+    weakest_anchors: ["Choice of gauge-fixing convention"]
+    disconfirming_observations: ["Longitudinal term survives after simplification"]
 
 ---
 

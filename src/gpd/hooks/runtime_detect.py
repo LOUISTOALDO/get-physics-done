@@ -141,18 +141,40 @@ def _manifest_install_scope(config_dir: Path) -> str | None:
     return scope if scope in (SCOPE_LOCAL, SCOPE_GLOBAL) else None
 
 
+def _manifest_runtime_value(config_dir: Path) -> str | None:
+    """Return the manifest runtime when explicitly recorded."""
+    manifest_path = config_dir / MANIFEST_NAME
+    if not manifest_path.exists():
+        return None
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(manifest, dict):
+        return None
+
+    if "runtime" not in manifest:
+        return None
+
+    runtime = manifest.get("runtime")
+    if not isinstance(runtime, str):
+        return RUNTIME_UNKNOWN
+
+    normalized = runtime.strip()
+    if not normalized:
+        return RUNTIME_UNKNOWN
+    if normalized in ALL_RUNTIMES:
+        return normalized
+    return RUNTIME_UNKNOWN
+
+
 def _runtime_from_manifest_or_path(config_dir: Path, *, home: Path | None = None) -> str | None:
     """Infer the owning runtime for *config_dir* from its manifest or path."""
-    manifest_path = config_dir / MANIFEST_NAME
-    if manifest_path.exists():
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            manifest = None
-        if isinstance(manifest, dict):
-            runtime = manifest.get("runtime")
-            if isinstance(runtime, str) and runtime in ALL_RUNTIMES:
-                return runtime
+    manifest_runtime = _manifest_runtime_value(config_dir)
+    if manifest_runtime is not None:
+        return manifest_runtime
 
     for runtime in ALL_RUNTIMES:
         adapter = _adapter(runtime)
@@ -168,12 +190,12 @@ def _runtime_from_manifest_or_path(config_dir: Path, *, home: Path | None = None
 def _has_gpd_install(config_dir: Path, *, home: Path | None = None) -> bool:
     """Return True when *config_dir* has stable markers of a GPD install."""
     runtime = _runtime_from_manifest_or_path(config_dir, home=home)
-    if runtime is None:
+    if runtime in (None, RUNTIME_UNKNOWN):
         return False
     adapter = _adapter(runtime)
     if adapter is None:
         return False
-    return adapter.has_detectable_install(config_dir)
+    return adapter.has_complete_install(config_dir)
 
 
 def _install_marker_quality(config_dir: Path) -> int:

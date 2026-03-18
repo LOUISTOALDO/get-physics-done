@@ -506,6 +506,12 @@ def _is_concrete_user_asserted_anchor(value: str) -> bool:
     return True
 
 
+def _has_concrete_grounding_entries(values: list[str]) -> bool:
+    """Return whether any grounding entry is concrete rather than placeholder text."""
+
+    return any(_is_concrete_user_asserted_anchor(value) for value in values)
+
+
 def _has_anchor_like_reference(contract: ResearchContract) -> bool:
     """Return whether the contract includes a reference that can ground approved mode."""
 
@@ -546,9 +552,9 @@ def _has_approved_grounding_signal(contract: ResearchContract) -> bool:
     return any(
         (
             _has_anchor_like_reference(contract),
-            contract.context_intake.must_include_prior_outputs,
-            any(_is_concrete_user_asserted_anchor(anchor) for anchor in contract.context_intake.user_asserted_anchors),
-            contract.context_intake.known_good_baselines,
+            _has_concrete_grounding_entries(contract.context_intake.must_include_prior_outputs),
+            _has_concrete_grounding_entries(contract.context_intake.user_asserted_anchors),
+            _has_concrete_grounding_entries(contract.context_intake.known_good_baselines),
         )
     )
 
@@ -558,9 +564,9 @@ def _has_non_reference_grounding_signal(contract: ResearchContract) -> bool:
 
     return any(
         (
-            contract.context_intake.must_include_prior_outputs,
-            any(_is_concrete_user_asserted_anchor(anchor) for anchor in contract.context_intake.user_asserted_anchors),
-            contract.context_intake.known_good_baselines,
+            _has_concrete_grounding_entries(contract.context_intake.must_include_prior_outputs),
+            _has_concrete_grounding_entries(contract.context_intake.user_asserted_anchors),
+            _has_concrete_grounding_entries(contract.context_intake.known_good_baselines),
         )
     )
 
@@ -636,11 +642,7 @@ def validate_project_contract(
 
     if parsed.references and not any(reference.must_surface for reference in parsed.references):
         finding = "references must include at least one must_surface=true anchor"
-        if (
-            mode == "approved"
-            and _has_anchor_like_reference(parsed)
-            and not (_has_non_reference_grounding_signal(parsed) or _has_explicit_anchor_unknown(parsed))
-        ):
+        if mode == "approved":
             errors.append(finding)
         else:
             warnings.append(finding)

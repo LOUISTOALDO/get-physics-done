@@ -15,7 +15,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from gpd.contracts import ComparisonVerdict, ContractResults
+from gpd.contracts import ComparisonVerdict, ContractResults, normalize_contract_results_input
 from gpd.core.constants import (
     PHASES_DIR_NAME,
     PLAN_SUFFIX,
@@ -307,7 +307,7 @@ def _parse_contract_results(value: object, summary_path: str) -> ContractResults
     if not isinstance(value, dict):
         raise ValidationError(f"Invalid contract_results in {summary_path}: expected an object")
     try:
-        return ContractResults.model_validate(value)
+        return ContractResults.model_validate(normalize_contract_results_input(value))
     except Exception as exc:  # pragma: no cover - pydantic version specifics
         raise ValidationError(f"Invalid contract_results in {summary_path}: {exc}") from exc
 

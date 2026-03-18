@@ -9,8 +9,8 @@ review-contract:
   review_mode: publication
   schema_version: 1
   required_outputs:
-    - ".gpd/paper/REFEREE_RESPONSE.md"
-    - ".gpd/AUTHOR-RESPONSE.md"
+    - ".gpd/paper/REFEREE_RESPONSE{round_suffix}.md"
+    - ".gpd/AUTHOR-RESPONSE{round_suffix}.md"
   required_evidence:
     - existing manuscript
     - structured referee issues
@@ -60,8 +60,8 @@ Responding to referees is collaborative improvement: every comment, even an inco
 Referee report source: $ARGUMENTS (file path or "paste" for inline input)
 
 @.gpd/STATE.md
-@.gpd/AUTHOR-RESPONSE.md
-@.gpd/paper/REFEREE_RESPONSE.md
+@.gpd/AUTHOR-RESPONSE{round_suffix}.md
+@.gpd/paper/REFEREE_RESPONSE{round_suffix}.md
 @.gpd/review/REVIEW-LEDGER.json
 @.gpd/review/REFEREE-DECISION.json
 
@@ -85,7 +85,7 @@ Preserve all validation gates (report parsing, triage confirmation, compilation 
 <success_criteria>
 - [ ] Referee reports parsed and all comments categorized and prioritized
 - [ ] `.gpd/review/REVIEW-LEDGER*.json` and `.gpd/review/REFEREE-DECISION*.json` consumed when available
-- [ ] `.gpd/AUTHOR-RESPONSE.md` and `.gpd/paper/REFEREE_RESPONSE.md` created with complete point-by-point structure
+- [ ] `.gpd/AUTHOR-RESPONSE{round_suffix}.md` and `.gpd/paper/REFEREE_RESPONSE{round_suffix}.md` created with complete point-by-point structure
 - [ ] Comments triaged into response-only, revision, and new calculation groups
 - [ ] All responses drafted and revisions applied via paper-writer agents
 - [ ] Revised manuscript compiles without errors

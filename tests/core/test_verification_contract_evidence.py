@@ -82,6 +82,59 @@ def test_validate_frontmatter_summary_with_source_path_accepts_sibling_plan_cont
     assert result.errors == []
 
 
+@pytest.mark.parametrize(
+    ("ref_kind", "expected_error"),
+    [
+        ("absolute", "plan_contract_ref: must reference a project-local PLAN path"),
+        ("external", "plan_contract_ref: must reference a project-local PLAN path"),
+        ("traversal", "plan_contract_ref: must not traverse parent directories"),
+    ],
+)
+def test_validate_frontmatter_summary_rejects_unsafe_plan_contract_refs(
+    tmp_path: Path,
+    ref_kind: str,
+    expected_error: str,
+) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir(parents=True)
+    plan_path = artifact_dir / "01-01-PLAN.md"
+    plan_path.write_text(
+        (FIXTURES_STAGE0 / "plan_with_contract.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    summary_dir = artifact_dir / "nested"
+    summary_dir.mkdir()
+    summary_path = summary_dir / "01-SUMMARY.md"
+
+    ref_value = {
+        "absolute": f"{plan_path.resolve().as_posix()}#/contract",
+        "external": "https://example.com/01-01-PLAN.md#/contract",
+        "traversal": "../01-01-PLAN.md#/contract",
+    }[ref_kind]
+    summary_path.write_text(
+        (FIXTURES_STAGE4 / "summary_with_contract_results.md")
+        .read_text(encoding="utf-8")
+        .replace(
+            "plan_contract_ref: .gpd/phases/01-benchmark/01-01-PLAN.md#/contract",
+            f"plan_contract_ref: {ref_value}",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    validation_result = validate_frontmatter(
+        summary_path.read_text(encoding="utf-8"),
+        "summary",
+        source_path=summary_path,
+    )
+    verification_result = verify_summary(summary_dir, summary_path)
+
+    assert validation_result.valid is False
+    assert verification_result.passed is False
+    assert any(expected_error in error for error in validation_result.errors)
+    assert any(expected_error in error for error in verification_result.errors)
+
+
 def test_validate_frontmatter_summary_with_source_path_rejects_non_contract_plan_fragment(tmp_path: Path) -> None:
     artifact_dir = tmp_path / "artifacts"
     artifact_dir.mkdir(parents=True)
@@ -282,6 +335,37 @@ def test_validate_frontmatter_summary_with_source_path_reports_unresolved_plan_c
 
     assert result.valid is False
     assert "plan_contract_ref: could not resolve matching plan contract" in result.errors
+
+
+def test_validate_frontmatter_summary_does_not_resolve_plan_contract_ref_above_project_root(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    (project_root / ".gpd").mkdir(parents=True)
+    summary_dir = project_root / "artifacts" / "nested"
+    summary_dir.mkdir(parents=True)
+    summary_path = summary_dir / "01-SUMMARY.md"
+    summary_path.write_text(
+        (FIXTURES_STAGE4 / "summary_with_contract_results.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    external_phase_dir = tmp_path / ".gpd" / "phases" / "01-benchmark"
+    external_phase_dir.mkdir(parents=True)
+    (external_phase_dir / "01-01-PLAN.md").write_text(
+        (FIXTURES_STAGE0 / "plan_with_contract.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    validation_result = validate_frontmatter(
+        summary_path.read_text(encoding="utf-8"),
+        "summary",
+        source_path=summary_path,
+    )
+    verification_result = verify_summary(summary_dir, summary_path)
+
+    assert validation_result.valid is False
+    assert verification_result.passed is False
+    assert "plan_contract_ref: could not resolve matching plan contract" in validation_result.errors
+    assert "plan_contract_ref: could not resolve matching plan contract" in verification_result.errors
 
 
 def test_validate_frontmatter_summary_with_source_path_reports_referenced_plan_contract_schema_errors(

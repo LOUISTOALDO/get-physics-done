@@ -139,10 +139,17 @@ Load the validator-enforced PLAN contract schema before writing or revising any 
 
 **Existing plans:** {plans_content}
 **Checker issues:** {structured_issues_from_checker}
+**Project State:** {state_content}
 **Project Contract:** {project_contract}
+**Contract Intake:** {contract_intake}
+**Effective Reference Intake:** {effective_reference_intake}
 **Protocol Bundles:** {protocol_bundle_context}
 **Active References:** {active_reference_context}
 **Reference Artifacts:** {reference_artifacts_content}
+
+## Canonical PLAN Contract Schema
+
+@{GPD_INSTALL_DIR}/templates/plan-contract-schema.md
 
 **Phase Context:**
 Revisions MUST still honor user decisions.

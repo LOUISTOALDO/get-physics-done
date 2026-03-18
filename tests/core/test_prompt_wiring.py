@@ -491,8 +491,8 @@ def test_review_commands_expose_typed_contracts() -> None:
     assert "phase_artifacts" in verify_work.review_contract.preflight_checks
 
     assert respond_to_referees.review_contract is not None
-    assert ".gpd/paper/REFEREE_RESPONSE.md" in respond_to_referees.review_contract.required_outputs
-    assert ".gpd/AUTHOR-RESPONSE.md" in respond_to_referees.review_contract.required_outputs
+    assert ".gpd/paper/REFEREE_RESPONSE{round_suffix}.md" in respond_to_referees.review_contract.required_outputs
+    assert ".gpd/AUTHOR-RESPONSE{round_suffix}.md" in respond_to_referees.review_contract.required_outputs
     assert "structured referee issues" in respond_to_referees.review_contract.required_evidence
     assert "peer-review review ledger when available" in respond_to_referees.review_contract.required_evidence
     assert "peer-review decision artifacts when available" in respond_to_referees.review_contract.required_evidence
@@ -1040,6 +1040,10 @@ def test_contract_schema_references_stay_wired_into_templates_and_review_docs() 
     assert "gpd validate summary-contract" in execute_plan
     assert "gpd validate verification-contract" in verify_work
     assert "gpd validate plan-contract" in plan_phase
+    assert "Contract Intake:" in plan_phase
+    assert "Effective Reference Intake:" in plan_phase
+    assert "Contract Intake:" in verify_work
+    assert "Effective Reference Intake:" in verify_work
 
 
 def test_review_and_verification_prompts_explicitly_surface_schema_sources_and_contract_context() -> None:
@@ -1201,9 +1205,13 @@ def test_verification_and_agent_reference_prompts_expand_required_reference_bodi
 
 
 def test_planner_and_summary_prompt_surfaces_expand_contract_schema_bodies() -> None:
+    phase_prompt = _expand_prompt_surface(TEMPLATES_DIR / "phase-prompt.md")
     planner_prompt = _expand_prompt_surface(TEMPLATES_DIR / "planner-subagent-prompt.md")
     summary_template = _expand_prompt_surface(TEMPLATES_DIR / "summary.md")
 
+    assert "# PLAN Contract Schema" in phase_prompt
+    assert "context_intake:" in phase_prompt
+    assert "claims:" in phase_prompt
     assert "# PLAN Contract Schema" in planner_prompt
     assert "Every claim must declare a stable `id`." in planner_prompt
     assert (

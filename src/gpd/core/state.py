@@ -2491,8 +2491,7 @@ def state_validate(cwd: Path, integrity_mode: str = "standard") -> StateValidate
     if isinstance(state_json, dict) and state_json.get("project_contract") is not None:
         contract_validation = validate_project_contract(state_json.get("project_contract"), mode="approved")
         if contract_validation.errors:
-            target = issues if integrity_mode == "review" else warnings
-            target.extend(f"project_contract: {error}" for error in contract_validation.errors)
+            issues.extend(f"project_contract: {error}" for error in contract_validation.errors)
         if contract_validation.warnings:
             warnings.extend(f"project_contract: {warning}" for warning in contract_validation.warnings)
 

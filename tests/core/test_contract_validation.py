@@ -6,7 +6,11 @@ import json
 import re
 from pathlib import Path
 
-from gpd.contracts import ResearchContract
+import pytest
+
+from pydantic import ValidationError
+
+from gpd.contracts import ContractResults, ResearchContract
 from gpd.core.contract_validation import validate_project_contract
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "stage0"
@@ -180,9 +184,23 @@ def test_validate_project_contract_approved_mode_accepts_non_reference_grounding
 
     result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
+    assert result.valid is False
     assert result.mode == "approved"
-    assert "references must include at least one must_surface=true anchor" in result.warnings
+    assert "references must include at least one must_surface=true anchor" in result.errors
+
+
+@pytest.mark.parametrize("field_name", ["must_include_prior_outputs", "known_good_baselines"])
+def test_validate_project_contract_approved_mode_rejects_placeholder_non_reference_grounding(field_name: str) -> None:
+    contract = _load_contract_fixture()
+    contract["references"] = []
+    _remove_incidental_grounding(contract)
+    contract["context_intake"][field_name] = ["TBD"]
+    contract["scope"]["unresolved_questions"] = []
+
+    result = validate_project_contract(contract, mode="approved")
+
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
 def test_validate_project_contract_approved_mode_rejects_placeholder_user_asserted_anchor() -> None:
@@ -534,6 +552,15 @@ def test_validate_project_contract_preserves_requested_mode_for_non_object_input
     assert result.valid is False
     assert result.mode == "approved"
     assert result.errors == ["project contract must be a JSON object"]
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["claims", "deliverables", "acceptance_tests", "references", "forbidden_proxies"],
+)
+def test_contract_results_rejects_list_inputs_for_mapping_sections(field_name: str) -> None:
+    with pytest.raises(ValidationError):
+        ContractResults.model_validate({field_name: []})
 
 
 def test_validate_project_contract_warns_when_optional_sections_are_missing_but_scope_is_still_grounded() -> None:

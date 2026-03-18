@@ -683,8 +683,8 @@ class TestReviewValidationCommands:
         assert payload["command"] == "gpd:respond-to-referees"
         assert payload["context_mode"] == "project-required"
         assert payload["review_contract"]["review_mode"] == "publication"
-        assert ".gpd/paper/REFEREE_RESPONSE.md" in payload["review_contract"]["required_outputs"]
-        assert ".gpd/AUTHOR-RESPONSE.md" in payload["review_contract"]["required_outputs"]
+        assert ".gpd/paper/REFEREE_RESPONSE{round_suffix}.md" in payload["review_contract"]["required_outputs"]
+        assert ".gpd/AUTHOR-RESPONSE{round_suffix}.md" in payload["review_contract"]["required_outputs"]
         assert "existing manuscript" in payload["review_contract"]["required_evidence"]
         assert "structured referee issues" in payload["review_contract"]["required_evidence"]
         assert "peer-review review ledger when available" in payload["review_contract"]["required_evidence"]
