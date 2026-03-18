@@ -899,12 +899,16 @@ def test_stage4_templates_and_workflows_surface_contract_results_and_verdict_led
     assert "comparison_verdicts" in summary_template
     assert "plan_contract_ref" in summary_template
     assert "Keep this ledger user-visible" in summary_template
+    assert "Reload `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` immediately before writing the YAML" in summary_template
+    assert "project-local PLAN path, not absolute or parent-traversing" in summary_template
     assert "omitting the corresponding `comparison_verdicts` entry makes the summary incomplete" in summary_template
     assert "verification_inputs" not in summary_template
     assert "contract_results" in verification_template
     assert "comparison_verdicts" in verification_template
     assert "Record only user-visible contract targets here" in verification_template
+    assert "status: passed` is strict" in verification_template
     assert "absence of a verdict is itself a gap" in verification_template
+    assert "Reload `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` immediately before writing the YAML" in verification_template
     assert "Use `@{GPD_INSTALL_DIR}/templates/verification-report.md` for the canonical verification frontmatter contract." in research_verification
     assert "status: passed | gaps_found | expert_needed | human_needed" in research_verification
     assert "comparison_verdicts: []" in research_verification
@@ -932,6 +936,9 @@ def test_stage4_templates_and_workflows_surface_contract_results_and_verdict_led
     assert "project_contract_load_info" in execute_plan
     assert "visible-but-blocked contract is still not an approved execution contract" in execute_plan
     assert "Autonomy mode (`supervised` / `balanced` / `yolo`) and profile may change cadence or verbosity, but they do NOT relax contract-result emission." in execute_plan
+    assert "comparison_verdicts` for decisive internal/external comparisons that were required or attempted" in execute_plan
+    assert "emit `verdict: inconclusive` or `verdict: tension` instead of omitting the entry" in execute_plan
+    assert "Immediately before writing frontmatter, re-open `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` and apply it literally." in execute_plan
     assert "contract_results" in verify_phase
     assert "Verification targets must stay user-visible" in verify_phase
     assert "must_haves" not in verify_phase

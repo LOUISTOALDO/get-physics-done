@@ -70,7 +70,7 @@ Fields marked **Authoritative** exist only in state.json (not representable in S
   "context_intake": {
     "must_read_refs": ["Ref-01"],
     "must_include_prior_outputs": [".gpd/phases/01-setup/01-01-SUMMARY.md"],
-    "user_asserted_anchors": ["Recover known asymptotic limit"],
+    "user_asserted_anchors": ["Recover known asymptotic limit from the accepted benchmark curve"],
     "known_good_baselines": ["Baseline derivation in notebook X"],
     "context_gaps": ["Need grounding; decisive target not yet chosen before planning"],
     "crucial_inputs": ["Figure 2 from prior work"]
@@ -201,6 +201,12 @@ If a project-contract reference sets `must_surface: true`, `required_actions[]` 
 If a project contract has any `references[]` and does not already carry concrete prior-output, user-anchor, or baseline grounding, at least one reference must set `must_surface: true`. When that other grounding exists, a missing `must_surface: true` reference is still a warning that should be repaired, not a silent ignore.
 
 If a project-contract reference sets `must_surface: true`, `applies_to[]` must not be empty.
+
+Approved-mode grounding is field-specific:
+
+- `must_include_prior_outputs[]` entries should be explicit project-artifact paths or filenames, such as `.gpd/phases/.../SUMMARY.md` or `paper/main.tex`.
+- `user_asserted_anchors[]` and `known_good_baselines[]` should name a concrete benchmark, baseline, reference, notebook, figure, dataset, or comparable anchor phrase. Single-token filler does not count.
+- `Placeholder`, `TBD`, `TODO`, `unknown`, `unclear`, `none`, `n/a`, and `placeholder` remain non-grounding unless they are part of a genuinely missing-anchor blocker phrase.
 
 #### Approved-Mode Grounding Rule
 

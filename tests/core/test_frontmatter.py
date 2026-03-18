@@ -16,9 +16,11 @@ from gpd.core.frontmatter import (
     reconstruct_frontmatter,
     splice_frontmatter,
     validate_frontmatter,
+    verify_summary,
 )
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "stage0"
+STAGE4_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "stage4"
 
 
 def _valid_plan_contract_frontmatter(
@@ -426,6 +428,43 @@ class TestValidateFrontmatter:
         assert result.valid is False
         assert any(error.startswith("verification_inputs:") for error in result.errors)
 
+    def test_verify_summary_enforces_same_summary_schema_contract(self, tmp_path: Path):
+        summary_path = tmp_path / "01-01-SUMMARY.md"
+        content = (
+            "---\n"
+            "phase: 01\n"
+            "plan: 01\n"
+            "depth: standard\n"
+            "provides: []\n"
+            "completed: 2025-01-01\n"
+            "verification_inputs:\n"
+            "  truths: []\n"
+            "contract_results:\n"
+            "  claims: []\n"
+            "---\n\nBody.\n"
+        )
+        summary_path.write_text(content, encoding="utf-8")
+
+        validation = validate_frontmatter(content, "summary", source_path=summary_path)
+        result = verify_summary(tmp_path, summary_path)
+
+        assert result.summary_exists is True
+        assert result.passed is False
+        assert result.errors == validation.errors
+
+    def test_verify_summary_reports_missing_required_summary_fields(self, tmp_path: Path):
+        summary_path = tmp_path / "01-01-SUMMARY.md"
+        content = "---\nphase: 01\nplan: 01\n---\n\nBody.\n"
+        summary_path.write_text(content, encoding="utf-8")
+
+        result = verify_summary(tmp_path, summary_path)
+
+        assert result.summary_exists is True
+        assert result.passed is False
+        assert "depth is required" in result.errors
+        assert "provides is required" in result.errors
+        assert "completed is required" in result.errors
+
     def test_valid_plan_with_contract_only(self):
         content = _add_plan_conventions((FIXTURES_DIR / "plan_with_contract.md").read_text(encoding="utf-8"))
         result = validate_frontmatter(content, "plan")
@@ -803,6 +842,39 @@ class TestValidateFrontmatter:
         content = "---\nphase: 01\nverified: 2025-01-01\nstatus: passed\nscore: 5/5\n---\n\nBody."
         result = validate_frontmatter(content, "verification")
         assert result.valid is True
+
+    def test_verification_status_passed_rejects_blocked_contract_results(self, tmp_path: Path):
+        artifact_dir = tmp_path / "artifacts"
+        artifact_dir.mkdir(parents=True)
+        (artifact_dir / "01-01-PLAN.md").write_text(
+            (FIXTURES_DIR / "plan_with_contract.md").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        verification_path = artifact_dir / "01-VERIFICATION.md"
+        verification_path.write_text(
+            (STAGE4_FIXTURES_DIR / "verification_with_contract_results.md")
+            .read_text(encoding="utf-8")
+            .replace(
+                "plan_contract_ref: .gpd/phases/01-benchmark/01-01-PLAN.md#/contract",
+                "plan_contract_ref: 01-01-PLAN.md#/contract",
+                1,
+            )
+            .replace(
+                "      status: passed\n      summary: Claim independently verified.\n",
+                "      status: blocked\n      summary: Claim remains blocked on the decisive benchmark.\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        result = validate_frontmatter(
+            verification_path.read_text(encoding="utf-8"),
+            "verification",
+            source_path=verification_path,
+        )
+
+        assert result.valid is False
+        assert "status: passed is inconsistent with non-passed contract_results targets: claim claim-benchmark" in result.errors
 
     def test_unknown_schema_raises(self):
         with pytest.raises(FrontmatterValidationError, match="Unknown schema"):

@@ -886,7 +886,7 @@ def test_verify_summary_requires_contract_results_for_contract_backed_plan(tmp_p
     result = verify_summary(tmp_path, summary_path)
 
     assert result.passed is False
-    assert "Contract-backed plan requires summary contract_results" in result.errors
+    assert "contract_results: required for contract-backed plan" in result.errors
 
 
 def test_verify_summary_requires_plan_contract_ref_for_contract_backed_plan(tmp_path: Path) -> None:
@@ -905,7 +905,7 @@ def test_verify_summary_requires_plan_contract_ref_for_contract_backed_plan(tmp_
     result = verify_summary(tmp_path, summary_path)
 
     assert result.passed is False
-    assert "Contract-backed plan requires summary plan_contract_ref" in result.errors
+    assert "plan_contract_ref: required for contract-backed plan" in result.errors
 
 
 def test_verify_summary_rejects_unknown_contract_ids(tmp_path: Path) -> None:

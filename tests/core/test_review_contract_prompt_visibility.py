@@ -63,11 +63,22 @@ def test_summary_template_surfaces_plan_contract_ref_rule_for_contract_ledgers()
 
     assert "If `contract_results` or `comparison_verdicts` are present, `plan_contract_ref` is also required." in summary_template
     assert "plan_contract_ref (required when `contract_results` or `comparison_verdicts` are present)" in summary_template
+    assert "Reload `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` immediately before writing the YAML" in summary_template
+    assert "project-local PLAN path, not absolute or parent-traversing" in summary_template
     assert "For contract-backed summaries, `contract_results` is required" in summary_template
     assert "must end with the exact `#/contract` fragment" in summary_template
     assert "`completed` needs non-empty `completed_actions`" in summary_template
     assert "If a decisive external anchor was used, include `reference_id`" in summary_template
     assert "Do not invent extra keys in `contract_results`, `comparison_verdicts`, or `suggested_contract_checks`" in summary_template
+
+
+def test_verification_template_surfaces_strict_passed_and_blocked_semantics() -> None:
+    verification_template = (TEMPLATES_DIR / "verification-report.md").read_text(encoding="utf-8")
+
+    assert "status: passed` is strict" in verification_template
+    assert "every claim, deliverable, and acceptance_test entry in `contract_results` is `passed`" in verification_template
+    assert "If any contract target is `partial`, `failed`, `blocked`, `missing`, or `unresolved`, use `gaps_found`, `expert_needed`, or `human_needed` instead of `passed`." in verification_template
+    assert "Reload `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` immediately before writing the YAML" in verification_template
 
 
 def test_write_paper_prompt_discovers_plan_scoped_and_legacy_phase_summaries() -> None:
@@ -90,6 +101,7 @@ def test_comparison_templates_match_full_comparison_verdict_subject_kind_enum() 
     assert expected_kind in contract_results
     assert "Only `subject_role: decisive` closes a decisive requirement" in internal
     assert "Only `subject_role: decisive` closes a decisive requirement" in experimental
+    assert "project-local PLAN path, not an absolute path, URL, or parent-traversing path" in contract_results
 
 
 def test_contract_ledgers_surface_decisive_only_verdict_rules_and_strict_suggested_check_keys() -> None:
@@ -99,6 +111,7 @@ def test_contract_ledgers_surface_decisive_only_verdict_rules_and_strict_suggest
     assert "Do not invent `artifact` or `other` subject kinds" in contract_results
     assert "Only `subject_role: decisive` satisfies a required decisive comparison" in contract_results
     assert "`subject_role` must be explicit on every verdict" in contract_results
+    assert "project-local PLAN path" in contract_results
     assert "If a decisive external anchor was used, include `reference_id`" in contract_results
     assert "reference-backed decisive comparison is required" in contract_results
     assert "acceptance test with `kind: benchmark` or `kind: cross_method`" in contract_results

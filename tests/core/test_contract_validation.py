@@ -175,6 +175,31 @@ def test_validate_project_contract_approved_mode_accepts_prior_output_grounding(
     assert result.mode == "approved"
 
 
+@pytest.mark.parametrize(
+    "field_name,value",
+    [
+        ("user_asserted_anchors", ["Recover known limiting behavior"]),
+        ("known_good_baselines", ["Baseline notebook A"]),
+    ],
+)
+def test_validate_project_contract_approved_mode_accepts_substantive_text_grounding(
+    field_name: str, value: list[str]
+) -> None:
+    contract = _load_contract_fixture()
+    contract["references"] = []
+    _remove_incidental_grounding(contract)
+    contract["context_intake"]["must_include_prior_outputs"] = []
+    contract["context_intake"]["user_asserted_anchors"] = []
+    contract["context_intake"]["known_good_baselines"] = []
+    contract["context_intake"][field_name] = value
+    contract["scope"]["unresolved_questions"] = []
+
+    result = validate_project_contract(contract, mode="approved")
+
+    assert result.valid is True
+    assert result.mode == "approved"
+
+
 def test_validate_project_contract_approved_mode_accepts_non_reference_grounding_when_must_surface_is_missing() -> None:
     contract = _load_contract_fixture()
     contract["references"][0]["must_surface"] = False
@@ -194,6 +219,26 @@ def test_validate_project_contract_approved_mode_rejects_placeholder_non_referen
     contract["references"] = []
     _remove_incidental_grounding(contract)
     contract["context_intake"][field_name] = ["TBD"]
+    contract["scope"]["unresolved_questions"] = []
+
+    result = validate_project_contract(contract, mode="approved")
+
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["must_include_prior_outputs", "user_asserted_anchors", "known_good_baselines"],
+)
+def test_validate_project_contract_approved_mode_rejects_bare_junk_grounding(field_name: str) -> None:
+    contract = _load_contract_fixture()
+    contract["references"] = []
+    _remove_incidental_grounding(contract)
+    contract["context_intake"]["must_include_prior_outputs"] = []
+    contract["context_intake"]["user_asserted_anchors"] = []
+    contract["context_intake"]["known_good_baselines"] = []
+    contract["context_intake"][field_name] = ["foo"]
     contract["scope"]["unresolved_questions"] = []
 
     result = validate_project_contract(contract, mode="approved")

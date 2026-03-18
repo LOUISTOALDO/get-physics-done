@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from gpd.core.paper_quality import score_paper_quality
+from gpd.core.paper_quality import VerificationConfidence, score_paper_quality
 from gpd.core.paper_quality_artifacts import build_paper_quality_input
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "stage4"
@@ -145,6 +145,116 @@ comparison_verdicts:
     assert result.figures.decisive_artifact_roles_clear.satisfied == 1
     assert result.results.decisive_artifacts_with_explicit_verdicts.satisfied == 1
     assert result.results.decisive_artifacts_benchmark_anchored.satisfied == 1
+
+
+def test_build_paper_quality_input_normalizes_empty_contract_results_reference_lists(tmp_path: Path) -> None:
+    plan_dir = tmp_path / ".gpd" / "phases" / "01-benchmark"
+    _write(
+        plan_dir / "01-01-PLAN.md",
+        (STAGE0_FIXTURES_DIR / "plan_with_contract.md")
+        .read_text(encoding="utf-8")
+        .replace("    must_read_refs: [ref-benchmark]\n", "    must_read_refs: []\n", 1)
+        .replace("      references: [ref-benchmark]\n", "      references: []\n", 1)
+        .replace(
+            """  references:
+    - id: ref-benchmark
+      kind: paper
+      locator: Author et al., Journal, 2024
+      role: benchmark
+      why_it_matters: Published comparison target
+      applies_to: [claim-benchmark]
+      must_surface: true
+      required_actions: [read, compare, cite]
+""",
+            "  references: []\n",
+            1,
+        )
+        .replace("      kind: benchmark\n", "      kind: consistency\n", 1)
+        .replace(
+            "      procedure: Compare against the benchmark reference\n",
+            "      procedure: Compare against the internal baseline calculation\n",
+            1,
+        )
+        .replace(
+            "      pass_condition: Matches reference within tolerance\n",
+            "      pass_condition: Matches internal baseline within tolerance\n",
+            1,
+        )
+        .replace("      evidence_required: [deliv-figure, ref-benchmark]\n", "      evidence_required: [deliv-figure]\n", 1),
+    )
+    _write(
+        plan_dir / "01-SUMMARY.md",
+        """---
+phase: 01-benchmark
+plan: 01
+depth: full
+provides: [benchmark comparison]
+completed: 2026-03-15
+plan_contract_ref: .gpd/phases/01-benchmark/01-01-PLAN.md#/contract
+contract_results:
+  claims:
+    claim-benchmark:
+      status: passed
+      summary: Benchmark reproduced within tolerance.
+      linked_ids: [deliv-figure, test-benchmark]
+      evidence:
+        - verifier: gpd-verifier
+          method: internal baseline comparison
+          confidence: high
+          claim_id: claim-benchmark
+          deliverable_id: deliv-figure
+          acceptance_test_id: test-benchmark
+          evidence_path: .gpd/phases/01-benchmark/01-VERIFICATION.md
+  deliverables:
+    deliv-figure:
+      status: passed
+      path: figures/benchmark.png
+      summary: Figure produced with uncertainty band and benchmark overlay.
+      linked_ids: [claim-benchmark, test-benchmark]
+      evidence:
+        - verifier: gpd-verifier
+          method: internal baseline comparison
+          confidence: high
+          claim_id: claim-benchmark
+          deliverable_id: deliv-figure
+          acceptance_test_id: test-benchmark
+          evidence_path: .gpd/phases/01-benchmark/01-VERIFICATION.md
+  acceptance_tests:
+    test-benchmark:
+      status: passed
+      summary: Internal baseline reproduced within the contracted tolerance.
+      linked_ids: [claim-benchmark, deliv-figure]
+      evidence:
+        - verifier: gpd-verifier
+          method: internal baseline comparison
+          confidence: high
+          claim_id: claim-benchmark
+          deliverable_id: deliv-figure
+          acceptance_test_id: test-benchmark
+          evidence_path: .gpd/phases/01-benchmark/01-VERIFICATION.md
+  references: []
+  forbidden_proxies:
+    fp-benchmark:
+      status: rejected
+      notes: Qualitative trend agreement was not accepted without the numerical benchmark check.
+  uncertainty_markers:
+    weakest_anchors: [Reference tolerance interpretation]
+    disconfirming_observations: [Benchmark agreement disappears once normalization is fixed]
+---
+
+# Summary
+""",
+    )
+
+    result = build_paper_quality_input(tmp_path)
+
+    assert result.verification.contract_targets_verified.satisfied == 3
+    assert result.verification.contract_targets_verified.total == 3
+    assert result.verification.key_result_confidences == [
+        VerificationConfidence.independently_confirmed,
+        VerificationConfidence.independently_confirmed,
+        VerificationConfidence.independently_confirmed,
+    ]
 
 
 def test_build_paper_quality_input_is_conservative_when_artifacts_are_missing(tmp_path: Path) -> None:

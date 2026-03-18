@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import re
 from functools import lru_cache
-from pathlib import Path
 
 CANONICAL_COMMAND_PREFIX = "gpd:"
 CANONICAL_SKILL_PREFIX = "gpd-"
@@ -26,12 +24,12 @@ def _prefix_variants(prefix: str) -> tuple[str, ...]:
 def runtime_command_prefixes() -> tuple[str, ...]:
     """Return supported runtime-native command prefixes, longest-first."""
 
+    from gpd.adapters.runtime_catalog import iter_runtime_descriptors
+
     prefixes: list[str] = []
     seen: set[str] = set()
-    catalog_path = Path(__file__).resolve().parent / "adapters" / "runtime_catalog.json"
-    raw_catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-    for descriptor in raw_catalog:
-        prefix = str(descriptor.get("command_prefix", ""))
+    for descriptor in iter_runtime_descriptors():
+        prefix = descriptor.command_prefix
         for prefix_variant in _prefix_variants(prefix):
             if prefix_variant in seen:
                 continue
@@ -56,9 +54,6 @@ def command_slug_from_label(label: str) -> str:
     for prefix in runtime_command_prefixes():
         if normalized.startswith(prefix):
             return normalized[len(prefix) :].strip()
-
-    if normalized.startswith("/"):
-        return normalized[1:].strip()
     return normalized
 
 

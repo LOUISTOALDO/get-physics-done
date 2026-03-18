@@ -1343,49 +1343,9 @@ def verify_summary(
             errors=[f"Frontmatter YAML parse error: {exc}"],
         )
 
-    errors: list[str] = []
-
-    try:
-        contract_results = _parse_contract_results(meta)
-    except (PydanticValidationError, TypeError, ValueError) as exc:
-        return SummaryVerification(
-            passed=False,
-            summary_exists=True,
-            errors=_prefixed_validation_errors("contract_results", exc),
-        )
-
-    try:
-        comparison_verdicts = _parse_comparison_verdicts(meta)
-    except (PydanticValidationError, TypeError, ValueError) as exc:
-        return SummaryVerification(
-            passed=False,
-            summary_exists=True,
-            errors=_prefixed_validation_errors("comparison_verdicts", exc),
-        )
-
-    plan_contract_ref = meta.get("plan_contract_ref")
-    plan_contract_ref_fragment_error: str | None = None
-    if isinstance(plan_contract_ref, str):
-        plan_contract_ref_fragment_error = _plan_contract_ref_fragment_error(plan_contract_ref)
-        if plan_contract_ref_fragment_error is not None:
-            errors.append(plan_contract_ref_fragment_error)
-    plan_contract_resolution = _find_matching_plan_contract(full_path.parent, meta)
-    plan_contract = plan_contract_resolution.contract
-    errors.extend(f"plan_contract_ref: {issue}" for issue in plan_contract_resolution.errors)
-    if (
-        isinstance(plan_contract_ref, str)
-        and plan_contract_ref_fragment_error is None
-        and plan_contract is None
-        and not plan_contract_resolution.errors
-    ):
-        errors.append("plan_contract_ref: could not resolve matching plan contract")
-    if plan_contract is not None:
-        if not isinstance(meta.get("plan_contract_ref"), str):
-            errors.append("Contract-backed plan requires summary plan_contract_ref")
-        if contract_results is None:
-            errors.append("Contract-backed plan requires summary contract_results")
-        else:
-            errors.extend(_summary_contract_errors(plan_contract, contract_results, comparison_verdicts))
+    schema_validation = validate_frontmatter(content, "summary", source_path=full_path)
+    errors: list[str] = list(schema_validation.errors)
+    errors.extend(f"{field} is required" for field in schema_validation.missing)
 
     # --- Spot-check files mentioned in summary ---
     mentioned: set[str] = set()

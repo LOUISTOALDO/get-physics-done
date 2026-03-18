@@ -71,8 +71,51 @@ _ANCHOR_UNKNOWN_SELECTION_PATTERNS = (
 )
 _USER_ASSERTED_ANCHOR_PLACEHOLDER_PATTERNS = (
     re.compile(r"^\s*(?:tbd|todo|unknown|unclear|none|n/?a|placeholder)\s*$"),
+    re.compile(r"\btbd\b"),
+    re.compile(r"\btodo\b"),
     re.compile(r"\bplaceholder\b"),
     re.compile(r"\bto be determined\b"),
+)
+_CONCRETE_TEXT_ANCHOR_PATTERNS = (
+    re.compile(r"\bbenchmark\b"),
+    re.compile(r"\bbaseline\b"),
+    re.compile(r"\breference\b"),
+    re.compile(r"\bpaper\b"),
+    re.compile(r"\bdataset\b"),
+    re.compile(r"\bnotebook\b"),
+    re.compile(r"\bfigure\b"),
+    re.compile(r"\btable\b"),
+    re.compile(r"\bcurve\b"),
+    re.compile(r"\bplot\b"),
+    re.compile(r"\bresult\b"),
+    re.compile(r"\boutput\b"),
+    re.compile(r"\bderivation\b"),
+    re.compile(r"\banalysis\b"),
+    re.compile(r"\bliterature\b"),
+    re.compile(r"\bpublished\b"),
+    re.compile(r"\barxiv\b"),
+    re.compile(r"\bdoi\b"),
+    re.compile(r"\bcritical\b"),
+    re.compile(r"\blimit\b"),
+    re.compile(r"\blimiting\b"),
+    re.compile(r"\basymptotic\b"),
+    re.compile(r"\bobservable\b"),
+    re.compile(r"\bcomparison\b"),
+    re.compile(r"\banchor\b"),
+)
+_CONCRETE_TEXT_ATTACHMENT_PATTERNS = (
+    re.compile(r"\bfrom\b"),
+    re.compile(r"\bvia\b"),
+    re.compile(r"\busing\b"),
+    re.compile(r"\bagainst\b"),
+    re.compile(r"\bin\b"),
+    re.compile(r"\bon\b"),
+    re.compile(r"\bof\b"),
+)
+_PROJECT_ARTIFACT_PATH_PATTERNS = (
+    re.compile(r"[\\/]+"),
+    re.compile(r"^(?:\.{1,2}|~)(?:[\\/]|$)"),
+    re.compile(r"\.[A-Za-z0-9]{1,8}$"),
 )
 _RECOVERABLE_SCHEMA_WARNING_PATTERNS = (
     re.compile(r"^.+: Extra inputs are not permitted$"),
@@ -484,8 +527,17 @@ def _has_explicit_anchor_unknown(contract: ResearchContract) -> bool:
     return False
 
 
-def _is_concrete_user_asserted_anchor(value: str) -> bool:
-    """Return whether a user_asserted_anchors entry is real grounding."""
+def _is_project_artifact_path(value: str) -> bool:
+    """Return whether *value* names a concrete prior-output artifact path."""
+
+    candidate = value.strip()
+    if not candidate:
+        return False
+    return any(pattern.search(candidate) for pattern in _PROJECT_ARTIFACT_PATH_PATTERNS)
+
+
+def _is_concrete_text_grounding(value: str) -> bool:
+    """Return whether *value* names a substantive text anchor rather than filler."""
 
     lowered = value.casefold().strip()
     if not lowered:
@@ -494,7 +546,12 @@ def _is_concrete_user_asserted_anchor(value: str) -> bool:
         return False
     if any(pattern.search(lowered) for pattern in _USER_ASSERTED_ANCHOR_PLACEHOLDER_PATTERNS):
         return False
-    if not any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_TOPIC_PATTERNS):
+    words = [word for word in re.split(r"\s+", lowered) if word]
+    if len(words) < 2:
+        return False
+    if any(pattern.search(lowered) for pattern in _CONCRETE_TEXT_ANCHOR_PATTERNS):
+        return True
+    if any(pattern.search(lowered) for pattern in _CONCRETE_TEXT_ATTACHMENT_PATTERNS):
         return True
     if any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_BLOCKER_PATTERNS):
         return False
@@ -503,13 +560,17 @@ def _is_concrete_user_asserted_anchor(value: str) -> bool:
         and any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_SELECTION_PATTERNS)
     ):
         return False
-    return True
+    return len(lowered) >= 10 and any(len(word) >= 5 for word in words)
 
 
-def _has_concrete_grounding_entries(values: list[str]) -> bool:
-    """Return whether any grounding entry is concrete rather than placeholder text."""
+def _has_concrete_grounding_entries(values: list[str], *, field_name: str) -> bool:
+    """Return whether any grounding entry is concrete for the requested field."""
 
-    return any(_is_concrete_user_asserted_anchor(value) for value in values)
+    if field_name == "must_include_prior_outputs":
+        return any(_is_project_artifact_path(value) for value in values)
+    if field_name in {"user_asserted_anchors", "known_good_baselines"}:
+        return any(_is_concrete_text_grounding(value) for value in values)
+    raise ValueError(f"Unsupported grounding field {field_name!r}")
 
 
 def _has_anchor_like_reference(contract: ResearchContract) -> bool:
@@ -552,9 +613,18 @@ def _has_approved_grounding_signal(contract: ResearchContract) -> bool:
     return any(
         (
             _has_anchor_like_reference(contract),
-            _has_concrete_grounding_entries(contract.context_intake.must_include_prior_outputs),
-            _has_concrete_grounding_entries(contract.context_intake.user_asserted_anchors),
-            _has_concrete_grounding_entries(contract.context_intake.known_good_baselines),
+            _has_concrete_grounding_entries(
+                contract.context_intake.must_include_prior_outputs,
+                field_name="must_include_prior_outputs",
+            ),
+            _has_concrete_grounding_entries(
+                contract.context_intake.user_asserted_anchors,
+                field_name="user_asserted_anchors",
+            ),
+            _has_concrete_grounding_entries(
+                contract.context_intake.known_good_baselines,
+                field_name="known_good_baselines",
+            ),
         )
     )
 
@@ -564,9 +634,18 @@ def _has_non_reference_grounding_signal(contract: ResearchContract) -> bool:
 
     return any(
         (
-            _has_concrete_grounding_entries(contract.context_intake.must_include_prior_outputs),
-            _has_concrete_grounding_entries(contract.context_intake.user_asserted_anchors),
-            _has_concrete_grounding_entries(contract.context_intake.known_good_baselines),
+            _has_concrete_grounding_entries(
+                contract.context_intake.must_include_prior_outputs,
+                field_name="must_include_prior_outputs",
+            ),
+            _has_concrete_grounding_entries(
+                contract.context_intake.user_asserted_anchors,
+                field_name="user_asserted_anchors",
+            ),
+            _has_concrete_grounding_entries(
+                contract.context_intake.known_good_baselines,
+                field_name="known_good_baselines",
+            ),
         )
     )
 

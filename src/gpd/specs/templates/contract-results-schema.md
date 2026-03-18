@@ -32,6 +32,7 @@ plan_contract_ref: .gpd/phases/XX-name/XX-YY-PLAN.md#/contract
 Rules:
 
 - Must be a string.
+- Must be a project-local PLAN path, not an absolute path, URL, or parent-traversing path.
 - Must end with the exact `#/contract` fragment; pointing at the PLAN file alone or at another fragment is invalid.
 - Must resolve to the matching PLAN contract when validated from disk.
 

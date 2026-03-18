@@ -1084,6 +1084,17 @@ class TestPublicAPI:
         assert cmd.name == "gpd:peer-review"
         assert cmd.description == "Peer review"
 
+    def test_get_command_rejects_foreign_bare_slash_command(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        commands_dir = tmp_path / "commands"
+        commands_dir.mkdir()
+        (commands_dir / "help.md").write_text("---\nname: gpd:help\ndescription: Help\n---\nHelp body.", encoding="utf-8")
+
+        monkeypatch.setattr(registry, "COMMANDS_DIR", commands_dir)
+        registry.invalidate_cache()
+
+        with pytest.raises(KeyError, match=r"Command not found: /help"):
+            registry.get_command("/help")
+
     def test_get_skill_returns_correct_def(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         commands_dir = tmp_path / "commands"
         commands_dir.mkdir()
@@ -1138,6 +1149,21 @@ class TestPublicAPI:
         assert isinstance(skill, SkillDef)
         assert skill.name == "gpd-execute-phase"
         assert skill.registry_name == "execute-phase"
+
+    def test_get_skill_rejects_foreign_bare_slash_command(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        commands_dir = tmp_path / "commands"
+        commands_dir.mkdir()
+        (commands_dir / "execute-phase.md").write_text(
+            "---\nname: gpd:execute-phase\ndescription: Execute\n---\nExecute body.",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(registry, "COMMANDS_DIR", commands_dir)
+        monkeypatch.setattr(registry, "AGENTS_DIR", tmp_path / "nonexistent-agents")
+        registry.invalidate_cache()
+
+        with pytest.raises(KeyError, match=r"Skill not found: /help"):
+            registry.get_skill("/help")
 
     def test_real_slides_command_metadata(self) -> None:
         registry.invalidate_cache()

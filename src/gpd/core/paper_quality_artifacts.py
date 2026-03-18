@@ -9,7 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 
-from gpd.contracts import ComparisonVerdict, ContractResults, ResearchContract
+from gpd.contracts import ComparisonVerdict, ContractResults, ResearchContract, normalize_contract_results_input
 from gpd.core.frontmatter import (
     FrontmatterParseError,
     _find_matching_plan_contract,
@@ -287,7 +287,7 @@ def _collect_contract_coverage(project_root: Path) -> _ContractCoverage:
         contract_results: ContractResults | None = None
         if isinstance(raw_results, dict) and plan_contract is not None:
             try:
-                contract_results = ContractResults.model_validate(raw_results)
+                contract_results = ContractResults.model_validate(normalize_contract_results_input(raw_results))
             except PydanticValidationError:
                 contract_results = None
             if contract_results is not None:
