@@ -989,6 +989,46 @@ def _normalize_state_schema(
         return result, integrity_issues
 
 
+def _normalize_state_schema_with_backup_project_contract(
+    raw: dict | None,
+    backup_raw: dict | None,
+    *,
+    allow_project_contract_salvage: bool = True,
+    retain_blocking_project_contract_errors: bool = True,
+) -> tuple[dict, list[str], bool]:
+    """Normalize state and recover a valid backup project contract when needed."""
+
+    normalized, integrity_issues = _normalize_state_schema(
+        raw,
+        allow_project_contract_salvage=allow_project_contract_salvage,
+        retain_blocking_project_contract_errors=retain_blocking_project_contract_errors,
+    )
+    recovered_from_backup = False
+
+    if (
+        isinstance(raw, dict)
+        and raw.get("project_contract") is not None
+        and normalized.get("project_contract") is None
+        and isinstance(backup_raw, dict)
+        and backup_raw.get("project_contract") is not None
+    ):
+        backup_normalized, _backup_issues = _normalize_state_schema(
+            backup_raw,
+            allow_project_contract_salvage=allow_project_contract_salvage,
+            retain_blocking_project_contract_errors=retain_blocking_project_contract_errors,
+        )
+        backup_contract = backup_normalized.get("project_contract")
+        if backup_contract is not None:
+            normalized["project_contract"] = copy.deepcopy(backup_contract)
+            integrity_issues = [issue for issue in integrity_issues if "project_contract" not in issue]
+            recovered_from_backup = True
+            logger.warning(
+                "Recovered project_contract from state.json.bak after primary state.json required blocking normalization"
+            )
+
+    return normalized, integrity_issues, recovered_from_backup
+
+
 def _format_validation_location(loc: tuple[object, ...]) -> str:
     return ".".join(str(part) for part in loc)
 
@@ -1780,8 +1820,17 @@ def load_state_json(cwd: Path, integrity_mode: str = "standard") -> dict | None:
             parsed = json.loads(raw)
             if not isinstance(parsed, dict):
                 raise TypeError(f"state root must be an object, got {type(parsed).__name__}")
-            normalized, integrity_issues = _normalize_state_schema(
+            backup_parsed: dict | None = None
+            try:
+                bak_raw = bak_path.read_text(encoding="utf-8")
+                bak_parsed = json.loads(bak_raw)
+            except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
+                bak_parsed = None
+            if isinstance(bak_parsed, dict):
+                backup_parsed = bak_parsed
+            normalized, integrity_issues, _recovered_from_backup = _normalize_state_schema_with_backup_project_contract(
                 parsed,
+                backup_parsed,
                 allow_project_contract_salvage=allow_project_contract_salvage,
                 retain_blocking_project_contract_errors=False,
             )
@@ -1803,8 +1852,9 @@ def load_state_json(cwd: Path, integrity_mode: str = "standard") -> dict | None:
                 bak_parsed = json.loads(bak_raw)
                 if not isinstance(bak_parsed, dict):
                     raise TypeError(f"state root must be an object, got {type(bak_parsed).__name__}")
-                restored, integrity_issues = _normalize_state_schema(
+                restored, integrity_issues, _recovered_from_backup = _normalize_state_schema_with_backup_project_contract(
                     bak_parsed,
+                    None,
                     allow_project_contract_salvage=allow_project_contract_salvage,
                     retain_blocking_project_contract_errors=False,
                 )
@@ -2449,6 +2499,7 @@ def state_validate(cwd: Path, integrity_mode: str = "standard") -> StateValidate
 
     json_path = _state_json_path(cwd)
     md_path = _state_md_path(cwd)
+    bak_path = json_path.parent / STATE_JSON_BACKUP_FILENAME
     issues: list[str] = []
     warnings: list[str] = []
 
@@ -2460,8 +2511,13 @@ def state_validate(cwd: Path, integrity_mode: str = "standard") -> StateValidate
             issues.append(
                 f"state.json root must be an object, got {type(raw_state_json).__name__}; validating normalized fallback"
             )
-        state_json, normalization_issues = _normalize_state_schema(
+        try:
+            raw_state_json_backup = json.loads(bak_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
+            raw_state_json_backup = None
+        state_json, normalization_issues, _recovered_from_backup = _normalize_state_schema_with_backup_project_contract(
             raw_state_json,
+            raw_state_json_backup if isinstance(raw_state_json_backup, dict) else None,
             allow_project_contract_salvage=False,
             retain_blocking_project_contract_errors=False,
         )

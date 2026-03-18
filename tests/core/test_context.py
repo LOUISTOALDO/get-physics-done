@@ -11,6 +11,7 @@ from gpd.core.context import (
     _generate_slug,
     _is_phase_complete,
     _load_project_contract,
+    _merge_reference_intake,
     _normalize_phase_name,
     init_execute_phase,
     init_map_research,
@@ -668,6 +669,45 @@ class TestInitPlanPhase:
         assert ".gpd/research-map/REFERENCES.md" in ctx["active_reference_context"]
         assert "unresolved reference token" not in ctx["active_reference_context"]
 
+    def test_contract_intake_comes_from_canonicalized_project_contract(self, tmp_path: Path) -> None:
+        _setup_project(tmp_path)
+        _create_phase_dir(tmp_path, "02-analysis")
+        _write_project_contract_state(tmp_path)
+        _write_literature_review_anchor_file(tmp_path)
+        _write_research_map_anchor_files(tmp_path)
+
+        state_path = tmp_path / ".gpd" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["project_contract"]["context_intake"]["must_read_refs"] = ["benchmark-paper"]
+        state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+        ctx = init_progress(tmp_path)
+
+        assert ctx["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
+        assert ctx["contract_intake"]["must_read_refs"] == ["ref-benchmark"]
+
+    def test_ambiguous_reference_tokens_remain_unresolved(self) -> None:
+        active_references = [
+            {
+                "id": "ref-a",
+                "locator": "doc-a",
+                "aliases": ["shared-token"],
+            },
+            {
+                "id": "ref-b",
+                "locator": "shared-token",
+                "aliases": [],
+            },
+        ]
+
+        intake = _merge_reference_intake(
+            None,
+            {"must_read_refs": ["shared-token", "doc-a"]},
+            active_references,
+        )
+
+        assert intake["must_read_refs"] == ["shared-token", "ref-a"]
+
     def test_surfaces_canonicalized_reference_fields_in_project_contract_context(self, tmp_path: Path) -> None:
         _setup_project(tmp_path)
         _create_phase_dir(tmp_path, "02-analysis")
@@ -717,6 +757,28 @@ class TestInitPlanPhase:
         assert stored["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
         assert before == after
         assert not (tmp_path / ".gpd" / "STATE.md").exists()
+
+    def test_reports_canonical_project_contract_merge_validation_failures(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _setup_project(tmp_path)
+        _create_phase_dir(tmp_path, "02-analysis")
+        _write_project_contract_state(tmp_path)
+
+        def _invalid_merge(existing: dict[str, object], derived: dict[str, object], *, allowed_subject_ids: set[str]) -> dict[str, object]:
+            merged = dict(existing)
+            if derived is not None:
+                merged["role"] = "not-a-valid-role"
+            return merged
+
+        monkeypatch.setattr("gpd.core.context._merge_contract_reference_payload", _invalid_merge)
+
+        ctx = init_progress(tmp_path)
+
+        assert ctx["project_contract"] is not None
+        assert ctx["project_contract"]["references"][0]["role"] == "benchmark"
+        assert any(
+            "canonical project_contract merge failed validation" in warning
+            for warning in ctx["project_contract_load_info"]["warnings"]
+        )
 
     def test_reports_missing_active_references_explicitly(self, tmp_path: Path) -> None:
         _setup_project(tmp_path)

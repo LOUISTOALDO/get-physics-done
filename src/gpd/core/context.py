@@ -14,6 +14,8 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ValidationError as PydanticValidationError
+
 from gpd.adapters.install_utils import AGENTS_DIR_NAME, FLAT_COMMANDS_DIR_NAME, GPD_INSTALL_DIR_NAME, HOOKS_DIR_NAME
 from gpd.adapters.runtime_catalog import iter_runtime_descriptors
 from gpd.contracts import ResearchContract, collect_contract_integrity_errors, contract_from_data
@@ -206,7 +208,33 @@ def _load_raw_project_contract_payload(cwd: Path) -> tuple[Path, object] | None:
         raw_state = None
     else:
         if isinstance(raw_state, dict):
-            return layout.state_json, raw_state.get("project_contract")
+            raw_contract = raw_state.get("project_contract")
+            if isinstance(raw_contract, dict):
+                normalized_contract, schema_findings = salvage_project_contract(raw_contract)
+                _schema_warnings, schema_errors = _split_project_contract_schema_findings(
+                    schema_findings,
+                    allow_singleton_defaults=False,
+                )
+                if schema_errors or normalized_contract is None:
+                    try:
+                        raw_backup = json.loads(layout.state_json_backup.read_text(encoding="utf-8"))
+                    except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
+                        raw_backup = None
+                    if isinstance(raw_backup, dict):
+                        backup_contract = raw_backup.get("project_contract")
+                        if isinstance(backup_contract, dict):
+                            backup_normalized, backup_findings = salvage_project_contract(backup_contract)
+                            _backup_warnings, backup_errors = _split_project_contract_schema_findings(
+                                backup_findings,
+                                allow_singleton_defaults=False,
+                            )
+                            if not backup_errors and backup_normalized is not None:
+                                logger.warning(
+                                    "Using project_contract from %s because the primary contract requires blocking schema normalization",
+                                    layout.state_json_backup,
+                                )
+                                return layout.state_json_backup, backup_contract
+            return layout.state_json, raw_contract
         return None
 
     try:
@@ -396,23 +424,46 @@ def _reference_identity_tokens(values: list[object]) -> set[str]:
 
 def _build_active_reference_lookup(
     active_references: list[dict[str, object]],
-) -> tuple[dict[str, dict[str, object]], dict[str, str]]:
-    """Return active-reference lookup tables by ID and canonicalizable token."""
+) -> tuple[dict[str, dict[str, object]], dict[str, str], set[str]]:
+    """Return active-reference lookup tables and ambiguous token markers."""
     by_id: dict[str, dict[str, object]] = {}
-    token_to_id: dict[str, str] = {}
+    token_matches: dict[str, set[str]] = {}
     for ref in active_references:
         ref_id = str(ref.get("id") or "").strip()
         locator = str(ref.get("locator") or "").strip()
         if ref_id:
             by_id[ref_id] = ref
-            token_to_id.setdefault(ref_id.casefold(), ref_id)
+            token_matches.setdefault(ref_id.casefold(), set()).add(ref_id)
         if ref_id and locator:
-            token_to_id.setdefault(locator.casefold(), ref_id)
+            token_matches.setdefault(locator.casefold(), set()).add(ref_id)
         for alias in ref.get("aliases", []):
             alias_text = str(alias).strip()
             if alias_text and ref_id:
-                token_to_id.setdefault(alias_text.casefold(), ref_id)
-    return by_id, token_to_id
+                token_matches.setdefault(alias_text.casefold(), set()).add(ref_id)
+    token_to_id: dict[str, str] = {}
+    ambiguous_tokens: set[str] = set()
+    for token, ref_ids in token_matches.items():
+        if len(ref_ids) == 1:
+            token_to_id[token] = next(iter(ref_ids))
+        elif len(ref_ids) > 1:
+            ambiguous_tokens.add(token)
+    return by_id, token_to_id, ambiguous_tokens
+
+
+def _resolve_reference_token(
+    token: object,
+    *,
+    token_to_id: dict[str, str],
+    ambiguous_tokens: set[str],
+) -> str:
+    """Resolve a reference token without collapsing ambiguous aliases or locators."""
+    token_text = str(token).strip()
+    if not token_text:
+        return token_text
+    token_key = token_text.casefold()
+    if token_key in ambiguous_tokens:
+        return token_text
+    return token_to_id.get(token_key, token_text)
 
 
 def _merge_reference_record(merged: dict[str, dict[str, object]], ref: dict[str, object]) -> None:
@@ -508,7 +559,7 @@ def _merge_reference_intake(
         "context_gaps": [],
         "crucial_inputs": [],
     }
-    _, token_to_id = _build_active_reference_lookup(active_references)
+    _, token_to_id, ambiguous_tokens = _build_active_reference_lookup(active_references)
     if contract is not None:
         intake = contract.context_intake.model_dump(mode="json")
         for key in merged:
@@ -517,7 +568,11 @@ def _merge_reference_intake(
         _append_unique_strings(merged[key], list(derived_intake.get(key) or []))
     canonical_must_read_refs: list[str] = []
     for token in merged["must_read_refs"]:
-        resolved = token_to_id.get(token.casefold(), token)
+        resolved = _resolve_reference_token(
+            token,
+            token_to_id=token_to_id,
+            ambiguous_tokens=ambiguous_tokens,
+        )
         _append_unique_strings(canonical_must_read_refs, [resolved])
     merged["must_read_refs"] = canonical_must_read_refs
     return merged
@@ -611,10 +666,14 @@ def _canonical_contract_intake(
     del effective_reference_intake  # Artifact-derived intake stays in ``effective_reference_intake`` only.
 
     intake = contract.context_intake.model_dump(mode="json")
-    _, token_to_id = _build_active_reference_lookup(active_references)
+    _, token_to_id, ambiguous_tokens = _build_active_reference_lookup(active_references)
     canonical_must_read_refs: list[str] = []
     for token in list(intake.get("must_read_refs") or []):
-        resolved = token_to_id.get(str(token).casefold(), str(token))
+        resolved = _resolve_reference_token(
+            token,
+            token_to_id=token_to_id,
+            ambiguous_tokens=ambiguous_tokens,
+        )
         _append_unique_strings(canonical_must_read_refs, [resolved])
     intake["must_read_refs"] = canonical_must_read_refs
     return intake
@@ -625,11 +684,11 @@ def _canonicalize_project_contract(
     *,
     active_references: list[dict[str, object]],
     effective_reference_intake: dict[str, list[str]],
-) -> ResearchContract | None:
+) -> tuple[ResearchContract | None, list[str]]:
     """Return the canonical contract after merging durable anchor context."""
 
     if contract is None:
-        return None
+        return None, []
 
     payload = contract.model_dump(mode="json")
     payload["context_intake"] = _canonical_contract_intake(
@@ -657,8 +716,6 @@ def _canonicalize_project_contract(
         if str(ref.get("locator") or "").strip()
     }
     merged_references: list[dict[str, object]] = []
-    seen_ids: set[str] = set()
-    seen_locators: set[str] = set()
     for existing in list(payload.get("references") or []):
         ref_id = str(existing.get("id") or "").strip()
         locator_key = str(existing.get("locator") or "").strip().casefold()
@@ -671,15 +728,23 @@ def _canonicalize_project_contract(
             else existing
         )
         merged_references.append(merged)
-        if ref_id:
-            seen_ids.add(ref_id)
-        if locator_key:
-            seen_locators.add(locator_key)
     payload["references"] = merged_references
     try:
-        return ResearchContract.model_validate(payload)
-    except Exception:
-        return contract
+        return ResearchContract.model_validate(payload), []
+    except PydanticValidationError as exc:
+        validation_errors = [
+            f"{'.'.join(str(part) for part in error.get('loc', ())) or 'project_contract'}: {str(error.get('msg', 'validation failed')).strip() or 'validation failed'}"
+            for error in exc.errors()
+        ]
+        warning = "canonical project_contract merge failed validation; keeping original contract: " + "; ".join(
+            validation_errors
+        )
+        logger.warning(warning)
+        return contract, [warning]
+    except Exception as exc:
+        warning = f"canonical project_contract merge failed unexpectedly; keeping original contract: {exc}"
+        logger.warning(warning)
+        return contract, [warning]
 
 
 def _render_active_reference_context(
@@ -692,7 +757,7 @@ def _render_active_reference_context(
 ) -> str:
     """Render a compact text block of anchors and carry-forward inputs."""
     lines: list[str] = ["## Active Reference Registry"]
-    refs_by_id, _ = _build_active_reference_lookup(active_references)
+    refs_by_id, _, _ = _build_active_reference_lookup(active_references)
 
     if active_references:
         for ref in active_references:
@@ -843,11 +908,16 @@ def _build_reference_runtime_context(cwd: Path) -> dict[str, object]:
         artifact_ingestion.intake.to_dict(),
         active_references,
     )
-    canonical_contract = _canonicalize_project_contract(
+    canonical_contract, canonicalization_warnings = _canonicalize_project_contract(
         contract,
         active_references=active_references,
         effective_reference_intake=effective_reference_intake,
     )
+    if canonicalization_warnings:
+        project_contract_load_info = {
+            **project_contract_load_info,
+            "warnings": [*list(project_contract_load_info.get("warnings") or []), *canonicalization_warnings],
+        }
     project_contract_validation = _project_contract_validation_payload(canonical_contract)
     project_text = _safe_read_file(cwd / PLANNING_DIR_NAME / PROJECT_FILENAME)
     selected_protocol_bundles = select_protocol_bundles(project_text, canonical_contract)
@@ -867,7 +937,7 @@ def _build_reference_runtime_context(cwd: Path) -> dict[str, object]:
         "project_contract": canonical_contract.model_dump(mode="json") if canonical_contract is not None else None,
         "project_contract_validation": project_contract_validation,
         "project_contract_load_info": project_contract_load_info,
-        "contract_intake": contract.context_intake.model_dump(mode="json") if contract is not None else None,
+        "contract_intake": canonical_contract.context_intake.model_dump(mode="json") if canonical_contract is not None else None,
         "effective_reference_intake": effective_reference_intake,
         "derived_active_references": derived_references,
         "derived_active_reference_count": len(derived_references),
