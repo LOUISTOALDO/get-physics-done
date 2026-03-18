@@ -175,11 +175,17 @@ def run(
     """
     results: dict[str, dict[str, object]] = {}
     for name, pred in predicates.items():
-        result = pred(registry)
-        results[name] = {
-            "passed": result.passed,
-            "reason": result.reason,
-        }
+        try:
+            result = pred(registry)
+            results[name] = {
+                "passed": result.passed,
+                "reason": result.reason,
+            }
+        except Exception as exc:
+            results[name] = {
+                "passed": False,
+                "reason": f"predicate raised {type(exc).__name__}: {exc}",
+            }
 
     overall = "PASS" if all(r["passed"] for r in results.values()) else "FAIL"
 
