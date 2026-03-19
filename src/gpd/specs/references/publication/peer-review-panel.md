@@ -159,6 +159,10 @@ Additionally:
 - The final adjudicator must emit `REVIEW-LEDGER{round_suffix}.json` and `REFEREE-DECISION{round_suffix}.json` (empty suffix on the first round).
 - The artifact should stay compact. It is a decision handoff, not a second manuscript.
 
+Stage 1 `CLAIMS.json` must follow this compact `ClaimIndex` shape:
+
+The runtime artifact path is `CLAIMS{round_suffix}.json`; use the same compact schema on later rounds, preserving the shared optional `-R<round>` suffix across all staged-review artifacts.
+
 Stage 1 `CLAIMS{round_suffix}.json` must follow this compact `ClaimIndex` shape:
 
 ```json

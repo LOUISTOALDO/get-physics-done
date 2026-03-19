@@ -689,7 +689,11 @@ def test_new_project_questioning_requires_smoking_gun_and_rejects_proxy_only_rea
     assert "Push until you know the first hard correctness check or smoking-gun signal they would trust" in guide_text
     assert "What is the first smoking-gun observable, scaling law, curve, or benchmark" in guide_text
     assert "If the result passed a few limiting cases or sanity checks but missed the smoking-gun check" in guide_text
-    assert "Do not offer the gate if you only have proxy checks, sanity checks, or limiting cases with no decisive smoking-gun observable" in guide_text
+    assert (
+        "Do not offer the gate if you only have proxy checks, sanity checks, or limiting cases and still lack "
+        "concrete reference/prior-output/baseline grounding, even when the missing anchor is noted explicitly."
+        in guide_text
+    )
 
 
 def test_project_and_context_templates_surface_contract_and_skeptical_review() -> None:

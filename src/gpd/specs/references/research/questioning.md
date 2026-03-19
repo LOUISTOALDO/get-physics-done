@@ -186,6 +186,8 @@ If "Keep exploring" -- ask what they want to add or identify gaps in the physica
 Lack of a full phase list is not itself a blocker. If only the first grounded investigation chunk is clear, that is enough to offer the gate.
 
 Do not count turns mechanically. Keep exploring while the conversation is materially sharpening the scoping contract, and re-offer the gate when the picture becomes clearer.
+Do not offer the gate if you only have proxy checks, sanity checks, or limiting cases with no decisive smoking-gun observable.
+Do not treat an explicit missing-anchor note as a substitute for concrete reference/prior-output/baseline grounding.
 Do not offer the gate if you only have proxy checks, sanity checks, or limiting cases and still lack concrete reference/prior-output/baseline grounding, even when the missing anchor is noted explicitly.
 
 </decision_gate>

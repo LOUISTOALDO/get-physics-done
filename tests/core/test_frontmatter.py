@@ -292,9 +292,17 @@ class TestParseContractBlock:
             parse_contract_block(content)
 
     def test_rejects_singleton_list_drift(self):
-        content = _valid_plan_contract_frontmatter().replace("must_read_refs: [ref-main]", "must_read_refs: ref-main", 1) + (
-            "Body.\n"
-        )
+        content = _valid_plan_contract_frontmatter(
+            extra_contract_lines=(
+                "  context_intake:\n"
+                "    must_read_refs: ref-main\n"
+                "    must_include_prior_outputs: []\n"
+                "    user_asserted_anchors: []\n"
+                "    known_good_baselines: []\n"
+                "    context_gaps: []\n"
+                "    crucial_inputs: []"
+            ),
+        ) + "Body.\n"
 
         with pytest.raises(
             FrontmatterValidationError,
@@ -335,9 +343,17 @@ class TestValidateFrontmatter:
         assert "contract: schema_version must be the integer 1" in result.errors
 
     def test_plan_rejects_singleton_list_drift_in_contract(self):
-        content = _valid_plan_contract_frontmatter().replace("must_read_refs: [ref-main]", "must_read_refs: ref-main", 1) + (
-            "Body.\n"
-        )
+        content = _valid_plan_contract_frontmatter(
+            extra_contract_lines=(
+                "  context_intake:\n"
+                "    must_read_refs: ref-main\n"
+                "    must_include_prior_outputs: []\n"
+                "    user_asserted_anchors: []\n"
+                "    known_good_baselines: []\n"
+                "    context_gaps: []\n"
+                "    crucial_inputs: []"
+            ),
+        ) + "Body.\n"
 
         result = validate_frontmatter(content, "plan")
 

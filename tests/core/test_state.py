@@ -1015,12 +1015,14 @@ def test_state_validate_matches_load_for_recoverable_project_contract_warning_dr
 
 
 def test_state_validate_warns_when_project_contract_is_recovered_from_backup(tmp_path: Path) -> None:
+    baseline = default_state_dict()
+    save_state_json(tmp_path, baseline)
+    save_state_markdown(tmp_path, generate_state_markdown(baseline))
     layout = ProjectLayout(tmp_path)
-    layout.gpd.mkdir(parents=True, exist_ok=True)
 
     broken_state = default_state_dict()
     contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
-    contract["context_intake"]["must_read_refs"] = "ref-benchmark"
+    contract["context_intake"] = "not-an-object"
     broken_state["project_contract"] = contract
     layout.state_json.write_text(json.dumps(broken_state, indent=2) + "\n", encoding="utf-8")
 
@@ -1036,12 +1038,14 @@ def test_state_validate_warns_when_project_contract_is_recovered_from_backup(tmp
 
 
 def test_state_validate_review_blocks_when_project_contract_is_recovered_from_backup(tmp_path: Path) -> None:
+    baseline = default_state_dict()
+    save_state_json(tmp_path, baseline)
+    save_state_markdown(tmp_path, generate_state_markdown(baseline))
     layout = ProjectLayout(tmp_path)
-    layout.gpd.mkdir(parents=True, exist_ok=True)
 
     broken_state = default_state_dict()
     contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
-    contract["context_intake"]["must_read_refs"] = "ref-benchmark"
+    contract["context_intake"] = "not-an-object"
     broken_state["project_contract"] = contract
     layout.state_json.write_text(json.dumps(broken_state, indent=2) + "\n", encoding="utf-8")
 
