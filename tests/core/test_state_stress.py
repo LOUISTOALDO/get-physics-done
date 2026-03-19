@@ -234,6 +234,19 @@ class TestUnknownExtraFields:
             "crucial_inputs": [],
         }
 
+    def test_project_contract_context_intake_integrity_issue_mentions_nested_field(self) -> None:
+        contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+        contract["context_intake"] = {
+            "must_read_refs": "not-a-list",
+            "must_include_prior_outputs": [".gpd/phases/00-baseline/00-01-SUMMARY.md"],
+        }
+
+        normalized, integrity_issues = _normalize_state_schema({"project_contract": contract})
+
+        assert normalized["project_contract"] is not None
+        assert normalized["project_contract"]["context_intake"]["must_read_refs"] == []
+        assert any("project_contract.context_intake.must_read_refs" in issue for issue in integrity_issues)
+
     def test_project_contract_self_heals_malformed_uncertainty_markers(self) -> None:
         contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
         contract["uncertainty_markers"] = {

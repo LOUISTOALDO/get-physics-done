@@ -95,7 +95,7 @@ Run the centralized review preflight before continuing:
 gpd validate review-preflight write-paper --strict
 ```
 
-If review preflight exits nonzero because of missing project state, missing roadmap, missing manuscript, degraded review integrity, missing research artifacts, or non-review-ready reproducibility coverage, STOP and show the blocking issues before drafting.
+If review preflight exits nonzero because of missing project state, missing roadmap, degraded review integrity, missing research artifacts, or non-review-ready reproducibility coverage, STOP and show the blocking issues before drafting.
 
 **Locate paper directory (if resuming):**
 
@@ -106,9 +106,13 @@ for DIR in paper manuscript draft; do
     break
   fi
 done
+if [ -z "${PAPER_DIR}" ]; then
+  PAPER_DIR="paper"
+fi
 ```
 
-If `PAPER_DIR` is set, the workflow is resuming or revising an existing paper. Otherwise, a new `paper/` directory will be created in `generate_files`.
+If the loop found an existing `main.tex`, the workflow is resuming or revising that manuscript directory.
+If no existing manuscript was found, `PAPER_DIR` defaults to `paper` and the workflow bootstraps a fresh scaffold there.
 
 **Check pdflatex availability (cross-platform):**
 
@@ -367,8 +371,14 @@ Check whether planned figures have source data and generation scripts:
 
 ```bash
 # Check durable figure roots, not internal phase scratch paths
-find artifacts/phases figures paper/figures -maxdepth 3 \( -type f -o -type d \) 2>/dev/null
+find artifacts/phases figures "${PAPER_DIR}/figures" -maxdepth 3 \( -type f -o -type d \) 2>/dev/null
 ls .gpd/paper/FIGURE_TRACKER.md 2>/dev/null
+```
+
+Default bootstrap example:
+
+```bash
+find artifacts/phases figures paper/figures -maxdepth 3
 ```
 
 For each figure referenced in the research digest or artifact catalog:
@@ -387,14 +397,15 @@ Check for bibliography infrastructure:
 
 ```bash
 ls references/references.bib 2>/dev/null
-ls paper/references.bib 2>/dev/null
+ls "${PAPER_DIR}/references.bib" 2>/dev/null
 ls .gpd/literature/*-REVIEW.md 2>/dev/null
 ```
 
-1. Does a project bibliography exist (`references/references.bib` or `paper/references.bib`)?
+1. Does a project bibliography exist (`references/references.bib` or `${PAPER_DIR}/references.bib`)?
 2. Does at least one `.gpd/literature/*-REVIEW.md` or phase `RESEARCH.md` exist?
 3. Are key prior works identified (the research digest's "Prior Work" or literature review)?
-4. If the bibliography changed after the last audit, refresh `paper/BIBLIOGRAPHY-AUDIT.json` before strict review. The JSON audit is the review contract artifact; `paper/CITATION-AUDIT.md` is only the human-readable report.
+4. If the bibliography changed after the last audit, refresh `${PAPER_DIR}/BIBLIOGRAPHY-AUDIT.json` before strict review. The JSON audit is the review contract artifact; `${PAPER_DIR}/CITATION-AUDIT.md` is only the human-readable report.
+   For the default bootstrap path, this means: `If the bibliography changed after the last audit, refresh `paper/BIBLIOGRAPHY-AUDIT.json` before strict review.`
 
 **No bibliography file and no literature review** → WARNING (citations will need to be built from scratch).
 
@@ -478,10 +489,10 @@ Present outline for approval before proceeding.
 </step>
 
 <step name="generate_files">
-Create the paper directory structure:
+Create the paper directory structure under `${PAPER_DIR}/`:
 
 ```
-paper/
+${PAPER_DIR}/
 +-- main.tex              # Master document with \input commands
 +-- abstract.tex
 +-- introduction.tex
@@ -509,12 +520,13 @@ If the project has a `.gpd/analysis/LATEX_PREAMBLE.md`, use its macros to ensure
 If a machine-readable paper spec is available, prefer the canonical builder:
 
 ```bash
-gpd paper-build paper/PAPER-CONFIG.json
+mkdir -p "${PAPER_DIR}"
+gpd paper-build "${PAPER_DIR}/PAPER-CONFIG.json" --output-dir "${PAPER_DIR}"
 ```
 
-This emits `paper/main.tex`, writes the artifact manifest, and keeps the manuscript scaffold aligned with the tested `gpd.mcp.paper` package. If no JSON spec exists yet, create `paper/PAPER-CONFIG.json` first using `{GPD_INSTALL_DIR}/templates/paper/paper-config-schema.md` as the schema source of truth, and then run `gpd paper-build` before proceeding. The compilation checks in `draft_sections` require `main.tex` to exist.
+This emits `${PAPER_DIR}/main.tex`, writes the artifact manifest, and keeps the manuscript scaffold aligned with the tested `gpd.mcp.paper` package. If no JSON spec exists yet, create `${PAPER_DIR}/PAPER-CONFIG.json` first using `{GPD_INSTALL_DIR}/templates/paper/paper-config-schema.md` as the schema source of truth, and then run `gpd paper-build` before proceeding. The compilation checks in `draft_sections` require `main.tex` to exist.
 
-When authoring `paper/PAPER-CONFIG.json`:
+When authoring `${PAPER_DIR}/PAPER-CONFIG.json`:
 
 - use the exact top-level fields from `{GPD_INSTALL_DIR}/templates/paper/paper-config-schema.md`
 - keep `authors`, `sections`, `figures`, and `appendix_sections` as JSON arrays
@@ -532,7 +544,7 @@ When authoring `paper/PAPER-CONFIG.json`:
 Ensure the paper directory structure exists before writing any files:
 
 ```bash
-mkdir -p paper/figures
+mkdir -p "${PAPER_DIR}/figures"
 ```
 
 Before drafting sections, generate all planned figures:
@@ -541,10 +553,10 @@ Before drafting sections, generate all planned figures:
 2. For each figure with status != "Final":
    a. Locate source data (from phase directories)
    b. Generate matplotlib script with publication styling:
-      - Use shared style: `plt.style.use('paper/paper.mplstyle')` if exists, otherwise use sensible defaults
+      - Use shared style: `plt.style.use('${PAPER_DIR}/paper.mplstyle')` if exists, otherwise use sensible defaults
       - Font size 10pt, axes labels with units, legend
       - Error bars where applicable, colorblind-safe colors
-   c. Execute script, save to `paper/figures/`
+   c. Execute script, save to `${PAPER_DIR}/figures/`
    d. Update FIGURE_TRACKER.md status
 3. Verify all figures referenced in outline exist as files
 
@@ -580,7 +592,7 @@ Skip this check if `PDFLATEX_AVAILABLE` is false (set in init step).
 After each drafting wave completes, verify the document compiles:
 
 ```bash
-cd paper/
+cd "${PAPER_DIR}"
 pdflatex -interaction=nonstopmode main.tex 2>&1 | tail -20
 ```
 
@@ -600,7 +612,7 @@ Before spawning each wave, check if the target .tex files already exist on disk.
 
 ```bash
 # Example: check Wave 1 outputs before spawning
-if [ -f "paper/results.tex" ] && [ -f "paper/methods.tex" ]; then
+if [ -f "${PAPER_DIR}/results.tex" ] && [ -f "${PAPER_DIR}/methods.tex" ]; then
   echo "Wave 1 outputs exist -- skipping to Wave 2"
 else
   # Spawn Wave 1 agents
@@ -622,7 +634,8 @@ task(
 )
 ```
 
-**If a writer agent fails to spawn or returns an error:** Check if the expected .tex file was written to `paper/` (agents write files first). If the file exists, proceed to the next section. If not, offer: 1) Retry the failed section, 2) Draft the section in the main context using the section brief, 3) Skip the section and continue with remaining waves. Do not block the entire paper on a single section failure — other sections can still be drafted in parallel.
+**If a writer agent fails to spawn or returns an error:** Check if the expected .tex file was written to `${PAPER_DIR}/` (agents write files first). If the file exists, proceed to the next section. If not, offer: 1) Retry the failed section, 2) Draft the section in the main context using the section brief, 3) Skip the section and continue with remaining waves. Do not block the entire paper on a single section failure — other sections can still be drafted in parallel.
+Default bootstrap wording: `Check if the expected .tex file was written to `paper/``. If the file exists, proceed to the next section.
 
 **Each writer agent receives:**
 
@@ -713,7 +726,7 @@ After all sections are drafted, verify internal consistency:
 Scan all .tex files for `RESULT PENDING` markers left by the paper-writer:
 
 ```bash
-grep -rn "RESULT PENDING" paper/*.tex
+grep -rn "RESULT PENDING" "${PAPER_DIR}"/*.tex
 ```
 
 For each `% [RESULT PENDING: phase N, task M -- description]`:
@@ -725,7 +738,7 @@ For each `% [RESULT PENDING: phase N, task M -- description]`:
 **GATE: All RESULT PENDING markers must be resolved before proceeding to verify_references.**
 
 ```bash
-PENDING_COUNT=$(grep -rcE "RESULT PENDING|\\\\text\{\\[PENDING\\]\}" paper/*.tex 2>/dev/null || echo 0)
+PENDING_COUNT=$(grep -rcE "RESULT PENDING|\\\\text\{\\[PENDING\\]\}" "${PAPER_DIR}"/*.tex 2>/dev/null || echo 0)
 ```
 
 If `PENDING_COUNT > 0`:
@@ -735,7 +748,7 @@ ERROR: ${PENDING_COUNT} unresolved RESULT PENDING marker(s) found.
 A paper with placeholder values is not submission-ready.
 
 Unresolved markers:
-$(grep -rn "RESULT PENDING" paper/*.tex 2>/dev/null)
+$(grep -rn "RESULT PENDING" "${PAPER_DIR}"/*.tex 2>/dev/null)
 
 Options:
   1. Resolve markers from phase SUMMARYs (attempt auto-fill)
@@ -810,9 +823,9 @@ Verify all references in the paper and audit citation completeness.
 
 Mode: Audit bibliography + Audit manuscript
 
-Paper directory: paper/
-Bibliography: `references/references.bib` (preferred) or `paper/references.bib` if the manuscript keeps a local copy
-Manuscript files: paper/*.tex
+Paper directory: ${PAPER_DIR}/
+Bibliography: `references/references.bib` (preferred) or `${PAPER_DIR}/references.bib` if the manuscript keeps a local copy
+Manuscript files: ${PAPER_DIR}/*.tex
 Target journal: {target_journal}
 
 Tasks:
@@ -823,7 +836,7 @@ Tasks:
 5. Verify BibTeX formatting matches {target_journal} requirements
 6. Check arXiv preprints for published versions (update stale preprint-only entries)
 
-Write audit report to paper/CITATION-AUDIT.md
+Write audit report to ${PAPER_DIR}/CITATION-AUDIT.md
 
 Return BIBLIOGRAPHY UPDATED or CITATION ISSUES FOUND."
 )
@@ -839,12 +852,13 @@ Return BIBLIOGRAPHY UPDATED or CITATION ISSUES FOUND."
 - Apply metadata corrections to .bib entries
 - Add missing citations identified by the bibliographer
 - Re-run the audit if substantial changes were made
-- Refresh `paper/BIBLIOGRAPHY-AUDIT.json` after the bibliography changes before entering strict review or `pre_submission_review`.
+- Refresh `${PAPER_DIR}/BIBLIOGRAPHY-AUDIT.json` after the bibliography changes before entering strict review or `pre_submission_review`.
+  Default bootstrap wording: `Refresh `paper/BIBLIOGRAPHY-AUDIT.json` after the bibliography changes before entering strict review or `pre_submission_review`.`
 
 **If BIBLIOGRAPHY UPDATED:**
 
 - Corrections already applied to .bib by bibliographer
-- Refresh `paper/BIBLIOGRAPHY-AUDIT.json` so downstream strict review reads the current bibliography state.
+- Refresh `${PAPER_DIR}/BIBLIOGRAPHY-AUDIT.json` so downstream strict review reads the current bibliography state.
 - Review the changes summary, proceed to final review
   </step>
 
@@ -855,23 +869,31 @@ Use the canonical schema:
 
 - `{GPD_INSTALL_DIR}/templates/paper/reproducibility-manifest.md`
 
+Canonical schema for `${PAPER_DIR}/reproducibility-manifest.json`:
 Canonical schema for `paper/reproducibility-manifest.json`:
 @{GPD_INSTALL_DIR}/templates/paper/reproducibility-manifest.md
 
 Create or update:
 
-- `paper/reproducibility-manifest.json`
+- `${PAPER_DIR}/reproducibility-manifest.json`
 
 Minimum required inputs:
 
-- `paper/ARTIFACT-MANIFEST.json`
-- `paper/BIBLIOGRAPHY-AUDIT.json`
+- `${PAPER_DIR}/ARTIFACT-MANIFEST.json`
+- `${PAPER_DIR}/BIBLIOGRAPHY-AUDIT.json`
 - `.gpd/paper/FIGURE_TRACKER.md`
 - contract-backed `SUMMARY.md` / `VERIFICATION.md` evidence for decisive claims, figures, and comparisons
 
-If the manuscript bibliography or citation set changed after the last audit, refresh `paper/BIBLIOGRAPHY-AUDIT.json` before building the reproducibility manifest. Stale bibliography audits are not acceptable review inputs.
+If the manuscript bibliography or citation set changed after the last audit, refresh `${PAPER_DIR}/BIBLIOGRAPHY-AUDIT.json` before building the reproducibility manifest. Stale bibliography audits are not acceptable review inputs.
+Default bootstrap wording: `If the manuscript bibliography or citation set changed after the last audit, refresh `paper/BIBLIOGRAPHY-AUDIT.json` before building the reproducibility manifest.`
 
 Validate it before entering strict review:
+
+```bash
+gpd --raw validate reproducibility-manifest "${PAPER_DIR}/reproducibility-manifest.json" --strict
+```
+
+For the default bootstrap path, the validation command is:
 
 ```bash
 gpd --raw validate reproducibility-manifest paper/reproducibility-manifest.json --strict
@@ -892,7 +914,7 @@ Before finalizing, run the same staged peer-review panel used by `/gpd:peer-revi
 5. `gpd-review-significance`
 6. `gpd-referee` as final adjudicator
 
-For the detailed staging, artifact naming, round handling, `CLAIMS.json` / `STAGE-*.json` outputs, `REVIEW-LEDGER.json`, `REFEREE-DECISION.json`, and recommendation guardrails, follow `@{GPD_INSTALL_DIR}/workflows/peer-review.md` exactly, using `paper/main.tex` as the resolved target and the current draft's bibliography and audit artifacts. Keep the current `project_contract` and `active_reference_context` visible throughout that staged review; they remain authoritative when judging whether the manuscript has surfaced decisive evidence honestly.
+For the detailed staging, artifact naming, round handling, `CLAIMS.json` / `STAGE-*.json` outputs, `REVIEW-LEDGER.json`, `REFEREE-DECISION.json`, and recommendation guardrails, follow `@{GPD_INSTALL_DIR}/workflows/peer-review.md` exactly, using `${PAPER_DIR}/main.tex` as the resolved target and the current draft's bibliography and audit artifacts. Keep the current `project_contract` and `active_reference_context` visible throughout that staged review; they remain authoritative when judging whether the manuscript has surfaced decisive evidence honestly.
 
 **If the staged panel fails:** Do not silently waive the review. Note the failure and recommend running `/gpd:peer-review` directly after resolving the blocking issue.
 
@@ -926,8 +948,8 @@ QUALITY=$(gpd --raw validate paper-quality --from-project . 2>/dev/null)
 ```
 
 The score should be artifact-driven, not manually estimated. Use:
-- `paper/ARTIFACT-MANIFEST.json`
-- `paper/BIBLIOGRAPHY-AUDIT.json`
+- `${PAPER_DIR}/ARTIFACT-MANIFEST.json`
+- `${PAPER_DIR}/BIBLIOGRAPHY-AUDIT.json`
 - `.gpd/paper/FIGURE_TRACKER.md` frontmatter `figure_registry`
 - `.gpd/comparisons/*-COMPARISON.md`
 - phase `SUMMARY.md` / `VERIFICATION.md` `contract_results` and `comparison_verdicts`
@@ -962,7 +984,7 @@ When revising a paper in response to referee reports:
        "Referee report: .gpd/REFEREE-REPORT{-RN}.md\n" +
        "Review ledger (if present): .gpd/review/REVIEW-LEDGER{-RN}.json\n" +
        "Decision artifact (if present): .gpd/review/REFEREE-DECISION{-RN}.json\n" +
-       "Manuscript: paper/*.tex\n" +
+       "Manuscript: ${PAPER_DIR}/*.tex\n" +
        "Round: {N}\n\n" +
        "For each REF-xxx issue, classify as fixed/rebutted/acknowledged. Use the JSON artifacts to identify blocking issues and decision-floor reasons, but keep REF-xxx IDs from the report.\n" +
        "Write to .gpd/AUTHOR-RESPONSE{-RN}.md",
@@ -974,7 +996,7 @@ When revising a paper in response to referee reports:
 
    The AUTHOR-RESPONSE.md uses REF-xxx issue IDs matching the referee report, with classifications (fixed/rebutted/acknowledged) and specific change locations. When present, `REVIEW-LEDGER{-RN}.json` and `REFEREE-DECISION{-RN}.json` provide the blocking-issue and recommendation-floor context that the response must resolve. See the gpd-paper-writer's `<author_response>` section for the full format.
 
-   Also create `paper/REFEREE_RESPONSE.md` (the human-readable response letter) using the `templates/paper/referee-response.md` template for the actual journal submission cover letter.
+   Also create `${PAPER_DIR}/REFEREE_RESPONSE.md` (the human-readable response letter) using the `templates/paper/referee-response.md` template for the actual journal submission cover letter.
 
 3. **Spawn section revision agents:** For each major concern requiring manuscript changes, spawn a paper-writer agent with:
    - The specific referee point

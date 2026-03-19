@@ -49,9 +49,9 @@ If review preflight exits nonzero because of missing project state, missing manu
 
 **Resolve manuscript target from $ARGUMENTS:**
 
-1. If `$ARGUMENTS` specifies a `.tex` or `.md` file, set `resolved_main_tex` to that file and `resolved_dir` to its parent directory.
-2. If `$ARGUMENTS` specifies a directory, resolve `main.tex` or `main.md` under that directory, set `resolved_main_tex` to the resolved entry point, and `resolved_dir` to the directory.
-   If neither file exists there, STOP. Do not silently pick an arbitrary `*.tex` file from that directory.
+1. If `$ARGUMENTS` specifies a `.tex` file, set `resolved_main_tex` to that file and `resolved_dir` to its parent directory.
+2. If `$ARGUMENTS` specifies a directory, resolve `main.tex` under that directory, set `resolved_main_tex` to that entry point, and `resolved_dir` to the directory.
+   If `main.tex` does not exist there, STOP. Do not silently pick an arbitrary `*.tex` file from that directory.
 3. Otherwise, search standard locations:
 
 ```bash

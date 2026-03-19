@@ -33,6 +33,16 @@ def _debug(msg: str) -> None:
         sys.stderr.write(f"[gpd-debug] {msg}\n")
 
 
+def _self_config_dir() -> Path | None:
+    """Return the installed runtime config dir when this hook runs from one."""
+    from gpd.hooks.install_metadata import config_dir_has_complete_install
+
+    candidate = Path(__file__).resolve().parent.parent
+    if config_dir_has_complete_install(candidate):
+        return candidate
+    return None
+
+
 def _version_files() -> list[Path]:
     """Return VERSION file candidates, preferring the active runtime's install first."""
     from gpd.hooks.runtime_detect import (
@@ -45,6 +55,10 @@ def _version_files() -> list[Path]:
 
     resolved_cwd = Path.cwd()
     resolved_home = Path.home()
+    self_config_dir = _self_config_dir()
+    if self_config_dir is not None:
+        return [self_config_dir / GPD_INSTALL_DIR_NAME / "VERSION"]
+
     active_runtime = detect_runtime_for_gpd_use(cwd=resolved_cwd, home=resolved_home)
     runtimes = [active_runtime] + [runtime for runtime in ALL_RUNTIMES if runtime != active_runtime]
     install_targets = {
@@ -232,6 +246,7 @@ def main() -> None:
     from gpd.hooks.runtime_detect import (
         ALL_RUNTIMES,
         RUNTIME_UNKNOWN,
+        UpdateCacheCandidate,
         detect_active_runtime_with_gpd_install,
         detect_runtime_for_gpd_use,
         get_update_cache_candidates,
@@ -240,30 +255,35 @@ def main() -> None:
 
     resolved_cwd = Path.cwd()
     resolved_home = Path.home()
-    cache_candidates = get_update_cache_candidates(cwd=resolved_cwd, home=resolved_home)
-    active_installed_runtime = detect_active_runtime_with_gpd_install(cwd=resolved_cwd, home=resolved_home)
-    preferred_runtime = detect_runtime_for_gpd_use(cwd=resolved_cwd, home=resolved_home)
-    relevant_candidates = [
-        candidate
-        for candidate in cache_candidates
-        if should_consider_update_cache_candidate(
-            candidate,
-            active_installed_runtime=active_installed_runtime,
-            cwd=resolved_cwd,
-            home=resolved_home,
-        )
-    ]
-    if active_installed_runtime in (None, "", RUNTIME_UNKNOWN) and preferred_runtime in ALL_RUNTIMES:
+    self_config_dir = _self_config_dir()
+    if self_config_dir is not None:
+        cache_file = self_config_dir / CACHE_DIR_NAME / UPDATE_CACHE_FILENAME
+        relevant_candidates = [UpdateCacheCandidate(path=cache_file)]
+    else:
+        cache_candidates = get_update_cache_candidates(cwd=resolved_cwd, home=resolved_home)
+        active_installed_runtime = detect_active_runtime_with_gpd_install(cwd=resolved_cwd, home=resolved_home)
+        preferred_runtime = detect_runtime_for_gpd_use(cwd=resolved_cwd, home=resolved_home)
         relevant_candidates = [
             candidate
-            for candidate in relevant_candidates
-            if candidate.runtime in (None, preferred_runtime)
+            for candidate in cache_candidates
+            if should_consider_update_cache_candidate(
+                candidate,
+                active_installed_runtime=active_installed_runtime,
+                cwd=resolved_cwd,
+                home=resolved_home,
+            )
         ]
-    cache_file = (
-        relevant_candidates[0].path
-        if relevant_candidates
-        else (resolved_home / PLANNING_DIR_NAME / CACHE_DIR_NAME / UPDATE_CACHE_FILENAME)
-    )
+        if active_installed_runtime in (None, "", RUNTIME_UNKNOWN) and preferred_runtime in ALL_RUNTIMES:
+            relevant_candidates = [
+                candidate
+                for candidate in relevant_candidates
+                if candidate.runtime in (None, preferred_runtime)
+            ]
+        cache_file = (
+            relevant_candidates[0].path
+            if relevant_candidates
+            else (resolved_home / PLANNING_DIR_NAME / CACHE_DIR_NAME / UPDATE_CACHE_FILENAME)
+        )
 
     # Throttle: skip only when the preferred runtime/home cache set is still fresh.
     for candidate in relevant_candidates:

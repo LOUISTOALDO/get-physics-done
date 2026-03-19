@@ -15,6 +15,10 @@ def test_write_paper_workflow_runs_centralized_review_preflight() -> None:
 
     assert "gpd validate review-preflight write-paper --strict" in workflow
     assert "Run the centralized review preflight before continuing:" in workflow
+    assert "missing manuscript" not in workflow
+    assert 'PAPER_DIR="$DIR"' in workflow
+    assert 'PAPER_DIR="paper"' in workflow
+    assert '${PAPER_DIR}/main.tex' in workflow
 
 
 def test_respond_to_referees_workflow_runs_centralized_review_preflight() -> None:
@@ -29,7 +33,8 @@ def test_arxiv_submission_workflow_runs_centralized_review_preflight() -> None:
 
     assert 'gpd validate review-preflight arxiv-submission "$ARGUMENTS" --strict' in workflow
     assert "gpd validate review-preflight arxiv-submission --strict" in workflow
-    assert "If `$ARGUMENTS` specifies a `.tex` or `.md` file, set `resolved_main_tex` to that file" in workflow
+    assert "If `$ARGUMENTS` specifies a `.tex` file, set `resolved_main_tex` to that file" in workflow
+    assert "main.tex` under that directory" in workflow
     assert 'MAIN_SOURCE="${resolved_main_tex}"' in workflow
 
 

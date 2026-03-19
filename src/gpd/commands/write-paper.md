@@ -11,7 +11,7 @@ review-contract:
     - ".gpd/REFEREE-REPORT.md"
     - ".gpd/REFEREE-REPORT.tex"
   required_evidence:
-    - existing manuscript
+    - manuscript scaffold target (existing draft or bootstrap target)
     - phase summaries or milestone digest
     - verification reports
     - bibliography audit
@@ -21,7 +21,6 @@ review-contract:
     - missing project state
     - missing roadmap
     - missing conventions
-    - missing manuscript
     - no research artifacts
     - degraded review integrity
   preflight_checks:
@@ -98,7 +97,7 @@ cat .gpd/research-map/FORMALISM.md 2>/dev/null
 <process>
 **Follow the write-paper workflow** from `@{GPD_INSTALL_DIR}/workflows/write-paper.md`.
 
-When the workflow asks for constrained JSON artifacts such as `paper/reproducibility-manifest.json`, use the inline schema body it surfaces there rather than inventing keys from memory.
+When the workflow asks for constrained JSON artifacts such as `${PAPER_DIR}/reproducibility-manifest.json`, use the inline schema body it surfaces there rather than inventing keys from memory.
 
 The workflow handles all logic including:
 
@@ -108,8 +107,8 @@ The workflow handles all logic including:
 4. **Catalog artifacts** — Gather derivations, numerical results, figures, literature, verification results from phases
 5. **Paper-readiness audit** — 5 checks (SUMMARY completeness, convention consistency, numerical stability, figure readiness, citation readiness) with gate decision (0 critical gaps to proceed, or user approval)
 6. **Create outline** — Detailed per-section outline (purpose, key content, equations, figures, citations, dependencies) adapted to journal format. Present for approval.
-7. **Generate files** — Create `paper/PAPER-CONFIG.json` using `@{GPD_INSTALL_DIR}/templates/paper/paper-config-schema.md`, then materialize the canonical manuscript scaffold with `gpd paper-build` (emits `paper/main.tex`, bibliography artifacts, and `paper/ARTIFACT-MANIFEST.json`)
-8. **Generate figures** — Generate matplotlib scripts from phase data, execute to paper/figures/, update FIGURE_TRACKER.md
+7. **Generate files** — Create `${PAPER_DIR}/PAPER-CONFIG.json` using `@{GPD_INSTALL_DIR}/templates/paper/paper-config-schema.md`, then materialize the canonical manuscript scaffold with `gpd paper-build` (emits `${PAPER_DIR}/main.tex`, bibliography artifacts, and `${PAPER_DIR}/ARTIFACT-MANIFEST.json`)
+8. **Generate figures** — Generate matplotlib scripts from phase data, execute to `${PAPER_DIR}/figures/`, update FIGURE_TRACKER.md
 9. **Draft sections** — Wave-parallelized spawning of gpd-paper-writer agents:
    - Wave 1: Results + Methods (no dependency)
    - Wave 2: Introduction (depends on Results)

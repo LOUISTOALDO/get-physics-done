@@ -150,7 +150,7 @@ Rules:
   applies_to: [claim-main]
   carry_forward_to: [planning, verification]
   must_surface: true
-  required_actions: [read, compare, cite]
+  required_actions: [read, compare, cite, avoid]
 ```
 
 Rules:
@@ -159,6 +159,7 @@ Rules:
 - `aliases[]` is optional and stores stable human-facing labels or citation shorthands that downstream anchor-resolution logic may use.
 - `applies_to[]` may only reference declared claim or deliverable IDs.
 - `carry_forward_to[]` is optional free-text workflow scope (for example `planning`, `verification`, `writing`); do not overload it with contract IDs.
+- `required_actions[]` values must use the closed action vocabulary: `read`, `use`, `compare`, `cite`, `avoid`.
 - If `must_surface: true`, `required_actions` must not be empty.
 - If `must_surface: true`, `applies_to[]` must not be empty.
 

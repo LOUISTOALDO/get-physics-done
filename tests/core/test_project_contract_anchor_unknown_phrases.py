@@ -35,15 +35,15 @@ def _remove_incidental_grounding(contract: dict[str, object]) -> None:
         test["evidence_required"] = [item for item in test.get("evidence_required", []) if item != "ref-benchmark"]
 
 
-def test_approved_mode_accepts_need_grounding_phrase_without_other_anchor_tokens() -> None:
+def test_approved_mode_rejects_need_grounding_phrase_without_other_anchor_tokens() -> None:
     contract = _load_contract_fixture()
     _remove_incidental_grounding(contract)
     contract["context_intake"]["context_gaps"] = ["Need grounding before planning"]
 
     result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
-    assert result.mode == "approved"
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
 def test_approved_mode_does_not_treat_reference_frame_questions_as_anchor_unknown() -> None:
@@ -68,26 +68,26 @@ def test_approved_mode_does_not_treat_generic_benchmark_parameter_questions_as_a
     assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
-def test_approved_mode_accepts_target_not_yet_chosen_phrase_in_weakest_anchors() -> None:
+def test_approved_mode_rejects_target_not_yet_chosen_phrase_in_weakest_anchors() -> None:
     contract = _load_contract_fixture()
     _remove_incidental_grounding(contract)
     contract["uncertainty_markers"]["weakest_anchors"] = ["Target not yet chosen"]
 
     result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
-    assert result.mode == "approved"
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
-def test_approved_mode_accepts_comparison_source_still_undecided_phrase() -> None:
+def test_approved_mode_rejects_comparison_source_still_undecided_phrase() -> None:
     contract = _load_contract_fixture()
     _remove_incidental_grounding(contract)
     contract["context_intake"]["context_gaps"] = ["Comparison source still undecided before planning"]
 
     result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
-    assert result.mode == "approved"
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
 def test_approved_mode_does_not_treat_placeholder_user_asserted_anchor_as_grounding() -> None:
@@ -113,7 +113,7 @@ def test_approved_mode_still_rejects_generic_open_gap_without_anchor_unknown_phr
     assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
-def test_specs_surface_anchor_gap_phrases_the_validator_accepts() -> None:
+def test_specs_surface_anchor_gap_phrases_for_runtime_visibility() -> None:
     workflow_text = WORKFLOW_SPEC.read_text(encoding="utf-8")
     state_schema_text = STATE_SCHEMA_SPEC.read_text(encoding="utf-8")
 

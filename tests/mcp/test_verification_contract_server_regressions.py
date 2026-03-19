@@ -217,6 +217,29 @@ def test_suggest_contract_checks_surfaces_salvage_warnings() -> None:
     assert any(entry["check_key"] == "contract.benchmark_reproduction" for entry in result["suggested_checks"])
 
 
+def test_contract_tools_salvage_unknown_top_level_contract_fields() -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check, suggest_contract_checks
+
+    contract = _load_project_contract_fixture()
+    contract["legacy_notes"] = "forwarded from a prior schema revision"
+
+    run_result = run_contract_check(
+        {
+            "check_key": "contract.benchmark_reproduction",
+            "contract": contract,
+            "binding": {"claim_ids": ["claim-benchmark"]},
+            "metadata": {"source_reference_id": "ref-benchmark"},
+            "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+        }
+    )
+    suggest_result = suggest_contract_checks(contract)
+
+    assert run_result["contract_salvaged"] is True
+    assert "legacy_notes: Extra inputs are not permitted" in run_result["contract_salvage_findings"]
+    assert suggest_result["contract_salvaged"] is True
+    assert "legacy_notes: Extra inputs are not permitted" in suggest_result["contract_salvage_findings"]
+
+
 @pytest.mark.parametrize("payload", ["not-a-dict", ["claim-benchmark"], 3])
 def test_suggest_contract_checks_rejects_non_mapping_payloads(payload: object) -> None:
     from gpd.mcp.servers.verification_server import suggest_contract_checks

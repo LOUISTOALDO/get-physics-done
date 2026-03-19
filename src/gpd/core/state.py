@@ -1064,6 +1064,68 @@ def _integrity_issue_from_contract_error(error: str) -> str:
     return f"schema normalization: {error}"
 
 
+_PROJECT_CONTRACT_LIST_DRIFT_PATHS: tuple[tuple[str, ...], ...] = (
+    ("scope", "unresolved_questions"),
+    ("context_intake", "must_read_refs"),
+    ("context_intake", "must_include_prior_outputs"),
+    ("context_intake", "user_asserted_anchors"),
+    ("context_intake", "known_good_baselines"),
+    ("context_intake", "context_gaps"),
+    ("context_intake", "crucial_inputs"),
+    ("approach_policy", "formulations"),
+    ("approach_policy", "allowed_estimator_families"),
+    ("approach_policy", "forbidden_estimator_families"),
+    ("approach_policy", "allowed_fit_families"),
+    ("approach_policy", "forbidden_fit_families"),
+    ("approach_policy", "stop_and_rethink_conditions"),
+    ("uncertainty_markers", "weakest_anchors"),
+    ("uncertainty_markers", "unvalidated_assumptions"),
+    ("uncertainty_markers", "competing_explanations"),
+    ("uncertainty_markers", "disconfirming_observations"),
+)
+_DEFAULTABLE_PROJECT_CONTRACT_SECTIONS = frozenset({"context_intake", "approach_policy", "uncertainty_markers"})
+
+
+def _nested_mapping_value(value: object, path: tuple[str, ...]) -> tuple[bool, object]:
+    current = value
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return False, None
+        current = current[key]
+    return True, current
+
+
+def _set_nested_mapping_value(value: dict[str, object], path: tuple[str, ...], replacement: object) -> None:
+    current: dict[str, object] = value
+    for key in path[:-1]:
+        child = current.get(key)
+        if not isinstance(child, dict):
+            return
+        current = child
+    current[path[-1]] = replacement
+
+
+def _normalize_project_contract_list_scalar_drift(
+    raw_contract: dict[str, object],
+    normalized_contract: dict[str, object],
+    integrity_issues: list[str],
+) -> dict[str, object]:
+    adjusted_contract = copy.deepcopy(normalized_contract)
+    for path in _PROJECT_CONTRACT_LIST_DRIFT_PATHS:
+        has_raw_value, raw_value = _nested_mapping_value(raw_contract, path)
+        if not has_raw_value or not isinstance(raw_value, str):
+            continue
+
+        path_text = ".".join(path)
+        integrity_issues.append(
+            f'schema normalization: reset "project_contract.{path_text}" because expected list, got str'
+        )
+        if path[0] in _DEFAULTABLE_PROJECT_CONTRACT_SECTIONS:
+            _set_nested_mapping_value(adjusted_contract, path, [])
+
+    return adjusted_contract
+
+
 def _normalize_project_contract_section(
     value: object,
     integrity_issues: list[str],
@@ -1075,8 +1137,15 @@ def _normalize_project_contract_section(
         return value
 
     normalized_contract, errors = salvage_project_contract(value)
+    normalized_contract_dump = normalized_contract.model_dump() if normalized_contract is not None else None
+    if normalized_contract_dump is not None:
+        normalized_contract_dump = _normalize_project_contract_list_scalar_drift(
+            value,
+            normalized_contract_dump,
+            integrity_issues,
+        )
     if not errors:
-        return normalized_contract.model_dump() if normalized_contract is not None else None
+        return normalized_contract_dump
 
     # Run contract salvage before any direct Pydantic acceptance so coercive
     # scalar drift is surfaced as an integrity issue instead of silently
@@ -1093,14 +1162,14 @@ def _normalize_project_contract_section(
     )
     if schema_errors:
         if retain_blocking_project_contract_errors:
-            return normalized_contract.model_dump() if normalized_contract is not None else None
+            return normalized_contract_dump
         integrity_issues.append(
             'schema normalization: dropped "project_contract" because contract schema required normalization'
         )
         return None
     if normalized_contract is None:
         return None
-    return normalized_contract.model_dump() if normalized_contract is not None else None
+    return normalized_contract_dump
 
 
 def _normalize_intermediate_results_section(value: object, integrity_issues: list[str]) -> object:

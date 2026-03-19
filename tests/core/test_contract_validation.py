@@ -83,7 +83,7 @@ def test_validate_project_contract_warns_when_user_guidance_signals_are_missing(
     assert any("no user guidance signals recorded yet" in warning for warning in result.warnings)
 
 
-def test_validate_project_contract_approved_mode_requires_anchor_signal_or_explicit_anchor_unknown() -> None:
+def test_validate_project_contract_approved_mode_requires_concrete_anchor_grounding() -> None:
     contract = _load_contract_fixture()
     contract["references"] = []
     _remove_incidental_grounding(contract)
@@ -95,7 +95,7 @@ def test_validate_project_contract_approved_mode_requires_anchor_signal_or_expli
     assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
-def test_validate_project_contract_approved_mode_accepts_explicit_anchor_unknown_blocker() -> None:
+def test_validate_project_contract_approved_mode_rejects_explicit_anchor_unknown_blocker_without_grounding() -> None:
     contract = _load_contract_fixture()
     contract["references"] = []
     _remove_incidental_grounding(contract)
@@ -104,11 +104,11 @@ def test_validate_project_contract_approved_mode_accepts_explicit_anchor_unknown
 
     result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
-    assert result.mode == "approved"
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
-def test_validate_project_contract_approved_mode_accepts_ground_truth_unclear_aliases() -> None:
+def test_validate_project_contract_approved_mode_rejects_ground_truth_unclear_aliases_without_grounding() -> None:
     contract = _load_contract_fixture()
     contract["references"] = []
     _remove_incidental_grounding(contract)
@@ -117,11 +117,11 @@ def test_validate_project_contract_approved_mode_accepts_ground_truth_unclear_al
 
     result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
-    assert result.mode == "approved"
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
-def test_validate_project_contract_approved_mode_accepts_question_form_anchor_gap() -> None:
+def test_validate_project_contract_approved_mode_rejects_question_form_anchor_gap_without_grounding() -> None:
     contract = _load_contract_fixture()
     contract["references"] = []
     _remove_incidental_grounding(contract)
@@ -130,11 +130,11 @@ def test_validate_project_contract_approved_mode_accepts_question_form_anchor_ga
 
     result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
-    assert result.mode == "approved"
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
-def test_validate_project_contract_approved_mode_accepts_not_yet_selected_anchor_gap() -> None:
+def test_validate_project_contract_approved_mode_rejects_not_yet_selected_anchor_gap_without_grounding() -> None:
     contract = _load_contract_fixture()
     contract["references"] = []
     _remove_incidental_grounding(contract)
@@ -143,11 +143,11 @@ def test_validate_project_contract_approved_mode_accepts_not_yet_selected_anchor
 
     result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
-    assert result.mode == "approved"
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
-def test_validate_project_contract_approved_mode_accepts_anchor_unknown_in_weakest_anchors() -> None:
+def test_validate_project_contract_approved_mode_rejects_anchor_unknown_in_weakest_anchors_without_grounding() -> None:
     contract = _load_contract_fixture()
     contract["references"] = []
     _remove_incidental_grounding(contract)
@@ -158,8 +158,8 @@ def test_validate_project_contract_approved_mode_accepts_anchor_unknown_in_weake
 
     result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
-    assert result.mode == "approved"
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
 def test_validate_project_contract_approved_mode_accepts_prior_output_grounding() -> None:
@@ -260,7 +260,7 @@ def test_validate_project_contract_approved_mode_rejects_placeholder_user_assert
     assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
-def test_validate_project_contract_approved_mode_accepts_placeholder_user_asserted_anchor_only_with_explicit_blocker() -> None:
+def test_validate_project_contract_approved_mode_rejects_placeholder_user_asserted_anchor_even_with_explicit_blocker() -> None:
     contract = _load_contract_fixture()
     contract["references"] = []
     _remove_incidental_grounding(contract)
@@ -270,8 +270,21 @@ def test_validate_project_contract_approved_mode_accepts_placeholder_user_assert
 
     result = validate_project_contract(contract, mode="approved")
 
-    assert result.valid is True
-    assert result.mode == "approved"
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
+
+
+def test_validate_project_contract_approved_mode_rejects_placeholder_only_sentence_guidance() -> None:
+    contract = _load_contract_fixture()
+    contract["references"] = []
+    _remove_incidental_grounding(contract)
+    contract["context_intake"]["known_good_baselines"] = ["Need more detail before planning"]
+    contract["scope"]["unresolved_questions"] = []
+
+    result = validate_project_contract(contract, mode="approved")
+
+    assert result.valid is False
+    assert any("approved project contract requires at least one concrete anchor" in error for error in result.errors)
 
 
 def test_validate_project_contract_approved_mode_rejects_carry_forward_contract_id_as_grounding() -> None:
@@ -393,7 +406,7 @@ def test_validate_project_contract_normalizes_reference_required_actions_whitesp
     assert result.valid is True
 
 
-def test_validate_project_contract_normalizes_singleton_list_strings_and_case_variant_literals() -> None:
+def test_validate_project_contract_rejects_singleton_list_string_drift_at_validation_boundary() -> None:
     contract = _load_contract_fixture()
     contract["context_intake"]["must_include_prior_outputs"] = ".gpd/phases/00-baseline/00-01-SUMMARY.md"
     contract["references"][0]["role"] = "Benchmark"
@@ -405,7 +418,8 @@ def test_validate_project_contract_normalizes_singleton_list_strings_and_case_va
     assert parsed.context_intake.must_include_prior_outputs == [".gpd/phases/00-baseline/00-01-SUMMARY.md"]
     assert parsed.references[0].role == "benchmark"
     assert parsed.references[0].required_actions == ["read", "compare", "cite"]
-    assert result.valid is True
+    assert result.valid is False
+    assert "context_intake.must_include_prior_outputs must be a list, not str" in result.errors
 
 
 def test_validate_project_contract_rejects_coercive_reference_must_surface_scalar() -> None:
@@ -499,19 +513,26 @@ def test_validate_project_contract_propagates_schema_errors() -> None:
     assert "project contract must include at least one observable, claim, or deliverable" in result.errors
 
 
-def test_validate_project_contract_salvages_schema_drift_and_preserves_semantic_feedback() -> None:
+def test_validate_project_contract_rejects_reference_aliases_list_shape_drift_at_validation_boundary() -> None:
     contract = _load_contract_fixture()
     contract["references"][0]["aliases"] = "not-a-list"
 
     parsed = ResearchContract.model_validate(contract)
     result = validate_project_contract(contract)
 
-    assert result.valid is True
+    assert result.valid is False
     assert parsed.references[0].aliases == ["not-a-list"]
-    assert result.warnings == []
-    assert result.question == "What benchmark must the project recover?"
-    assert result.decisive_target_count > 0
-    assert result.reference_count == 1
+    assert "references.0.aliases must be a list, not str" in result.errors
+
+
+def test_validate_project_contract_rejects_nested_claim_reference_list_shape_drift() -> None:
+    contract = _load_contract_fixture()
+    contract["claims"][0]["references"] = "ref-benchmark"
+
+    result = validate_project_contract(contract)
+
+    assert result.valid is False
+    assert "claims.0.references must be a list, not str" in result.errors
 
 
 def test_validate_project_contract_reports_extra_item_keys_without_dropping_semantic_counts() -> None:

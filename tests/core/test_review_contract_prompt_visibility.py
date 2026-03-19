@@ -123,6 +123,30 @@ def test_contract_ledgers_surface_decisive_only_verdict_rules_and_strict_suggest
     assert "Allowed keys are exactly `check`, `reason`, `suggested_subject_kind`, `suggested_subject_id`, and `evidence_path`." in verification_template
 
 
+def test_contract_ledgers_surface_forbidden_proxy_bindings_and_action_vocabulary() -> None:
+    summary_template = (TEMPLATES_DIR / "summary.md").read_text(encoding="utf-8")
+    contract_results = (TEMPLATES_DIR / "contract-results-schema.md").read_text(encoding="utf-8")
+
+    assert "forbidden_proxy_id" in summary_template
+    assert "forbidden_proxy_id" in contract_results
+    assert "action vocabulary: `read`, `use`, `compare`, `cite`, `avoid`" in summary_template
+    assert "closed action vocabulary: `read`, `use`, `compare`, `cite`, `avoid`" in contract_results
+    assert "completed_actions: [read, use, compare, cite, avoid]" in summary_template
+
+
+def test_referee_schema_and_panel_surface_strict_stage_artifact_naming_and_round_suffix_rules() -> None:
+    referee_schema = (TEMPLATES_DIR / "paper" / "referee-decision-schema.md").read_text(encoding="utf-8")
+    panel = (REFERENCES_DIR / "publication" / "peer-review-panel.md").read_text(encoding="utf-8")
+
+    assert "STAGE-(reader|literature|math|physics|interestingness)(-R<round>)?.json" in referee_schema
+    assert "same optional `-R<round>` suffix" in referee_schema
+    assert "`{round_suffix}` in path examples means empty for initial review and `-R<round>`" in referee_schema
+    assert ".gpd/review/CLAIMS{round_suffix}.json" in panel
+    assert ".gpd/review/STAGE-reader{round_suffix}.json" in panel
+    assert "Strict-stage specialist artifacts must use canonical names `STAGE-reader`, `STAGE-literature`, `STAGE-math`, `STAGE-physics`, `STAGE-interestingness`." in panel
+    assert "all five must share the same optional `-R<round>` suffix." in panel
+
+
 def test_executor_completion_reference_requires_loading_contract_schema_before_summary_frontmatter() -> None:
     completion = (REFERENCES_DIR / "execution" / "executor-completion.md").read_text(encoding="utf-8")
 

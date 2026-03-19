@@ -187,6 +187,30 @@ class TestReadInstalledVersion:
         ):
             assert _read_installed_version() == "2.0.0"
 
+    def test_version_file_fallback_uses_hook_owning_install_for_explicit_target(self, tmp_path: Path) -> None:
+        """When running from an explicit-target hook install, VERSION lookup stays under that install."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        home = tmp_path / "home"
+        explicit_target = tmp_path / "custom-runtime-dir"
+        hook_path = explicit_target / "hooks" / "check_update.py"
+        hook_path.parent.mkdir(parents=True)
+        hook_path.write_text("# hook\n", encoding="utf-8")
+        _mark_complete_install(explicit_target, runtime="codex")
+        (explicit_target / "get-physics-done" / "VERSION").write_text("7.7.7\n", encoding="utf-8")
+
+        stale_workspace_version = workspace / ".claude" / "get-physics-done" / "VERSION"
+        stale_workspace_version.parent.mkdir(parents=True)
+        stale_workspace_version.write_text("1.0.0\n", encoding="utf-8")
+
+        with (
+            patch("gpd.version.__version__", "0.0.0-dev"),
+            patch("gpd.hooks.check_update.__file__", str(hook_path)),
+            patch("gpd.hooks.runtime_detect.Path.cwd", return_value=workspace),
+            patch("gpd.hooks.runtime_detect.Path.home", return_value=home),
+        ):
+            assert _read_installed_version() == "7.7.7"
+
 
 # ─── _do_check — npm registry unreachable ────────────────────────────────
 
@@ -590,3 +614,36 @@ class TestMainThrottle:
 
         mock_popen.assert_called_once()
         assert marker.exists()
+
+    def test_explicit_target_hook_uses_own_cache_instead_of_workspace_candidates(self, tmp_path: Path) -> None:
+        """Explicit-target hook refresh should always target its own cache path."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        home = tmp_path / "home"
+        home.mkdir()
+        explicit_target = tmp_path / "custom-runtime-dir"
+        hook_path = explicit_target / "hooks" / "check_update.py"
+        hook_path.parent.mkdir(parents=True)
+        hook_path.write_text("# hook\n", encoding="utf-8")
+        _mark_complete_install(explicit_target, runtime="codex")
+
+        fresh_workspace_cache = workspace / ".claude" / "cache"
+        fresh_workspace_cache.mkdir(parents=True)
+        (fresh_workspace_cache / "gpd-update-check.json").write_text(
+            json.dumps({"checked": int(time.time()), "update_available": False}),
+            encoding="utf-8",
+        )
+
+        with (
+            patch("gpd.hooks.check_update.__file__", str(hook_path)),
+            patch("gpd.hooks.runtime_detect.Path.cwd", return_value=workspace),
+            patch("gpd.hooks.runtime_detect.Path.home", return_value=home),
+            patch("gpd.hooks.check_update.Path.cwd", return_value=workspace),
+            patch("gpd.hooks.check_update.Path.home", return_value=home),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            main()
+
+        mock_popen.assert_called_once()
+        spawned_argv = mock_popen.call_args.args[0]
+        assert str(explicit_target / "cache" / "gpd-update-check.json") == spawned_argv[-1]

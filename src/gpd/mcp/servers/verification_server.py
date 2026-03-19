@@ -246,11 +246,15 @@ class RunContractCheckRequest(_ContractRequestBase):
 
 
 def _non_empty_string_schema() -> dict[str, object]:
-    return {"type": "string", "minLength": 1}
+    return {"type": "string", "minLength": 1, "pattern": r"\S"}
+
+
+def _string_schema() -> dict[str, object]:
+    return {"type": "string"}
 
 
 def _string_or_null_schema() -> dict[str, object]:
-    return {"anyOf": [dict(_non_empty_string_schema()), {"type": "null"}]}
+    return {"anyOf": [dict(_string_schema()), {"type": "null"}]}
 
 
 def _string_list_schema(*, min_items: int | None = None) -> dict[str, object]:
@@ -304,11 +308,31 @@ def _object_schema(
     return schema
 
 
+def _open_object_schema(
+    properties: dict[str, object],
+    *,
+    required: Iterable[str] = (),
+) -> dict[str, object]:
+    return _object_schema(
+        properties,
+        required=required,
+        additional_properties=True,
+    )
+
+
 def _enum_string_schema(values: Iterable[str]) -> dict[str, object]:
     return {
         "type": "string",
         "enum": list(values),
     }
+
+
+def _binding_input_schema_for_targets(targets: Iterable[str]) -> dict[str, object]:
+    properties: dict[str, object] = {}
+    for target in targets:
+        properties[f"{target}_id"] = _string_or_string_list_schema(min_items=1)
+        properties[f"{target}_ids"] = _string_or_string_list_schema(min_items=1)
+    return _object_schema(properties, additional_properties=False)
 
 
 _CONTRACT_OBSERVABLE_KIND_VALUES = (
@@ -359,28 +383,39 @@ _CONTRACT_LINK_RELATION_VALUES = (
     "evaluated_by",
     "other",
 )
-
-
-_CONTRACT_BINDING_INPUT_SCHEMA: dict[str, object] = _object_schema(
-    {
-        field_name: _string_or_string_list_schema(min_items=1)
-        for field_name in (
-            "observable_id",
-            "observable_ids",
-            "claim_id",
-            "claim_ids",
-            "deliverable_id",
-            "deliverable_ids",
-            "acceptance_test_id",
-            "acceptance_test_ids",
-            "reference_id",
-            "reference_ids",
-            "forbidden_proxy_id",
-            "forbidden_proxy_ids",
-        )
-    },
-    additional_properties=False,
+_CONTRACT_BINDING_TARGETS: tuple[str, ...] = (
+    "observable",
+    "claim",
+    "deliverable",
+    "acceptance_test",
+    "reference",
+    "forbidden_proxy",
 )
+_CONTRACT_AWARE_CHECK_ENTRIES: tuple[dict[str, object], ...] = tuple(
+    entry for entry in list_verification_checks() if bool(entry.get("contract_aware"))
+)
+
+
+def _check_identifier_values(entry: dict[str, object]) -> tuple[str, ...]:
+    values: list[str] = []
+    for key in ("check_key", "check_id"):
+        value = entry.get(key)
+        if not isinstance(value, str):
+            continue
+        if value in values:
+            continue
+        values.append(value)
+    return tuple(values)
+
+
+_CONTRACT_CHECK_IDENTIFIER_VALUES: tuple[str, ...] = tuple(
+    identifier
+    for entry in _CONTRACT_AWARE_CHECK_ENTRIES
+    for identifier in _check_identifier_values(entry)
+)
+
+
+_CONTRACT_BINDING_INPUT_SCHEMA: dict[str, object] = _binding_input_schema_for_targets(_CONTRACT_BINDING_TARGETS)
 _CONTRACT_METADATA_INPUT_SCHEMA: dict[str, object] = _object_schema(
     {
         "regime_label": _string_or_null_schema(),
@@ -409,7 +444,7 @@ _CONTRACT_OBSERVED_INPUT_SCHEMA: dict[str, object] = _object_schema(
     },
     additional_properties=False,
 )
-_CONTRACT_SCOPE_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_SCOPE_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "question": _non_empty_string_schema(),
         "in_scope": _string_list_schema(),
@@ -418,7 +453,7 @@ _CONTRACT_SCOPE_INPUT_SCHEMA: dict[str, object] = _object_schema(
     },
     required=("question",),
 )
-_CONTRACT_CONTEXT_INTAKE_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_CONTEXT_INTAKE_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "must_read_refs": _string_list_schema(),
         "must_include_prior_outputs": _string_list_schema(),
@@ -428,7 +463,7 @@ _CONTRACT_CONTEXT_INTAKE_INPUT_SCHEMA: dict[str, object] = _object_schema(
         "crucial_inputs": _string_list_schema(),
     }
 )
-_CONTRACT_APPROACH_POLICY_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_APPROACH_POLICY_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "formulations": _string_list_schema(),
         "allowed_estimator_families": _string_list_schema(),
@@ -438,7 +473,7 @@ _CONTRACT_APPROACH_POLICY_INPUT_SCHEMA: dict[str, object] = _object_schema(
         "stop_and_rethink_conditions": _string_list_schema(),
     }
 )
-_CONTRACT_OBSERVABLE_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_OBSERVABLE_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "id": _non_empty_string_schema(),
         "name": _non_empty_string_schema(),
@@ -449,7 +484,7 @@ _CONTRACT_OBSERVABLE_INPUT_SCHEMA: dict[str, object] = _object_schema(
     },
     required=("id", "name", "definition"),
 )
-_CONTRACT_CLAIM_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_CLAIM_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "id": _non_empty_string_schema(),
         "statement": _non_empty_string_schema(),
@@ -460,7 +495,7 @@ _CONTRACT_CLAIM_INPUT_SCHEMA: dict[str, object] = _object_schema(
     },
     required=("id", "statement"),
 )
-_CONTRACT_DELIVERABLE_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_DELIVERABLE_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "id": _non_empty_string_schema(),
         "kind": _enum_string_schema(_CONTRACT_DELIVERABLE_KIND_VALUES),
@@ -470,7 +505,7 @@ _CONTRACT_DELIVERABLE_INPUT_SCHEMA: dict[str, object] = _object_schema(
     },
     required=("id", "description"),
 )
-_CONTRACT_ACCEPTANCE_TEST_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_ACCEPTANCE_TEST_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "id": _non_empty_string_schema(),
         "subject": _non_empty_string_schema(),
@@ -482,7 +517,7 @@ _CONTRACT_ACCEPTANCE_TEST_INPUT_SCHEMA: dict[str, object] = _object_schema(
     },
     required=("id", "subject", "procedure", "pass_condition"),
 )
-_CONTRACT_REFERENCE_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_REFERENCE_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "id": _non_empty_string_schema(),
         "kind": _enum_string_schema(_CONTRACT_REFERENCE_KIND_VALUES),
@@ -500,7 +535,7 @@ _CONTRACT_REFERENCE_INPUT_SCHEMA: dict[str, object] = _object_schema(
     },
     required=("id", "locator", "why_it_matters"),
 )
-_CONTRACT_FORBIDDEN_PROXY_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_FORBIDDEN_PROXY_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "id": _non_empty_string_schema(),
         "subject": _non_empty_string_schema(),
@@ -509,7 +544,7 @@ _CONTRACT_FORBIDDEN_PROXY_INPUT_SCHEMA: dict[str, object] = _object_schema(
     },
     required=("id", "subject", "proxy", "reason"),
 )
-_CONTRACT_LINK_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_LINK_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "id": _non_empty_string_schema(),
         "source": _non_empty_string_schema(),
@@ -519,7 +554,7 @@ _CONTRACT_LINK_INPUT_SCHEMA: dict[str, object] = _object_schema(
     },
     required=("id", "source", "target"),
 )
-_CONTRACT_UNCERTAINTY_MARKERS_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_UNCERTAINTY_MARKERS_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "weakest_anchors": _string_list_schema(),
         "unvalidated_assumptions": _string_list_schema(),
@@ -527,7 +562,7 @@ _CONTRACT_UNCERTAINTY_MARKERS_INPUT_SCHEMA: dict[str, object] = _object_schema(
         "disconfirming_observations": _string_list_schema(),
     }
 )
-_CONTRACT_PAYLOAD_INPUT_SCHEMA: dict[str, object] = _object_schema(
+_CONTRACT_PAYLOAD_INPUT_SCHEMA: dict[str, object] = _open_object_schema(
     {
         "schema_version": {"type": "integer", "const": 1},
         "scope": dict(_CONTRACT_SCOPE_INPUT_SCHEMA),
@@ -565,6 +600,39 @@ _CONTRACT_PAYLOAD_INPUT_SCHEMA: dict[str, object] = _object_schema(
     },
     required=("scope",),
 )
+
+
+def _run_contract_binding_condition_schema() -> list[dict[str, object]]:
+    conditions: list[dict[str, object]] = []
+    for entry in _CONTRACT_AWARE_CHECK_ENTRIES:
+        identifiers = _check_identifier_values(entry)
+        if not identifiers:
+            continue
+        binding_targets = tuple(target for target in entry.get("binding_targets", ()) if isinstance(target, str))
+        conditions.append(
+            {
+                "if": {
+                    "anyOf": [
+                        {"required": ["check_key"], "properties": {"check_key": {"enum": list(identifiers)}}},
+                        {"required": ["check_id"], "properties": {"check_id": {"enum": list(identifiers)}}},
+                    ]
+                },
+                "then": {
+                    "properties": {
+                        "binding": {
+                            "anyOf": [
+                                _binding_input_schema_for_targets(binding_targets),
+                                {"type": "null"},
+                            ]
+                        }
+                    }
+                },
+            }
+        )
+    return conditions
+
+
+_RUN_CONTRACT_CHECK_BINDING_CONDITIONS = _run_contract_binding_condition_schema()
 _RUN_CONTRACT_CHECK_REQUEST_SCHEMA: dict[str, object] = {
     "type": "object",
     "additionalProperties": False,
@@ -573,8 +641,8 @@ _RUN_CONTRACT_CHECK_REQUEST_SCHEMA: dict[str, object] = {
         {"required": ["check_id"]},
     ],
     "properties": {
-        "check_key": _non_empty_string_schema(),
-        "check_id": _non_empty_string_schema(),
+        "check_key": _enum_string_schema(_CONTRACT_CHECK_IDENTIFIER_VALUES),
+        "check_id": _enum_string_schema(_CONTRACT_CHECK_IDENTIFIER_VALUES),
         "contract": {"anyOf": [dict(_CONTRACT_PAYLOAD_INPUT_SCHEMA), {"type": "null"}]},
         "binding": {"anyOf": [dict(_CONTRACT_BINDING_INPUT_SCHEMA), {"type": "null"}]},
         "metadata": {"anyOf": [dict(_CONTRACT_METADATA_INPUT_SCHEMA), {"type": "null"}]},
@@ -582,6 +650,8 @@ _RUN_CONTRACT_CHECK_REQUEST_SCHEMA: dict[str, object] = {
         "artifact_content": {"anyOf": [{"type": "string"}, {"type": "null"}]},
     },
 }
+if _RUN_CONTRACT_CHECK_BINDING_CONDITIONS:
+    _RUN_CONTRACT_CHECK_REQUEST_SCHEMA["allOf"] = _RUN_CONTRACT_CHECK_BINDING_CONDITIONS
 
 RunContractCheckPayload = Annotated[object, WithJsonSchema(_RUN_CONTRACT_CHECK_REQUEST_SCHEMA)]
 SuggestContractPayload = Annotated[object, WithJsonSchema(_CONTRACT_PAYLOAD_INPUT_SCHEMA)]

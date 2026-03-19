@@ -38,8 +38,8 @@ Goal:
 - Flag narrative jumps, overclaims, and any places where the conclusions outrun the evidence.
 
 Output:
-- `.gpd/review/CLAIMS.json`
-- `.gpd/review/STAGE-reader.json`
+- `.gpd/review/CLAIMS{round_suffix}.json`
+- `.gpd/review/STAGE-reader{round_suffix}.json`
 
 ### Stage 2. Literature Context
 
@@ -50,7 +50,7 @@ Goal:
 - Identify missing foundational work, unacknowledged overlap, and inflated novelty claims.
 
 Output:
-- `.gpd/review/STAGE-literature.json`
+- `.gpd/review/STAGE-literature{round_suffix}.json`
 
 ### Stage 3. Mathematical Soundness
 
@@ -60,7 +60,7 @@ Goal:
 - Check key equations, derivation integrity, self-consistency, limits, sign conventions, and verification coverage.
 
 Output:
-- `.gpd/review/STAGE-math.json`
+- `.gpd/review/STAGE-math{round_suffix}.json`
 
 ### Stage 4. Physical Soundness
 
@@ -70,7 +70,7 @@ Goal:
 - Check regime of validity, physical assumptions, interpretation, connection between math and physics, and whether the claimed physical conclusions are actually supported.
 
 Output:
-- `.gpd/review/STAGE-physics.json`
+- `.gpd/review/STAGE-physics{round_suffix}.json`
 
 ### Stage 5. Significance And Venue Fit
 
@@ -81,7 +81,7 @@ Goal:
 - Be willing to conclude that the paper is mathematically respectable but scientifically weak.
 
 Output:
-- `.gpd/review/STAGE-interestingness.json`
+- `.gpd/review/STAGE-interestingness{round_suffix}.json`
 
 ### Stage 6. Final Adjudication
 
@@ -153,11 +153,16 @@ Every stage report should be compact and machine-readable, matching the staged-r
 
 Additionally:
 
-- Stage 1 must also emit `CLAIMS.json` as a compact `ClaimIndex`.
+- Stage 1 must also emit `CLAIMS{round_suffix}.json` as a compact `ClaimIndex`.
+- Strict-stage specialist artifacts must use canonical names `STAGE-reader`, `STAGE-literature`, `STAGE-math`, `STAGE-physics`, `STAGE-interestingness`.
+- In strict mode, specialist stage filenames must match `STAGE-(reader|literature|math|physics|interestingness)(-R<round>)?.json`, and all five must share the same optional `-R<round>` suffix.
 - The final adjudicator must emit `REVIEW-LEDGER{round_suffix}.json` and `REFEREE-DECISION{round_suffix}.json` (empty suffix on the first round).
 - The artifact should stay compact. It is a decision handoff, not a second manuscript.
 
 Stage 1 `CLAIMS.json` must follow this compact `ClaimIndex` shape:
+Use `CLAIMS{round_suffix}.json` for the runtime artifact path, with an empty suffix on round 1.
+
+Stage 1 `CLAIMS{round_suffix}.json` must follow this compact `ClaimIndex` shape:
 
 ```json
 {

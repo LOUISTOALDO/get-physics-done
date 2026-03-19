@@ -85,6 +85,8 @@ def gpd_root() -> Path:
 class TestClaudeCodeLifecycle:
     """Full install → uninstall → reinstall for Claude Code adapter."""
 
+    runtime_name = "claude-code"
+
     def test_install_creates_expected_structure(self, tmp_path: Path, gpd_root: Path) -> None:
         adapter = get_adapter("claude-code")
         target = tmp_path / ".claude"
@@ -219,6 +221,8 @@ class TestClaudeCodeLifecycle:
 
 class TestGeminiLifecycle:
     """Full install → uninstall → reinstall for Gemini adapter."""
+
+    runtime_name = "gemini"
 
     def test_install_creates_expected_structure(self, tmp_path: Path, gpd_root: Path) -> None:
         adapter = get_adapter("gemini")
@@ -360,6 +364,8 @@ class TestGeminiLifecycle:
 
 class TestCodexLifecycle:
     """Full install → uninstall → reinstall for Codex adapter."""
+
+    runtime_name = "codex"
 
     def test_install_creates_expected_structure(self, tmp_path: Path, gpd_root: Path) -> None:
         adapter = get_adapter("codex")
@@ -516,6 +522,8 @@ class TestCodexLifecycle:
 
 class TestOpenCodeLifecycle:
     """Full install → uninstall → reinstall for OpenCode adapter."""
+
+    runtime_name = "opencode"
 
     def test_install_creates_expected_structure(self, tmp_path: Path, gpd_root: Path) -> None:
         adapter = get_adapter("opencode")
@@ -812,6 +820,18 @@ class TestManifestConsistency:
         assert result.exit_code == 0, result.output
         manifest = json.loads((target_dir / "gpd-file-manifest.json").read_text(encoding="utf-8"))
         assert manifest["install_scope"] == "global"
+
+
+def test_explicit_lifecycle_suites_cover_all_catalog_runtimes() -> None:
+    lifecycle_classes = (
+        TestClaudeCodeLifecycle,
+        TestGeminiLifecycle,
+        TestCodexLifecycle,
+        TestOpenCodeLifecycle,
+    )
+
+    covered = {test_class.runtime_name for test_class in lifecycle_classes}
+    assert covered == set(_ALL_RUNTIMES)
 
 
 # ---------------------------------------------------------------------------

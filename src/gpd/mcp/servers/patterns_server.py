@@ -12,8 +12,10 @@ Usage:
 import logging
 import sys
 from pathlib import Path
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import WithJsonSchema
 
 from gpd.core.errors import PatternError
 from gpd.core.observability import gpd_span
@@ -39,6 +41,31 @@ mcp = FastMCP("gpd-patterns")
 # env vars are not set. Falls back to the global ~/.gpd data directory.
 _DEFAULT_PATTERNS_ROOT: Path | None = None
 
+_PATTERN_DOMAIN_VALUES = sorted(VALID_DOMAINS)
+_PATTERN_CATEGORY_VALUES = sorted(VALID_CATEGORIES)
+_PATTERN_SEVERITY_VALUES = list(VALID_SEVERITIES)
+
+PatternDomainInput = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": _PATTERN_DOMAIN_VALUES}),
+]
+PatternOptionalDomainInput = Annotated[
+    str | None,
+    WithJsonSchema({"anyOf": [{"type": "string", "enum": _PATTERN_DOMAIN_VALUES}, {"type": "null"}]}),
+]
+PatternCategoryInput = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": _PATTERN_CATEGORY_VALUES}),
+]
+PatternOptionalCategoryInput = Annotated[
+    str | None,
+    WithJsonSchema({"anyOf": [{"type": "string", "enum": _PATTERN_CATEGORY_VALUES}, {"type": "null"}]}),
+]
+PatternSeverityInput = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": _PATTERN_SEVERITY_VALUES}),
+]
+
 
 def _get_patterns_root() -> Path:
     global _DEFAULT_PATTERNS_ROOT
@@ -49,8 +76,8 @@ def _get_patterns_root() -> Path:
 
 @mcp.tool()
 def lookup_pattern(
-    domain: str | None = None,
-    category: str | None = None,
+    domain: PatternOptionalDomainInput = None,
+    category: PatternOptionalCategoryInput = None,
     keywords: str | None = None,
 ) -> dict:
     """Search the GPD pattern library for physics error patterns.
@@ -98,10 +125,10 @@ def lookup_pattern(
 
 @mcp.tool()
 def add_pattern(
-    domain: str,
+    domain: PatternDomainInput,
     title: str,
-    category: str = "conceptual-error",
-    severity: str = "medium",
+    category: PatternCategoryInput = "conceptual-error",
+    severity: PatternSeverityInput = "medium",
     description: str = "",
     detection: str = "",
     prevention: str = "",

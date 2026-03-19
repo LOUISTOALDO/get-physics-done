@@ -326,7 +326,7 @@ class TestStateCommands:
         assert payload["valid"] is False
         assert any("weakest_anchors" in error for error in payload["errors"])
 
-    def test_set_project_contract_accepts_singleton_list_normalization(self, gpd_project: Path) -> None:
+    def test_set_project_contract_rejects_singleton_list_drift(self, gpd_project: Path) -> None:
         contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
         contract["context_intake"]["must_read_refs"] = "ref-benchmark"
         contract_path = gpd_project / "invalid-contract.json"
@@ -338,12 +338,11 @@ class TestStateCommands:
             catch_exceptions=False,
         )
 
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 1
         payload = json.loads(result.output)
-        assert payload["updated"] is True
+        assert payload["valid"] is False
         assert payload["warnings"] == []
-        state = json.loads((gpd_project / ".gpd" / "state.json").read_text(encoding="utf-8"))
-        assert state["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
+        assert any("must_read_refs must be a list, not str" in error for error in payload["errors"])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -616,7 +615,7 @@ class TestReviewValidationCommands:
             "research_artifacts",
             "manuscript",
         ]
-        assert "existing manuscript" in payload["review_contract"]["required_evidence"]
+        assert "manuscript scaffold target (existing draft or bootstrap target)" in payload["review_contract"]["required_evidence"]
         assert "phase summaries or milestone digest" in payload["review_contract"]["required_evidence"]
         assert "verification reports" in payload["review_contract"]["required_evidence"]
         assert "bibliography audit" in payload["review_contract"]["required_evidence"]
@@ -892,6 +891,59 @@ class TestReviewValidationCommands:
             "research_artifacts",
             "verification_reports",
         } <= check_names
+        assert checks["reproducibility_manifest"]["passed"] is True
+        assert checks["reproducibility_ready"]["passed"] is True
+
+    def test_review_preflight_write_paper_strict_allows_fresh_bootstrap_without_manuscript(self, gpd_project: Path) -> None:
+        (gpd_project / "paper" / "main.tex").unlink()
+
+        result = runner.invoke(
+            app,
+            ["--raw", "validate", "review-preflight", "write-paper", "--strict"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["command"] == "gpd:write-paper"
+        assert payload["passed"] is True
+        checks = {check["name"]: check for check in payload["checks"]}
+        assert checks["manuscript"]["passed"] is True
+        assert "fresh bootstrap is allowed" in checks["manuscript"]["detail"]
+        assert "reproducibility_manifest" not in checks
+        assert "reproducibility_ready" not in checks
+
+    @pytest.mark.parametrize("resume_dir_name", ["manuscript", "draft"])
+    def test_review_preflight_write_paper_strict_uses_resolved_resume_directory(
+        self,
+        gpd_project: Path,
+        resume_dir_name: str,
+    ) -> None:
+        paper_dir = gpd_project / "paper"
+        (paper_dir / "main.tex").unlink()
+
+        resume_dir = gpd_project / resume_dir_name
+        resume_dir.mkdir()
+        (resume_dir / "main.tex").write_text(
+            "\\documentclass{article}\n\\begin{document}\nResume manuscript.\n\\end{document}\n",
+            encoding="utf-8",
+        )
+        for artifact_name in ("ARTIFACT-MANIFEST.json", "BIBLIOGRAPHY-AUDIT.json", "reproducibility-manifest.json"):
+            (resume_dir / artifact_name).write_text((paper_dir / artifact_name).read_text(encoding="utf-8"), encoding="utf-8")
+
+        result = runner.invoke(
+            app,
+            ["--raw", "validate", "review-preflight", "write-paper", "--strict"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        checks = {check["name"]: check for check in payload["checks"]}
+        assert checks["manuscript"]["passed"] is True
+        assert f"{resume_dir_name}/main.tex" in checks["manuscript"]["detail"]
+        assert checks["artifact_manifest"]["passed"] is True
+        assert checks["bibliography_audit"]["passed"] is True
         assert checks["reproducibility_manifest"]["passed"] is True
         assert checks["reproducibility_ready"]["passed"] is True
 
@@ -1425,6 +1477,53 @@ class TestReviewValidationCommands:
         assert checks["manuscript"]["passed"] is True
         assert "submission/main.tex" in checks["manuscript"]["detail"]
         assert checks["compiled_manuscript"]["passed"] is True
+
+    def test_review_preflight_arxiv_submission_rejects_explicit_markdown_manuscript_file(
+        self,
+        gpd_project: Path,
+    ) -> None:
+        paper_dir = gpd_project / "paper"
+        (paper_dir / "main.tex").unlink()
+
+        submission_dir = gpd_project / "submission"
+        submission_dir.mkdir()
+        (submission_dir / "main.md").write_text("# Markdown manuscript\n", encoding="utf-8")
+
+        result = runner.invoke(
+            app,
+            ["--raw", "validate", "review-preflight", "arxiv-submission", "submission/main.md", "--strict"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.output)
+        checks = {check["name"]: check for check in payload["checks"]}
+        assert checks["manuscript"]["passed"] is False
+        assert "explicit manuscript target must be a .tex file: ./submission/main.md" == checks["manuscript"]["detail"]
+
+    def test_review_preflight_arxiv_submission_rejects_directory_with_markdown_entrypoint(
+        self,
+        gpd_project: Path,
+    ) -> None:
+        paper_dir = gpd_project / "paper"
+        (paper_dir / "main.tex").unlink()
+
+        submission_dir = gpd_project / "submission"
+        submission_dir.mkdir()
+        (submission_dir / "main.md").write_text("# Markdown manuscript\n", encoding="utf-8")
+
+        result = runner.invoke(
+            app,
+            ["--raw", "validate", "review-preflight", "arxiv-submission", "submission", "--strict"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.output)
+        checks = {check["name"]: check for check in payload["checks"]}
+        assert checks["manuscript"]["passed"] is False
+        assert "expected main.tex under ./submission for LaTeX-only submission" in checks["manuscript"]["detail"]
+        assert "(found ./submission/main.md)" in checks["manuscript"]["detail"]
 
     def test_review_preflight_arxiv_submission_rejects_explicit_directory_without_main_entrypoint(
         self,

@@ -2270,7 +2270,12 @@ def _find_manuscript_main(cwd: Path) -> Path | None:
     return None
 
 
-def _resolve_review_preflight_manuscript(cwd: Path, subject: str | None) -> tuple[Path | None, str]:
+def _resolve_review_preflight_manuscript(
+    cwd: Path,
+    subject: str | None,
+    *,
+    allow_markdown: bool = True,
+) -> tuple[Path | None, str]:
     """Resolve a review-preflight manuscript target from an explicit subject or defaults."""
     if subject:
         target = Path(subject)
@@ -2281,14 +2286,25 @@ def _resolve_review_preflight_manuscript(cwd: Path, subject: str | None) -> tupl
             return None, f"missing explicit manuscript target {_format_display_path(target)}"
 
         if target.is_file():
-            if target.suffix in {".tex", ".md"}:
+            if target.suffix == ".tex" or (allow_markdown and target.suffix == ".md"):
                 return target, f"{_format_display_path(target)} present"
+            if target.suffix == ".md":
+                return None, f"explicit manuscript target must be a .tex file: {_format_display_path(target)}"
             return None, f"explicit manuscript target must be a .tex or .md file: {_format_display_path(target)}"
 
         if target.is_dir():
-            candidate = _first_existing_path(target / "main.tex", target / "main.md")
+            candidates = [target / "main.tex"]
+            if allow_markdown:
+                candidates.append(target / "main.md")
+            candidate = _first_existing_path(*candidates)
             if candidate is not None:
                 return candidate, f"{_format_display_path(target)} resolved to {_format_display_path(candidate)}"
+            if not allow_markdown and (target / "main.md").exists():
+                return (
+                    None,
+                    f"expected main.tex under {_format_display_path(target)} for LaTeX-only submission "
+                    f"(found {_format_display_path(target / 'main.md')})",
+                )
             return None, f"no manuscript entry point found under {_format_display_path(target)}"
 
     manuscript = _find_manuscript_main(cwd)
@@ -2980,22 +2996,38 @@ def _build_review_preflight(
 
     if "manuscript" in contract.preflight_checks:
         manuscript, manuscript_detail = (
-            _resolve_review_preflight_manuscript(cwd, subject)
+            _resolve_review_preflight_manuscript(
+                cwd,
+                subject,
+                allow_markdown=command.name != "gpd:arxiv-submission",
+            )
             if command.name in {"gpd:peer-review", "gpd:arxiv-submission"}
             else (
                 _find_manuscript_main(cwd),
                 "",
             )
         )
+        if command.name == "gpd:write-paper" and manuscript is None:
+            manuscript_passed = True
+            manuscript_detail = (
+                "no paper/main.tex, manuscript/main.tex, or draft/main.tex found; "
+                "fresh bootstrap is allowed and will scaffold ./paper/main.tex"
+            )
+        else:
+            manuscript_passed = manuscript is not None
         add_check(
             "manuscript",
-            manuscript is not None,
+            manuscript_passed,
             manuscript_detail
             if command.name in {"gpd:peer-review", "gpd:arxiv-submission"}
             else (
-                f"{_format_display_path(manuscript)} present"
-                if manuscript is not None
-                else "no paper/main.tex, manuscript/main.tex, or draft/main.tex found"
+                manuscript_detail
+                if command.name == "gpd:write-paper" and manuscript is None
+                else (
+                    f"{_format_display_path(manuscript)} present"
+                    if manuscript is not None
+                    else "no paper/main.tex, manuscript/main.tex, or draft/main.tex found"
+                )
             ),
         )
         if subject and command.name == "gpd:respond-to-referees" and subject != "paste":

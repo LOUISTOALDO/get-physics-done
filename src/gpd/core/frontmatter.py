@@ -1113,12 +1113,25 @@ def validate_frontmatter(content: str, schema_name: str, source_path: Path | Non
             errors.append("plan_contract_ref: required when contract_results or comparison_verdicts are present")
 
         contract_results = None
+        raw_contract_results = meta.get("contract_results")
         comparison_verdicts: list[ComparisonVerdict] = []
         suggested_contract_checks: list[SuggestedContractCheck] = []
         try:
             contract_results = _parse_contract_results(meta)
         except (PydanticValidationError, TypeError, ValueError) as exc:
             errors.extend(_prefixed_validation_errors("contract_results", exc))
+        if (
+            schema_name == "verification"
+            and isinstance(raw_contract_results, dict)
+            and "uncertainty_markers" not in raw_contract_results
+            and not any(
+                error.startswith("contract_results:") and "uncertainty_markers" in error
+                for error in errors
+            )
+        ):
+            errors.append(
+                "contract_results: uncertainty_markers must be explicit in contract-backed contract_results"
+            )
 
         try:
             comparison_verdicts = _parse_comparison_verdicts(meta)

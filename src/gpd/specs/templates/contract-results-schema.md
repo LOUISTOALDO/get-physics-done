@@ -55,6 +55,7 @@ contract_results:
           deliverable_id: deliv-main
           acceptance_test_id: test-main
           reference_id: ref-main
+          forbidden_proxy_id: fp-main
           evidence_path: .gpd/phases/XX-name/XX-VERIFICATION.md
   deliverables:
     deliv-main:
@@ -92,9 +93,10 @@ Rules:
 - `uncertainty_markers` must remain explicit in contract-backed outputs so the model sees unresolved anchors, competing explanations, and disconfirming observations before writing.
 - Every declared claim, deliverable, acceptance test, reference, and forbidden proxy ID from the referenced PLAN contract must appear in its matching section.
 - Do not silently omit unfinished work. Use `not_attempted`, `missing`, `not_applicable`, or `unresolved` explicitly when a contract ID is still open.
-- `linked_ids` and evidence sub-IDs (`claim_id`, `deliverable_id`, `acceptance_test_id`, `reference_id`) must point to declared contract IDs.
+- `linked_ids` and evidence sub-IDs (`claim_id`, `deliverable_id`, `acceptance_test_id`, `reference_id`, `forbidden_proxy_id`) must point to declared contract IDs.
 - If a PLAN reference has `must_surface: true`, the ledger must include a matching `contract_results.references.<reference-id>` entry.
 - For `must_surface` references, `completed_actions` must cover every `required_actions` item; do not mark the anchor as handled while leaving required actions only in prose.
+- `required_actions`, `completed_actions`, and `missing_actions` use the same closed action vocabulary: `read`, `use`, `compare`, `cite`, `avoid`.
 - For `contract_results.references`:
   `status: completed` requires non-empty `completed_actions` and empty `missing_actions`.
   `status: missing` requires non-empty `missing_actions`.

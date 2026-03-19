@@ -710,3 +710,43 @@ def test_runtime_cli_ignores_global_scope_candidates_when_resolving_ancestor_loc
     assert observed["argv"] == ["gpd", "state", "load"]
     assert observed["runtime"] == descriptor.runtime_name
     assert observed["disable_reexec"] == "1"
+
+
+@pytest.mark.parametrize("descriptor", _RUNTIME_DESCRIPTORS, ids=lambda descriptor: descriptor.runtime_name)
+def test_runtime_cli_prefers_manifest_scoped_local_install_when_global_env_points_to_same_dir(
+    monkeypatch,
+    tmp_path: Path,
+    descriptor,
+) -> None:
+    config_dir = tmp_path / descriptor.config_dir_name
+    _mark_complete_install(config_dir, runtime=descriptor.runtime_name, install_scope="local")
+    nested_cwd = tmp_path / "research" / "notes"
+    nested_cwd.mkdir(parents=True)
+
+    global_config = get_adapter(descriptor.runtime_name).runtime_descriptor.global_config
+    env_var = global_config.env_var or global_config.env_dir_var or global_config.env_file_var
+    assert env_var is not None
+    env_value = str(config_dir / "config.json") if env_var == global_config.env_file_var else str(config_dir)
+    monkeypatch.setenv(env_var, env_value)
+
+    exit_code, observed = _run_runtime_cli_with_recording(
+        monkeypatch,
+        cwd=nested_cwd,
+        argv=[
+            "--runtime",
+            descriptor.runtime_name,
+            "--config-dir",
+            f"./{descriptor.config_dir_name}",
+            "--install-scope",
+            "local",
+            "state",
+            "load",
+        ],
+        runtime=descriptor.runtime_name,
+    )
+
+    assert exit_code == 0
+    assert observed["config_dir"] == config_dir
+    assert observed["argv"] == ["gpd", "state", "load"]
+    assert observed["runtime"] == descriptor.runtime_name
+    assert observed["disable_reexec"] == "1"

@@ -390,7 +390,7 @@ def test_ensure_state_schema_malformed_project_contract_singleton_field_preserve
     result = ensure_state_schema({"project_contract": contract})
 
     assert result["project_contract"] is not None
-    assert result["project_contract"]["context_intake"]["must_read_refs"] == ["not-a-list"]
+    assert result["project_contract"]["context_intake"]["must_read_refs"] == []
     assert result["project_contract"]["context_intake"]["known_good_baselines"] == ["baseline-A"]
     assert result["project_contract"]["context_intake"]["crucial_inputs"] == [
         "normalize with published convention"
@@ -641,7 +641,7 @@ def test_save_state_json_normalizes_singleton_list_project_contract_fields(tmp_p
     layout = ProjectLayout(tmp_path)
     persisted = json.loads(layout.state_json.read_text(encoding="utf-8"))
     assert persisted["project_contract"] is not None
-    assert persisted["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
+    assert persisted["project_contract"]["context_intake"]["must_read_refs"] == []
     assert persisted["open_questions"] == ["Keep this question"]
 
 
@@ -680,10 +680,10 @@ def test_save_state_markdown_preserves_normalized_singleton_list_project_contrac
     result = save_state_markdown(tmp_path, md_content)
 
     assert result["project_contract"] is not None
-    assert result["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
+    assert result["project_contract"]["context_intake"]["must_read_refs"] == []
     persisted = json.loads(layout.state_json.read_text(encoding="utf-8"))
     assert persisted["project_contract"] is not None
-    assert persisted["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
+    assert persisted["project_contract"]["context_intake"]["must_read_refs"] == []
     assert persisted["position"]["status"] == "Paused"
 
 
@@ -713,13 +713,13 @@ def test_load_state_json_backup_restore_normalizes_singleton_list_project_contra
 
     assert loaded is not None
     assert loaded["project_contract"] is not None
-    assert loaded["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
+    assert loaded["project_contract"]["context_intake"]["must_read_refs"] == []
     assert loaded["position"]["current_phase"] == "9"
     assert loaded["open_questions"] == ["Recovered from backup"]
 
     restored = json.loads(layout.state_json.read_text(encoding="utf-8"))
     assert restored["project_contract"] is not None
-    assert restored["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
+    assert restored["project_contract"]["context_intake"]["must_read_refs"] == []
 
 
 def test_load_state_json_primary_file_normalizes_singleton_list_project_contract_fields(tmp_path: Path):
@@ -740,7 +740,7 @@ def test_load_state_json_primary_file_normalizes_singleton_list_project_contract
 
     assert loaded is not None
     assert loaded["project_contract"] is not None
-    assert loaded["project_contract"]["context_intake"]["must_read_refs"] == ["ref-benchmark"]
+    assert loaded["project_contract"]["context_intake"]["must_read_refs"] == []
     assert loaded["position"]["current_phase"] == "2"
 
 

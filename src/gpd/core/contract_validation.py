@@ -119,7 +119,6 @@ _PROJECT_ARTIFACT_PATH_PATTERNS = (
 )
 _RECOVERABLE_SCHEMA_WARNING_PATTERNS = (
     re.compile(r"^.+: Extra inputs are not permitted$"),
-    re.compile(r"^references\.\d+\.aliases: Input should be a valid list$"),
 )
 _DEFAULTABLE_SINGLETON_SCHEMA_WARNING_PATTERNS = (
     re.compile(r"^(?:context_intake|approach_policy|uncertainty_markers) must be an object, not .+$"),
@@ -128,6 +127,43 @@ _AUTHORITATIVE_SCALAR_FINDING_PATTERNS = (
     re.compile(r"^schema_version must be the integer 1$"),
     re.compile(r"^schema_version: Input should be 1$"),
     re.compile(r"^.+\.must_surface must be a boolean$"),
+)
+_TOP_LEVEL_LIST_FIELDS = (
+    "observables",
+    "claims",
+    "deliverables",
+    "acceptance_tests",
+    "references",
+    "forbidden_proxies",
+    "links",
+)
+_SCOPE_LIST_FIELDS = ("in_scope", "out_of_scope", "unresolved_questions")
+_CONTEXT_INTAKE_LIST_FIELDS = (
+    "must_read_refs",
+    "must_include_prior_outputs",
+    "user_asserted_anchors",
+    "known_good_baselines",
+    "context_gaps",
+    "crucial_inputs",
+)
+_APPROACH_POLICY_LIST_FIELDS = (
+    "formulations",
+    "allowed_estimator_families",
+    "forbidden_estimator_families",
+    "allowed_fit_families",
+    "forbidden_fit_families",
+    "stop_and_rethink_conditions",
+)
+_CLAIM_LIST_FIELDS = ("observables", "deliverables", "acceptance_tests", "references")
+_DELIVERABLE_LIST_FIELDS = ("must_contain",)
+_ACCEPTANCE_TEST_LIST_FIELDS = ("evidence_required",)
+_REFERENCE_LIST_FIELDS = ("aliases", "applies_to", "carry_forward_to", "required_actions")
+_LINK_LIST_FIELDS = ("verified_by",)
+_UNCERTAINTY_MARKER_LIST_FIELDS = (
+    "weakest_anchors",
+    "unvalidated_assumptions",
+    "competing_explanations",
+    "disconfirming_observations",
 )
 
 
@@ -142,6 +178,17 @@ class ProjectContractValidationResult(BaseModel):
     guidance_signal_count: int = 0
     reference_count: int = 0
     mode: Literal["draft", "approved"] = "draft"
+
+
+def _dedupe_findings(findings: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for finding in findings:
+        if finding in seen:
+            continue
+        seen.add(finding)
+        deduped.append(finding)
+    return deduped
 
 
 def _format_schema_error(error: dict[str, object]) -> str:
@@ -438,6 +485,58 @@ def _has_authoritative_scalar_schema_findings(errors: list[str]) -> bool:
     )
 
 
+def _collect_list_shape_drift_errors(contract: dict[str, object]) -> list[str]:
+    """Return list-typed field mismatches for raw contract payload boundaries."""
+
+    errors: list[str] = []
+
+    def _check_mapping_lists(mapping: object, *, path_prefix: str, field_names: tuple[str, ...]) -> None:
+        if not isinstance(mapping, dict):
+            return
+        for field_name in field_names:
+            if field_name not in mapping:
+                continue
+            raw_value = mapping.get(field_name)
+            if isinstance(raw_value, list):
+                continue
+            location = f"{path_prefix}.{field_name}" if path_prefix else field_name
+            errors.append(f"{location} must be a list, not {type(raw_value).__name__}")
+
+    def _check_collection_item_lists(collection_name: str, field_names: tuple[str, ...]) -> None:
+        raw_collection = contract.get(collection_name)
+        if not isinstance(raw_collection, list):
+            return
+        for index, item in enumerate(raw_collection):
+            if not isinstance(item, dict):
+                continue
+            _check_mapping_lists(item, path_prefix=f"{collection_name}.{index}", field_names=field_names)
+
+    _check_mapping_lists(contract, path_prefix="", field_names=_TOP_LEVEL_LIST_FIELDS)
+    _check_mapping_lists(contract.get("scope"), path_prefix="scope", field_names=_SCOPE_LIST_FIELDS)
+    _check_mapping_lists(
+        contract.get("context_intake"),
+        path_prefix="context_intake",
+        field_names=_CONTEXT_INTAKE_LIST_FIELDS,
+    )
+    _check_mapping_lists(
+        contract.get("approach_policy"),
+        path_prefix="approach_policy",
+        field_names=_APPROACH_POLICY_LIST_FIELDS,
+    )
+    _check_mapping_lists(
+        contract.get("uncertainty_markers"),
+        path_prefix="uncertainty_markers",
+        field_names=_UNCERTAINTY_MARKER_LIST_FIELDS,
+    )
+    _check_collection_item_lists("claims", _CLAIM_LIST_FIELDS)
+    _check_collection_item_lists("deliverables", _DELIVERABLE_LIST_FIELDS)
+    _check_collection_item_lists("acceptance_tests", _ACCEPTANCE_TEST_LIST_FIELDS)
+    _check_collection_item_lists("references", _REFERENCE_LIST_FIELDS)
+    _check_collection_item_lists("links", _LINK_LIST_FIELDS)
+
+    return _dedupe_findings(errors)
+
+
 def _light_contract_consistency_errors(contract: ResearchContract) -> list[str]:
     """Return cross-link errors without forcing mature-phase completeness."""
 
@@ -546,13 +645,6 @@ def _is_concrete_text_grounding(value: str) -> bool:
         return False
     if any(pattern.search(lowered) for pattern in _USER_ASSERTED_ANCHOR_PLACEHOLDER_PATTERNS):
         return False
-    words = [word for word in re.split(r"\s+", lowered) if word]
-    if len(words) < 2:
-        return False
-    if any(pattern.search(lowered) for pattern in _CONCRETE_TEXT_ANCHOR_PATTERNS):
-        return True
-    if any(pattern.search(lowered) for pattern in _CONCRETE_TEXT_ATTACHMENT_PATTERNS):
-        return True
     if any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_BLOCKER_PATTERNS):
         return False
     if (
@@ -560,7 +652,10 @@ def _is_concrete_text_grounding(value: str) -> bool:
         and any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_SELECTION_PATTERNS)
     ):
         return False
-    return len(lowered) >= 10 and any(len(word) >= 5 for word in words)
+    words = [word for word in re.split(r"\s+", lowered) if word]
+    if len(words) < 3:
+        return False
+    return any(pattern.search(lowered) for pattern in _CONCRETE_TEXT_ANCHOR_PATTERNS)
 
 
 def _has_concrete_grounding_entries(values: list[str], *, field_name: str) -> bool:
@@ -677,11 +772,13 @@ def validate_project_contract(
                 errors=["project contract must be a JSON object"],
                 mode=mode,
             )
+        list_shape_drift_errors = _collect_list_shape_drift_errors(contract)
         parsed, schema_findings = salvage_project_contract(contract)
         schema_warnings, schema_errors = _split_project_contract_schema_findings(
             schema_findings,
             allow_singleton_defaults=False,
         )
+        schema_errors = _dedupe_findings([*schema_errors, *list_shape_drift_errors])
         if parsed is None:
             if schema_errors:
                 return ProjectContractValidationResult(valid=False, errors=schema_errors, mode=mode)
@@ -728,9 +825,7 @@ def validate_project_contract(
         else:
             warnings.append(finding)
 
-    if mode == "approved" and decisive_target_count > 0 and not (
-        _has_approved_grounding_signal(parsed) or _has_explicit_anchor_unknown(parsed)
-    ):
+    if mode == "approved" and decisive_target_count > 0 and not _has_approved_grounding_signal(parsed):
         errors.append(
             "approved project contract requires at least one concrete anchor/reference/prior-output/baseline or an explicit 'anchor unknown' blocker"
         )
@@ -748,8 +843,8 @@ def validate_project_contract(
 
     return ProjectContractValidationResult(
         valid=not errors,
-        errors=errors,
-        warnings=warnings,
+        errors=_dedupe_findings(errors),
+        warnings=_dedupe_findings(warnings),
         question=question or None,
         decisive_target_count=decisive_target_count,
         guidance_signal_count=guidance_signal_count,

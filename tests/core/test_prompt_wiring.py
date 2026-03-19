@@ -451,7 +451,7 @@ def test_review_commands_expose_typed_contracts() -> None:
 
     assert write_paper.review_contract is not None
     assert write_paper.review_contract.review_mode == "publication"
-    assert "existing manuscript" in write_paper.review_contract.required_evidence
+    assert "manuscript scaffold target (existing draft or bootstrap target)" in write_paper.review_contract.required_evidence
     assert "artifact manifest" in write_paper.review_contract.required_evidence
     assert "reproducibility manifest" in write_paper.review_contract.required_evidence
     assert ".gpd/REFEREE-REPORT.tex" in write_paper.review_contract.required_outputs
@@ -1047,6 +1047,9 @@ def test_contract_schema_references_stay_wired_into_templates_and_review_docs() 
     assert "XX-VERIFICATION.md" in contract_results_schema
     assert "Must be the canonical project-root-relative `.gpd/phases/XX-name/XX-YY-PLAN.md#/contract` path" in contract_results_schema
     assert "`uncertainty_markers` must remain explicit in contract-backed outputs" in contract_results_schema
+    assert "forbidden_proxy_id: fp-main" in contract_results_schema
+    assert "closed action vocabulary: `read`, `use`, `compare`, `cite`, `avoid`" in contract_results_schema
+    assert "forbidden_proxy_id: forbidden-proxy-id" in summary_template
     assert "templates/contract-results-schema.md" in executor_completion
     assert "claim_id: claim-main" in executor_completion
     assert "completed_actions: [read, compare, cite]" in executor_completion
@@ -1055,6 +1058,10 @@ def test_contract_schema_references_stay_wired_into_templates_and_review_docs() 
     assert "forbidden_proxies:" in executor_completion
     assert "uncertainty_markers:" in executor_completion
     assert "REFEREE-DECISION{round_suffix}.json --strict --ledger" in referee_decision_schema
+    assert "STAGE-(reader|literature|math|physics|interestingness)(-R<round>)?.json" in referee_decision_schema
+    assert "same optional `-R<round>` suffix" in referee_decision_schema
+    assert ".gpd/review/STAGE-reader{round_suffix}.json" in panel
+    assert ".gpd/review/CLAIMS{round_suffix}.json" in panel
     assert "random_seeds[].computation" in reproducibility_template
     assert "resource_requirements[].step" in reproducibility_template
     assert "Strict validation fails on warnings, not only on hard errors." in reproducibility_template
@@ -1302,6 +1309,8 @@ def test_plan_contract_schema_surfaces_downstream_contract_fields_and_normalizat
     assert "aliases: [\"optional stable label or citation shorthand\"]" in plan_schema
     assert "carry_forward_to: [planning, verification]" in plan_schema
     assert "automation: automated | hybrid | human" in plan_schema
+    assert "required_actions: [read, compare, cite, avoid]" in plan_schema
+    assert "`required_actions[]` values must use the closed action vocabulary: `read`, `use`, `compare`, `cite`, `avoid`." in plan_schema
     assert "For non-scoping plans, `claims[]`, `deliverables[]`, `acceptance_tests[]`, and `forbidden_proxies[]` are all required." in plan_schema
     assert "All ID cross-links must resolve to declared IDs." in plan_schema
     assert (
@@ -1334,6 +1343,8 @@ def test_state_json_schema_surfaces_stdin_contract_persistence_and_model_normali
     assert "a missing `must_surface: true` reference is still a warning" in state_schema
     assert "If a project-contract reference sets `must_surface: true`, `applies_to[]` must not be empty." in state_schema
     assert "If a project-contract reference sets `must_surface: true`, `required_actions[]` must not be empty." in state_schema
+    assert '"required_actions": ["read", "compare", "cite", "avoid"]' in state_schema
+    assert "`required_actions[]` uses the same closed action vocabulary enforced downstream in contract ledgers: `read`, `use`, `compare`, `cite`, `avoid`." in state_schema
     assert (
         "Do not reuse the same ID across `claims[]`, `deliverables[]`, `acceptance_tests[]`, or `references[]`; "
         "target resolution becomes ambiguous."

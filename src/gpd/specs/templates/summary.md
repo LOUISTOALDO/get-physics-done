@@ -35,6 +35,8 @@ Reload `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` immediately bef
 `plan_contract_ref` must be the canonical project-root-relative `.gpd/phases/XX-name/{phase}-{plan}-PLAN.md#/contract` path. It must not be absolute, parent-traversing, or collapse to a bare sibling reference. For reference-backed decisive comparisons, `comparison_kind: benchmark|prior_work|experiment|baseline|cross_method` can satisfy the requirement; `comparison_kind: other` cannot.
 Keep `uncertainty_markers` explicit and user-visible in contract-backed outputs; do not let it be synthesized by hidden defaults.
 For `contract_results.references`, keep the action ledger consistent: `completed` needs non-empty `completed_actions`, `missing` needs non-empty `missing_actions`, `not_applicable` keeps both lists empty, and the two lists must not overlap.
+`required_actions`, `completed_actions`, and `missing_actions` all use the same validator-enforced action vocabulary: `read`, `use`, `compare`, `cite`, `avoid`.
+When evidence is about an explicit proxy guardrail, bind it through `forbidden_proxy_id` instead of inventing a new subject kind.
 Every `comparison_verdicts` entry must declare `subject_role` explicitly. If a decisive external anchor was used, include `reference_id`; if the decisive anchor is itself the compared subject, use `subject_kind: reference`.
 Emit decisive `comparison_verdicts` whenever the PLAN contract includes `benchmark` or `cross_method` acceptance tests, whenever a benchmark/compare-driven reference anchors the subject, or whenever you performed a decisive comparison in practice.
 Do not invent extra keys in `contract_results`, `comparison_verdicts`, or `suggested_contract_checks`; those ledgers are closed schemas.
@@ -120,6 +122,7 @@ contract_results (required for contract-backed plans):
           deliverable_id: deliverable-id
           acceptance_test_id: acceptance-test-id
           reference_id: reference-id
+          forbidden_proxy_id: forbidden-proxy-id
           evidence_path: ".gpd/phases/XX-name/{phase}-VERIFICATION.md"
   deliverables:
     deliverable-id:
@@ -135,7 +138,7 @@ contract_results (required for contract-backed plans):
   references:
     reference-id:
       status: completed|missing|not_applicable
-      completed_actions: [read, use, compare, cite]
+      completed_actions: [read, use, compare, cite, avoid]
       missing_actions: []
       summary: "[how the anchor was surfaced for a visible claim]"
   forbidden_proxies:

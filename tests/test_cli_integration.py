@@ -160,6 +160,10 @@ def _mark_complete_runtime_install(config_dir: Path, *, runtime: str, install_sc
         else:
             artifact.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, object] = {"runtime": runtime, "install_scope": install_scope}
+    if runtime == "codex":
+        skills_dir = config_dir.parent / ".agents" / "skills"
+        (skills_dir / "gpd-help").mkdir(parents=True, exist_ok=True)
+        manifest["codex_skills_dir"] = str(skills_dir)
     (config_dir / "gpd-file-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 

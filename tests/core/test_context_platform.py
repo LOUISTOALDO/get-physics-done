@@ -122,3 +122,24 @@ def test_resolve_model_delegates_runtime_specific_lookup_to_config_helper(tmp_pa
 
     assert result == "delegated-model"
     assert calls == {"project_dir": tmp_path, "agent_name": "gpd-planner", "runtime": runtime}
+
+
+def test_resolve_model_falls_back_to_platform_detection_when_runtime_detector_returns_unknown(tmp_path: Path) -> None:
+    runtime = _RUNTIME_NAMES[0]
+    calls: dict[str, object] = {}
+
+    def _fake_resolve_model(project_dir: Path, agent_name: str, runtime: str | None = None) -> str | None:
+        calls["project_dir"] = project_dir
+        calls["agent_name"] = agent_name
+        calls["runtime"] = runtime
+        return "fallback-model"
+
+    with (
+        patch("gpd.hooks.runtime_detect.detect_runtime_for_gpd_use", return_value="unknown"),
+        patch.object(context_module, "_detect_platform", return_value=runtime),
+        patch.object(context_module, "_resolve_model_canonical", side_effect=_fake_resolve_model),
+    ):
+        result = context_module._resolve_model(tmp_path, "gpd-executor")
+
+    assert result == "fallback-model"
+    assert calls == {"project_dir": tmp_path, "agent_name": "gpd-executor", "runtime": runtime}

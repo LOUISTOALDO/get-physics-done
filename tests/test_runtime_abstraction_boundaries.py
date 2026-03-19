@@ -55,6 +55,10 @@ def _runtime_literal_patterns() -> list[str]:
     return sorted(patterns)
 
 
+def _runtime_command_prefix_patterns() -> list[str]:
+    return sorted({re.escape(descriptor.command_prefix) for descriptor in _RUNTIME_DESCRIPTORS if descriptor.command_prefix})
+
+
 def _runtime_owned_path_patterns() -> list[str]:
     patterns: set[str] = set()
     for descriptor in _RUNTIME_DESCRIPTORS:
@@ -117,7 +121,11 @@ _RUNTIME_INSTALL_ARTIFACT_PATTERN = re.compile(
     )
     + ")"
 )
-_SHARED_COMMAND_SURFACE_PATTERN = re.compile(r"(?:/gpd:|\\$gpd-)")
+_SHARED_COMMAND_SURFACE_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?:"
+    + "|".join(_runtime_command_prefix_patterns())
+    + ")"
+)
 _SHARED_BOOTSTRAP_COMMAND_PATTERN = re.compile(
     r"(\bnpx\b|\bnpm\b|\buvx\b|\bpip\b|\bpipx\b|\bbunx\b|get-physics-done)"
 )

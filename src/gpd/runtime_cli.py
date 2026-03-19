@@ -162,13 +162,22 @@ def _is_matching_local_install_candidate(candidate: Path, *, runtime: str) -> bo
     if not candidate.is_dir():
         return False
 
-    adapter = get_adapter(runtime)
-    if _paths_equal(candidate, adapter.global_config_dir):
-        return False
-
     manifest = _load_install_manifest(candidate)
     manifest_scope = manifest.get("install_scope")
+    adapter = get_adapter(runtime)
+    if manifest_scope == "local":
+        manifest_runtime = manifest.get("runtime")
+        if isinstance(manifest_runtime, str):
+            normalized_runtime = normalize_runtime_name(manifest_runtime.strip()) if manifest_runtime.strip() else None
+            manifest_runtime_value = normalized_runtime or manifest_runtime.strip()
+            if manifest_runtime_value and manifest_runtime_value != runtime:
+                return False
+        return True
+
     if manifest_scope == "global":
+        return False
+
+    if _paths_equal(candidate, adapter.global_config_dir):
         return False
 
     manifest_runtime = manifest.get("runtime")
@@ -177,9 +186,6 @@ def _is_matching_local_install_candidate(candidate: Path, *, runtime: str) -> bo
         manifest_runtime_value = normalized_runtime or manifest_runtime.strip()
         if manifest_runtime_value and manifest_runtime_value != runtime:
             return False
-
-    if manifest_scope == "local":
-        return True
 
     return (candidate / MANIFEST_NAME).is_file() and (candidate / GPD_INSTALL_DIR_NAME).is_dir()
 

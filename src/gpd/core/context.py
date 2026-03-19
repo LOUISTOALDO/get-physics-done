@@ -16,6 +16,7 @@ from pathlib import Path
 
 from pydantic import ValidationError as PydanticValidationError
 
+from gpd.adapters import get_adapter
 from gpd.adapters.install_utils import AGENTS_DIR_NAME, FLAT_COMMANDS_DIR_NAME, GPD_INSTALL_DIR_NAME, HOOKS_DIR_NAME
 from gpd.adapters.runtime_catalog import iter_runtime_descriptors
 from gpd.contracts import ResearchContract, collect_contract_integrity_errors, contract_from_data
@@ -1075,6 +1076,8 @@ def _resolve_model(
         except Exception:
             active_runtime = _detect_platform(cwd)
     if active_runtime == "unknown":
+        active_runtime = _detect_platform(cwd)
+    if active_runtime == "unknown":
         active_runtime = None
 
     return _resolve_model_canonical(cwd, agent_type, runtime=active_runtime)
@@ -1106,12 +1109,34 @@ def _try_get_milestone_info(cwd: Path) -> dict:
 
 def _detect_platform(cwd: Path | None = None) -> str:
     """Detect the active AI runtime, if any."""
+    resolved_cwd = cwd or Path.cwd()
     try:
-        from gpd.hooks.runtime_detect import detect_runtime_for_gpd_use
+        from gpd.hooks.runtime_detect import detect_active_runtime, detect_runtime_for_gpd_use
 
-        return detect_runtime_for_gpd_use(cwd=cwd)
+        detected = detect_runtime_for_gpd_use(cwd=resolved_cwd)
+        if detected != "unknown":
+            return detected
+
+        active = detect_active_runtime(cwd=resolved_cwd)
+        if active != "unknown":
+            return active
     except Exception:
-        return "unknown"
+        pass
+
+    resolved_home = Path.home()
+    for descriptor in iter_runtime_descriptors():
+        adapter = get_adapter(descriptor.runtime_name)
+        local_config_dir = resolved_cwd / adapter.local_config_dir_name
+        if local_config_dir.is_dir():
+            return descriptor.runtime_name
+
+        try:
+            global_config_dir = adapter.resolve_global_config_dir(home=resolved_home)
+        except Exception:
+            continue
+        if global_config_dir.is_dir():
+            return descriptor.runtime_name
+    return "unknown"
 
 
 # ─── Context Assemblers ──────────────────────────────────────────────────────

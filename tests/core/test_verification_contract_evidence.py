@@ -75,7 +75,13 @@ def test_validate_frontmatter_verification_accepts_contract_results() -> None:
 
 
 def test_validate_frontmatter_verification_rejects_missing_uncertainty_markers_for_contract_backed_verification() -> None:
-    content = (FIXTURES_STAGE4 / "verification_with_contract_results.md").read_text(encoding="utf-8")
+    content = (FIXTURES_STAGE4 / "verification_with_contract_results.md").read_text(encoding="utf-8").replace(
+        "  uncertainty_markers:\n"
+        "    weakest_anchors: [Verification spot-check coverage]\n"
+        "    disconfirming_observations: [Independent rerun misses the benchmark tolerance]\n",
+        "",
+        1,
+    )
 
     result = validate_frontmatter(content, "verification")
 

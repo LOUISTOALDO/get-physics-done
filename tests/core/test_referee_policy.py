@@ -192,6 +192,48 @@ def test_strict_review_requires_at_least_five_stage_artifacts() -> None:
     assert any("canonical five specialist stage artifacts" in reason for reason in report.reasons)
 
 
+def test_strict_review_rejects_noncanonical_stage_artifact_filenames() -> None:
+    report = evaluate_referee_decision(
+        RefereeDecisionInput(
+            manuscript_path="paper/main.tex",
+            target_journal="jhep",
+            final_recommendation=ReviewRecommendation.major_revision,
+            stage_artifacts=[
+                ".gpd/review/STAGE-reader-v2.json",
+                ".gpd/review/STAGE-literature-v2.json",
+                ".gpd/review/STAGE-math-v2.json",
+                ".gpd/review/STAGE-physics-v2.json",
+                ".gpd/review/STAGE-interestingness-v2.json",
+            ],
+        ),
+        strict=True,
+    )
+
+    assert report.valid is False
+    assert any("canonical five specialist stage artifacts" in reason for reason in report.reasons)
+
+
+def test_strict_review_rejects_mixed_stage_round_suffixes() -> None:
+    report = evaluate_referee_decision(
+        RefereeDecisionInput(
+            manuscript_path="paper/main.tex",
+            target_journal="jhep",
+            final_recommendation=ReviewRecommendation.major_revision,
+            stage_artifacts=[
+                ".gpd/review/STAGE-reader-R2.json",
+                ".gpd/review/STAGE-literature-R2.json",
+                ".gpd/review/STAGE-math-R2.json",
+                ".gpd/review/STAGE-physics.json",
+                ".gpd/review/STAGE-interestingness.json",
+            ],
+        ),
+        strict=True,
+    )
+
+    assert report.valid is False
+    assert any("same round suffix" in reason for reason in report.reasons)
+
+
 @pytest.mark.parametrize("field_name", ["unresolved_major_issues", "unresolved_minor_issues"])
 def test_referee_decision_counts_must_be_non_negative(field_name: str) -> None:
     with pytest.raises(ValidationError):

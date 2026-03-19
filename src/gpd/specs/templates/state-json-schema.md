@@ -132,7 +132,7 @@ Fields marked **Authoritative** exist only in state.json (not representable in S
       "applies_to": ["claim-main"],
       "carry_forward_to": ["planning", "execution", "verification", "writing"],
       "must_surface": true,
-      "required_actions": ["read", "compare", "cite"]
+      "required_actions": ["read", "compare", "cite", "avoid"]
     }
   ],
   "forbidden_proxies": [
@@ -197,6 +197,7 @@ The following fields always store arrays of objects, never arrays of plain strin
 - `links[]` — `{ "id", "source", "target", "relation", "verified_by[]" }`
 
 If a project-contract reference sets `must_surface: true`, `required_actions[]` must not be empty.
+`required_actions[]` uses the same closed action vocabulary enforced downstream in contract ledgers: `read`, `use`, `compare`, `cite`, `avoid`.
 
 If a project contract has any `references[]` and does not already carry concrete prior-output, user-anchor, or baseline grounding, at least one reference must set `must_surface: true`. When that other grounding exists, a missing `must_surface: true` reference is still a warning that should be repaired, not a silent ignore.
 
