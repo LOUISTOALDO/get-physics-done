@@ -295,6 +295,18 @@ class TestParseContractBlock:
         with pytest.raises(FrontmatterValidationError, match="missing context_intake"):
             parse_contract_block(content)
 
+    def test_empty_context_intake_raises(self):
+        content = _valid_plan_contract_frontmatter().replace(
+            "  context_intake:\n"
+            "    must_read_refs: [ref-main]\n"
+            "    must_include_prior_outputs: [.gpd/phases/00-baseline/00-01-SUMMARY.md]\n",
+            "  context_intake: {}\n",
+            1,
+        ) + "Body.\n"
+
+        with pytest.raises(FrontmatterValidationError, match="context_intake must not be empty"):
+            parse_contract_block(content)
+
     @pytest.mark.parametrize(
         ("missing_line", "expected_error"),
         [
@@ -432,6 +444,20 @@ class TestValidateFrontmatter:
         assert result.valid is False
         assert any("missing context_intake" in error for error in result.errors)
 
+    def test_plan_rejects_empty_context_intake(self):
+        content = _valid_plan_contract_frontmatter().replace(
+            "  context_intake:\n"
+            "    must_read_refs: [ref-main]\n"
+            "    must_include_prior_outputs: [.gpd/phases/00-baseline/00-01-SUMMARY.md]\n",
+            "  context_intake: {}\n",
+            1,
+        ) + "Body.\n"
+
+        result = validate_frontmatter(content, "plan")
+
+        assert result.valid is False
+        assert any("context_intake must not be empty" in error for error in result.errors)
+
     @pytest.mark.parametrize(
         ("missing_line", "expected_error"),
         [
@@ -536,8 +562,8 @@ class TestValidateFrontmatter:
             "contract_results:\n"
             f"  claims: {placeholder}\n"
             "  uncertainty_markers:\n"
-            "    weakest_anchors: []\n"
-            "    disconfirming_observations: []\n"
+            "    weakest_anchors: [Reference tolerance interpretation]\n"
+            "    disconfirming_observations: [Benchmark agreement disappears once normalization is fixed]\n"
             "---\n\nBody."
         )
         result = validate_frontmatter(content, "summary")

@@ -764,6 +764,15 @@ def test_planning_and_phase_templates_surface_active_reference_context() -> None
     assert "**Anchor coverage:** Required references, baselines, and prior outputs are surfaced" in workflow_text
 
 
+def test_progress_workflow_surfaces_contract_load_and_validation_state() -> None:
+    workflow_text = (WORKFLOWS_DIR / "progress.md").read_text(encoding="utf-8")
+
+    assert "project_contract_validation" in workflow_text
+    assert "project_contract_load_info" in workflow_text
+    assert "authoritative only when `project_contract_load_info` is clean and `project_contract_validation` passes" in workflow_text
+    assert "structured load status, warnings, and blockers for the contract" in workflow_text
+
+
 def test_planning_prompts_keep_contract_gate_in_light_mode_and_all_modes() -> None:
     planner_prompt = (TEMPLATES_DIR / "planner-subagent-prompt.md").read_text(encoding="utf-8")
     planner_agent = (AGENTS_DIR / "gpd-planner.md").read_text(encoding="utf-8")
@@ -1121,7 +1130,12 @@ def test_review_and_verification_prompts_explicitly_surface_schema_sources_and_c
     referee = (AGENTS_DIR / "gpd-referee.md").read_text(encoding="utf-8")
 
     assert "Project Contract:\n{project_contract}" in peer_review
+    assert "Project Contract Load Info:\n{project_contract_load_info}" in peer_review
+    assert "Project Contract Validation:\n{project_contract_validation}" in peer_review
     assert "Active References:\n{active_reference_context}" in peer_review
+    assert "project_contract_validation" in peer_review
+    assert "project_contract_load_info" in peer_review
+    assert "Treat `project_contract`, `project_contract_load_info`, `project_contract_validation`, and `active_reference_context` as authoritative contract-backed evidence context" in peer_review
     assert "templates/paper/review-ledger-schema.md" in peer_review
     assert "templates/paper/referee-decision-schema.md" in peer_review
     assert "references/publication/peer-review-panel.md" in peer_review
@@ -1447,6 +1461,16 @@ def test_stage5_execution_surfaces_use_bounded_review_cadence_and_first_result_g
     assert "rollback primitive" in checkpoint_flow
 
 
+def test_resume_workflow_surfaces_contract_load_and_validation_state() -> None:
+    resume_work = (WORKFLOWS_DIR / "resume-work.md").read_text(encoding="utf-8")
+
+    assert "project_contract_validation" in resume_work
+    assert "project_contract_load_info" in resume_work
+    assert "only when `project_contract_load_info` is clean and `project_contract_validation` passes" in resume_work
+    assert "records whether that contract loaded cleanly and what blocked it if not." in resume_work
+    assert "approval gate for treating the structured contract as authoritative" in resume_work
+
+
 def test_stage6_surfaces_protocol_bundle_context_across_planning_execution_and_verification() -> None:
     planner_prompt = (TEMPLATES_DIR / "planner-subagent-prompt.md").read_text(encoding="utf-8")
     execute_phase = (WORKFLOWS_DIR / "execute-phase.md").read_text(encoding="utf-8")
@@ -1505,6 +1529,11 @@ def test_stage7_runtime_parity_docs_use_canonical_model_resolution_and_generic_h
     assert "Handoff verification" in execute_phase
     assert "False failure report despite delivered work" in execute_phase
     assert "Handoff verification" in quick
+    assert "project_contract_validation" in quick
+    assert "project_contract_load_info" in quick
+    assert "Quick mode still inherits the approved `project_contract` only when `project_contract_load_info` is clean and `project_contract_validation` passes" in quick
+    assert "**Project Contract Load Info:** {project_contract_load_info}" in quick
+    assert "**Project Contract Validation:** {project_contract_validation}" in quick
     assert "classifyHandoffIfNeeded" not in execute_phase
     assert "classifyHandoffIfNeeded" not in execute_plan
     assert "classifyHandoffIfNeeded" not in quick

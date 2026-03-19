@@ -203,6 +203,29 @@ def _load_raw_project_contract_payload(cwd: Path) -> tuple[Path, object] | None:
     """Return the raw project_contract payload from state storage."""
     layout = ProjectLayout(cwd)
 
+    def _backup_project_contract() -> tuple[Path, object] | None:
+        try:
+            raw_backup = json.loads(layout.state_json_backup.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
+            return None
+        if not isinstance(raw_backup, dict):
+            return None
+        backup_contract = raw_backup.get("project_contract")
+        if not isinstance(backup_contract, dict):
+            return None
+        backup_normalized, backup_findings = salvage_project_contract(backup_contract)
+        _backup_warnings, backup_errors = _split_project_contract_schema_findings(
+            backup_findings,
+            allow_singleton_defaults=False,
+        )
+        if backup_errors or backup_normalized is None:
+            return None
+        logger.warning(
+            "Using project_contract from %s because the primary state requires blocking schema normalization",
+            layout.state_json_backup,
+        )
+        return layout.state_json_backup, backup_contract
+
     try:
         raw_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
@@ -210,32 +233,27 @@ def _load_raw_project_contract_payload(cwd: Path) -> tuple[Path, object] | None:
     else:
         if isinstance(raw_state, dict):
             raw_contract = raw_state.get("project_contract")
-            if isinstance(raw_contract, dict):
-                normalized_contract, schema_findings = salvage_project_contract(raw_contract)
-                _schema_warnings, schema_errors = _split_project_contract_schema_findings(
-                    schema_findings,
-                    allow_singleton_defaults=False,
-                )
-                if schema_errors or normalized_contract is None:
-                    try:
-                        raw_backup = json.loads(layout.state_json_backup.read_text(encoding="utf-8"))
-                    except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
-                        raw_backup = None
-                    if isinstance(raw_backup, dict):
-                        backup_contract = raw_backup.get("project_contract")
-                        if isinstance(backup_contract, dict):
-                            backup_normalized, backup_findings = salvage_project_contract(backup_contract)
-                            _backup_warnings, backup_errors = _split_project_contract_schema_findings(
-                                backup_findings,
-                                allow_singleton_defaults=False,
-                            )
-                            if not backup_errors and backup_normalized is not None:
-                                logger.warning(
-                                    "Using project_contract from %s because the primary contract requires blocking schema normalization",
-                                    layout.state_json_backup,
-                                )
-                                return layout.state_json_backup, backup_contract
+            if raw_contract is None:
+                return layout.state_json, None
+            if not isinstance(raw_contract, dict):
+                backup_payload = _backup_project_contract()
+                if backup_payload is not None:
+                    return backup_payload
+                return layout.state_json, raw_contract
+
+            normalized_contract, schema_findings = salvage_project_contract(raw_contract)
+            _schema_warnings, schema_errors = _split_project_contract_schema_findings(
+                schema_findings,
+                allow_singleton_defaults=False,
+            )
+            if schema_errors or normalized_contract is None:
+                backup_payload = _backup_project_contract()
+                if backup_payload is not None:
+                    return backup_payload
             return layout.state_json, raw_contract
+        backup_payload = _backup_project_contract()
+        if backup_payload is not None:
+            return backup_payload
         return None
 
     try:
@@ -244,7 +262,21 @@ def _load_raw_project_contract_payload(cwd: Path) -> tuple[Path, object] | None:
         return None
     if not isinstance(raw_backup, dict):
         return None
-    return layout.state_json_backup, raw_backup.get("project_contract")
+    backup_contract = raw_backup.get("project_contract")
+    if not isinstance(backup_contract, dict):
+        return None
+    backup_normalized, backup_findings = salvage_project_contract(backup_contract)
+    _backup_warnings, backup_errors = _split_project_contract_schema_findings(
+        backup_findings,
+        allow_singleton_defaults=False,
+    )
+    if backup_errors or backup_normalized is None:
+        return None
+    logger.warning(
+        "Using project_contract from %s because the primary state requires blocking schema normalization",
+        layout.state_json_backup,
+    )
+    return layout.state_json_backup, backup_contract
 
 
 def _project_contract_source_path(cwd: Path, source_path: Path) -> str:
@@ -276,12 +308,12 @@ def _project_contract_load_payload(
 def _load_project_contract(cwd: Path) -> tuple[ResearchContract | None, dict[str, object]]:
     """Load the canonical project contract and return load diagnostics."""
     layout = ProjectLayout(cwd)
+    raw_payload = _load_raw_project_contract_payload(cwd)
     state = _load_state_json(cwd)
     default_source = _project_contract_source_path(cwd, layout.state_json)
     if not isinstance(state, dict):
         return None, _project_contract_load_payload(status="missing", source_path=default_source)
 
-    raw_payload = _load_raw_project_contract_payload(cwd)
     source_path = raw_payload[0] if raw_payload is not None else layout.state_json
     source_label = _project_contract_source_path(cwd, source_path)
     if raw_payload is None:

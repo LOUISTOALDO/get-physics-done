@@ -89,6 +89,87 @@ def test_validate_frontmatter_verification_rejects_missing_uncertainty_markers_f
     assert any("uncertainty_markers" in error for error in result.errors)
 
 
+@pytest.mark.parametrize(
+    ("schema_name", "content"),
+    [
+        (
+            "summary",
+            (FIXTURES_STAGE4 / "summary_with_contract_results.md")
+            .read_text(encoding="utf-8")
+            .replace(
+                "    claim-benchmark:\n"
+                "      status: passed\n"
+                "      summary: Benchmark claim verified against the decisive anchor.\n",
+                "    claim-benchmark:\n"
+                "      summary: Benchmark claim verified against the decisive anchor.\n",
+                1,
+            ),
+        ),
+        (
+            "verification",
+            (FIXTURES_STAGE4 / "verification_with_contract_results.md")
+            .read_text(encoding="utf-8")
+            .replace(
+                "    claim-benchmark:\n"
+                "      status: passed\n"
+                "      summary: Claim independently verified.\n",
+                "    claim-benchmark:\n"
+                "      summary: Claim independently verified.\n",
+                1,
+            ),
+        ),
+    ],
+)
+def test_validate_frontmatter_contract_results_rejects_omitted_status_fields(
+    schema_name: str,
+    content: str,
+) -> None:
+    result = validate_frontmatter(content, schema_name)
+
+    assert result.valid is False
+    assert any("status must be explicit in contract-backed contract_results" in error for error in result.errors)
+
+
+@pytest.mark.parametrize(
+    ("schema_name", "content"),
+    [
+        (
+            "summary",
+            (FIXTURES_STAGE4 / "summary_with_contract_results.md").read_text(encoding="utf-8").replace(
+                "  uncertainty_markers:\n"
+                "    weakest_anchors: [Reference tolerance interpretation]\n"
+                "    disconfirming_observations: [Benchmark agreement disappears once normalization is fixed]\n",
+                "  uncertainty_markers:\n"
+                "    weakest_anchors: []\n"
+                "    disconfirming_observations: []\n",
+                1,
+            ),
+        ),
+        (
+            "verification",
+            (FIXTURES_STAGE4 / "verification_with_contract_results.md").read_text(encoding="utf-8").replace(
+                "  uncertainty_markers:\n"
+                "    weakest_anchors: [Verification spot-check coverage]\n"
+                "    disconfirming_observations: [Independent rerun misses the benchmark tolerance]\n",
+                "  uncertainty_markers:\n"
+                "    weakest_anchors: []\n"
+                "    disconfirming_observations: []\n",
+                1,
+            ),
+        ),
+    ],
+)
+def test_validate_frontmatter_contract_results_rejects_empty_uncertainty_markers(
+    schema_name: str,
+    content: str,
+) -> None:
+    result = validate_frontmatter(content, schema_name)
+
+    assert result.valid is False
+    assert any("weakest_anchors must be non-empty" in error for error in result.errors)
+    assert any("disconfirming_observations must be non-empty" in error for error in result.errors)
+
+
 def test_validate_frontmatter_summary_with_source_path_checks_plan_alignment(tmp_path: Path) -> None:
     phase_dir = tmp_path / ".gpd" / "phases" / "01-benchmark"
     phase_dir.mkdir(parents=True)

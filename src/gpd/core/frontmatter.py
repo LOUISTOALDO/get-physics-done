@@ -261,6 +261,8 @@ def _validate_contract_mapping(
     semantic_errors: list[str] = []
     if "context_intake" not in sanitized_contract_data:
         semantic_errors.append("missing context_intake")
+    elif not _has_explicit_context_intake(contract):
+        semantic_errors.append("context_intake must not be empty")
     for error in _collect_plan_contract_explicit_field_errors(sanitized_contract_data):
         if error not in semantic_errors:
             semantic_errors.append(error)
@@ -386,6 +388,21 @@ def _has_contract_grounding_context(contract: ResearchContract) -> bool:
             contract.context_intake.crucial_inputs,
             contract.approach_policy.formulations,
             contract.approach_policy.stop_and_rethink_conditions,
+        )
+    )
+
+
+def _has_explicit_context_intake(contract: ResearchContract) -> bool:
+    """Return whether context_intake carries any explicit non-empty field."""
+
+    return any(
+        (
+            contract.context_intake.must_read_refs,
+            contract.context_intake.must_include_prior_outputs,
+            contract.context_intake.user_asserted_anchors,
+            contract.context_intake.known_good_baselines,
+            contract.context_intake.context_gaps,
+            contract.context_intake.crucial_inputs,
         )
     )
 

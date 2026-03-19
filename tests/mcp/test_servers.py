@@ -324,7 +324,7 @@ class TestConventionsServer:
         assert result["type"] == "custom"
 
     def test_convention_set_tool_schema_constrains_key_and_value_surface(self):
-        from gpd.core.conventions import KNOWN_CONVENTIONS
+        from gpd.core.conventions import KEY_ALIASES, KNOWN_CONVENTIONS
 
         description, schema = _tool_description_and_schema("convention_set")
 
@@ -333,15 +333,20 @@ class TestConventionsServer:
 
         assert "custom:<slug>" in description
         assert "blank or placeholder string" in description
-        assert "clear a convention" in description
+        assert "Use None to clear a convention." not in description
 
-        assert key_schema["anyOf"][0]["enum"] == KNOWN_CONVENTIONS
-        assert key_schema["anyOf"][1]["pattern"] == r"^custom:[A-Za-z0-9][A-Za-z0-9_-]*$"
-        assert "custom:<slug>" in key_schema["anyOf"][1]["description"]
+        key_branches = key_schema["anyOf"]
+        assert any(set(branch["enum"]) == set(KNOWN_CONVENTIONS) for branch in key_branches if "enum" in branch)
+        assert any(set(branch["enum"]) == set(KEY_ALIASES) for branch in key_branches if "enum" in branch)
+        assert any(
+            branch.get("pattern") == r"^custom:[A-Za-z0-9][A-Za-z0-9_-]*$" and "custom:<slug>" in branch["description"]
+            for branch in key_branches
+        )
+        assert "alias" in key_schema["description"]
         assert value_schema["minLength"] == 1
         assert value_schema["pattern"] == r"^(?!\s*(?:null|none|undefined)\s*$)\S(?:.*\S)?$"
         assert "placeholder strings" in value_schema["description"]
-        assert "Use None to clear a convention." in value_schema["description"]
+        assert "Use None to clear a convention." not in value_schema["description"]
 
     def test_convention_set_rejects_invalid_custom_key_shape(self, tmp_path):
         from gpd.mcp.servers.conventions_server import convention_set

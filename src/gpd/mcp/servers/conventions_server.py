@@ -23,6 +23,7 @@ from pydantic import WithJsonSchema
 from gpd.contracts import ConventionLock
 from gpd.core.constants import ProjectLayout
 from gpd.core.conventions import (
+    KEY_ALIASES,
     KNOWN_CONVENTIONS,
     ConventionSetResult,
     convention_list,
@@ -83,9 +84,10 @@ ConventionKeyInput = Annotated[
     str,
     WithJsonSchema(
         {
-            "description": "Use one canonical convention field name or a custom key with the custom:<slug> prefix.",
+            "description": "Use one canonical convention field name, one of the short aliases, or a custom key with the custom:<slug> prefix.",
             "anyOf": [
                 {"type": "string", "enum": KNOWN_CONVENTIONS},
+                {"type": "string", "enum": list(KEY_ALIASES)},
                 {
                     "type": "string",
                     "pattern": rf"^custom:{_CUSTOM_CONVENTION_KEY_BODY}$",
@@ -102,7 +104,7 @@ ConventionValueInput = Annotated[
             "type": "string",
             "minLength": 1,
             "pattern": _CONVENTION_VALUE_PATTERN,
-            "description": "Convention values must be non-empty and must not be blank or placeholder strings like null, none, or undefined. Use None to clear a convention.",
+            "description": "Convention values must be non-empty and must not be blank or placeholder strings like null, none, or undefined.",
         }
     ),
 ]
@@ -308,10 +310,10 @@ def convention_set(
     Use force=True to override an already-set convention (dangerous
     mid-project -- can invalidate prior derivations).
 
-    Key must be one of the canonical convention fields or a custom key in
-    the form ``custom:<slug>`` (for example ``custom:my_convention``).
+    Key must be one of the canonical convention fields, one of the short
+    aliases, or a custom key in the form ``custom:<slug>`` (for example
+    ``custom:my_convention``).
     Value must be non-empty and must not be a blank or placeholder string.
-    Use ``None`` to clear a convention.
     """
     with gpd_span("mcp.conventions.set", convention_key=key):
         try:

@@ -1076,6 +1076,23 @@ def test_state_validate_warns_when_project_contract_is_recovered_from_backup(tmp
     assert any("project_contract was recovered from state.json.bak" in warning for warning in validation.warnings)
 
 
+def test_state_validate_recovers_backup_when_primary_root_is_not_an_object(tmp_path: Path) -> None:
+    baseline = default_state_dict()
+    baseline["project_contract"] = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    save_state_json(tmp_path, baseline)
+    save_state_markdown(tmp_path, generate_state_markdown(baseline))
+    layout = ProjectLayout(tmp_path)
+
+    layout.state_json.write_text("[]\n", encoding="utf-8")
+    layout.state_json_backup.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
+
+    validation = state_validate(tmp_path)
+
+    assert validation.valid is True
+    assert validation.integrity_status == "warning"
+    assert any("state.json root was recovered from state.json.bak" in warning for warning in validation.warnings)
+
+
 def test_state_validate_review_blocks_when_project_contract_is_recovered_from_backup(tmp_path: Path) -> None:
     baseline = default_state_dict()
     save_state_json(tmp_path, baseline)

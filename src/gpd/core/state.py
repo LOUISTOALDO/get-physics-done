@@ -1011,6 +1011,17 @@ def _normalize_state_schema_with_backup_project_contract(
     )
     recovered_from_backup = False
 
+    if not isinstance(raw, dict) and isinstance(backup_raw, dict) and backup_raw.get("project_contract") is not None:
+        backup_normalized, _backup_issues = _normalize_state_schema(
+            backup_raw,
+            allow_project_contract_salvage=allow_project_contract_salvage,
+            retain_blocking_project_contract_errors=retain_blocking_project_contract_errors,
+        )
+        if backup_normalized.get("project_contract") is not None:
+            normalized = backup_normalized
+            recovered_from_backup = True
+            logger.warning("Recovered state.json from state.json.bak after primary state.json required normalization")
+
     if (
         isinstance(raw, dict)
         and raw.get("project_contract") is not None
@@ -2603,10 +2614,10 @@ def state_validate(cwd: Path, integrity_mode: str = "standard") -> StateValidate
     state_json = None
     try:
         raw_state_json = json.loads(json_path.read_text(encoding="utf-8"))
+        raw_root_issue = None
         if not isinstance(raw_state_json, dict):
-            issues.append(
-                f"state.json root must be an object, got {type(raw_state_json).__name__}; validating normalized fallback"
-            )
+            raw_root_issue = f"state.json root must be an object, got {type(raw_state_json).__name__}; validating normalized fallback"
+            issues.append(raw_root_issue)
         try:
             raw_state_json_backup = json.loads(bak_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
@@ -2620,6 +2631,11 @@ def state_validate(cwd: Path, integrity_mode: str = "standard") -> StateValidate
         if normalization_issues:
             target = issues if integrity_mode == "review" else warnings
             target.extend(normalization_issues)
+        if recovered_from_backup and raw_root_issue is not None:
+            if raw_root_issue in issues:
+                issues.remove(raw_root_issue)
+            target = issues if integrity_mode == "review" else warnings
+            target.append("state.json root was recovered from state.json.bak after primary state.json required normalization")
         if recovered_from_backup:
             target = issues if integrity_mode == "review" else warnings
             target.append(

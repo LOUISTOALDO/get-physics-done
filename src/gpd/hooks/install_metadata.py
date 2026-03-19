@@ -27,6 +27,32 @@ def load_install_manifest(config_dir: Path) -> dict[str, object]:
     return payload if isinstance(payload, dict) else {}
 
 
+def load_install_manifest_state(config_dir: Path) -> tuple[str, dict[str, object]]:
+    """Return the manifest parse state and payload for *config_dir*.
+
+    The state is one of ``missing``, ``corrupt``, ``invalid``, or ``ok``.
+    ``ok`` means the manifest parsed as a mapping; the payload is the parsed
+    dict in that case and ``{}`` otherwise.
+    """
+
+    manifest_path = config_dir / "gpd-file-manifest.json"
+    try:
+        raw = manifest_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return "missing", {}
+    except (OSError, json.JSONDecodeError):
+        return "corrupt", {}
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return "corrupt", {}
+
+    if not isinstance(payload, dict):
+        return "invalid", {}
+    return "ok", payload
+
+
 def install_scope_from_manifest(config_dir: Path) -> str | None:
     """Return the persisted install scope for *config_dir*."""
 

@@ -69,6 +69,30 @@ def test_state_and_context_restore_backup_project_contract_when_primary_needs_bl
     assert ctx["project_contract_load_info"]["source_path"].endswith(STATE_JSON_BACKUP_FILENAME)
 
 
+def test_state_and_context_restore_backup_project_contract_when_primary_contract_is_not_an_object(
+    tmp_path: Path,
+) -> None:
+    _setup_project(tmp_path)
+    save_state_json(tmp_path, default_state_dict())
+
+    layout = ProjectLayout(tmp_path)
+    primary_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    primary_state["project_contract"] = "not-a-dict"
+    layout.state_json.write_text(json.dumps(primary_state, indent=2) + "\n", encoding="utf-8")
+
+    backup_state = default_state_dict()
+    backup_contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    backup_contract["scope"]["question"] = "Recovered from backup contract"
+    backup_state["project_contract"] = backup_contract
+    layout.state_json_backup.write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
+
+    ctx = init_progress(tmp_path)
+
+    assert ctx["project_contract"] is not None
+    assert ctx["project_contract"]["scope"]["question"] == "Recovered from backup contract"
+    assert ctx["project_contract_load_info"]["source_path"].endswith(STATE_JSON_BACKUP_FILENAME)
+
+
 def test_state_and_context_hide_project_contract_when_raw_singleton_section_is_invalid(tmp_path: Path) -> None:
     _setup_project(tmp_path)
     save_state_json(tmp_path, default_state_dict())

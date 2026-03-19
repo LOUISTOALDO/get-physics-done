@@ -288,31 +288,62 @@ class RuntimeAdapter(abc.ABC):
 
     def _validate_target_runtime(self, target_dir: Path, *, action: str) -> None:
         """Reject explicit target dirs that already belong to another runtime."""
-        manifest_path = target_dir / MANIFEST_NAME
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
-            return
-        if not isinstance(payload, dict):
-            return
-
-        manifest_runtime = payload.get("runtime")
-        if not isinstance(manifest_runtime, str):
-            return
-
-        manifest_runtime_label = manifest_runtime.strip()
-        normalized_manifest_runtime = _normalize_manifest_runtime(manifest_runtime)
-        if not normalized_manifest_runtime or normalized_manifest_runtime == self.runtime_name:
-            return
-
-        try:
-            other_runtime = get_runtime_descriptor(normalized_manifest_runtime).display_name
-        except KeyError:
-            other_runtime = normalized_manifest_runtime
-        raise RuntimeError(
-            f"Refusing to {action} `{target_dir}` because its GPD manifest belongs to "
-            f"{other_runtime} (`{manifest_runtime_label}`), not {self.display_name} (`{self.runtime_name}`)."
+        from gpd.hooks.install_metadata import (
+            config_dir_has_complete_install,
+            installed_runtime,
+            load_install_manifest_state,
         )
+
+        manifest_state, manifest = load_install_manifest_state(target_dir)
+        inferred_runtime = installed_runtime(target_dir)
+        if inferred_runtime is not None:
+            if inferred_runtime == self.runtime_name:
+                return
+            try:
+                other_runtime = get_runtime_descriptor(inferred_runtime).display_name
+            except KeyError:
+                other_runtime = inferred_runtime
+            raise RuntimeError(
+                f"Refusing to {action} `{target_dir}` because its GPD install belongs to "
+                f"{other_runtime} (`{inferred_runtime}`), not {self.display_name} (`{self.runtime_name}`)."
+            )
+
+        if manifest_state in {"corrupt", "invalid"}:
+            raise RuntimeError(
+                f"Refusing to {action} `{target_dir}` because its GPD manifest cannot be trusted and ownership cannot be determined safely."
+            )
+
+        has_gpd_markers = any(
+            (
+                (target_dir / COMMANDS_DIR_NAME / "gpd").exists(),
+                (target_dir / FLAT_COMMANDS_DIR_NAME).exists(),
+                (target_dir / GPD_INSTALL_DIR_NAME).exists(),
+            )
+        )
+        if manifest_state == "missing" and has_gpd_markers:
+            raise RuntimeError(
+                f"Refusing to {action} `{target_dir}` because it already contains GPD artifacts but no manifest to establish ownership."
+            )
+
+        if isinstance(manifest, dict) and "runtime" in manifest:
+            raw_manifest_runtime = str(manifest.get("runtime") or "").strip()
+            normalized_manifest_runtime = _normalize_manifest_runtime(raw_manifest_runtime)
+            if normalized_manifest_runtime == self.runtime_name:
+                return
+            other_runtime = normalized_manifest_runtime or (raw_manifest_runtime or "unknown")
+            try:
+                other_runtime_label = get_runtime_descriptor(other_runtime).display_name
+            except KeyError:
+                other_runtime_label = other_runtime
+            raise RuntimeError(
+                f"Refusing to {action} `{target_dir}` because its GPD manifest belongs to "
+                f"{other_runtime_label} (`{other_runtime}`), not {self.display_name} (`{self.runtime_name}`)."
+            )
+
+        if config_dir_has_complete_install(target_dir):
+            raise RuntimeError(
+                f"Refusing to {action} `{target_dir}` because its GPD install ownership cannot be determined safely."
+            )
 
     def runtime_cli_bridge_command(self, target_dir: Path) -> str:
         """Return the shared runtime CLI bridge command for installed shell calls."""

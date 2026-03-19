@@ -79,7 +79,7 @@ if [ $? -ne 0 ]; then
 fi
 ```
 
-Extract from init JSON: `project_exists`, `roadmap_exists`, `state_exists`, `phases`, `current_phase`, `next_phase`, `milestone_version`, `completed_count`, `phase_count`, `paused_at`, `autonomy`, `research_mode`, `project_contract`, `contract_intake`, `effective_reference_intake`, `active_reference_context`, `reference_artifacts_content`.
+Extract from init JSON: `project_exists`, `roadmap_exists`, `state_exists`, `phases`, `current_phase`, `next_phase`, `milestone_version`, `completed_count`, `phase_count`, `paused_at`, `autonomy`, `research_mode`, `project_contract`, `project_contract_validation`, `project_contract_load_info`, `contract_intake`, `effective_reference_intake`, `active_reference_context`, `reference_artifacts_content`.
 
 **File contents (from --include):** `state_content`, `roadmap_content`, `project_content`, `config_content`. These are null if files don't exist.
 
@@ -111,7 +111,9 @@ All file contents are already loaded via `--include` in init_context step:
 - `roadmap_content` — phase structure and objectives
 - `project_content` — current state (Research Question, Framework, Answered Questions)
 - `config_content` — settings (model_profile, workflow toggles)
-- `project_contract` — machine-readable scoping and anchor contract
+- `project_contract` — machine-readable scoping and anchor contract, authoritative only when `project_contract_load_info` is clean and `project_contract_validation` passes
+- `project_contract_load_info` — structured load status, warnings, and blockers for the contract
+- `project_contract_validation` — contract approval gate for authoritative use
 - `effective_reference_intake` — structured carry-forward ledger for refs, baselines, prior outputs, and context gaps
 - `active_reference_context` / `reference_artifacts_content` — readable anchor context to explain the next-step recommendation
 

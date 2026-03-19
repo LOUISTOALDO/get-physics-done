@@ -74,6 +74,23 @@ def _write_manifest(target: Path, *, runtime: str, install_scope: str = "local",
     )
 
 
+def _seed_ambiguous_install_target(target: Path, *, manifest_state: str) -> None:
+    """Create a target that looks like an install but lacks trustworthy ownership data."""
+    (target / "commands" / "gpd").mkdir(parents=True, exist_ok=True)
+    (target / "commands" / "gpd" / "help.md").write_text("help\n", encoding="utf-8")
+    (target / "get-physics-done").mkdir(parents=True, exist_ok=True)
+    (target / "get-physics-done" / "VERSION").write_text("1.0\n", encoding="utf-8")
+
+    manifest_path = target / MANIFEST_NAME
+    if manifest_state == "corrupt":
+        manifest_path.write_text("{not-json", encoding="utf-8")
+    elif manifest_state == "unknown":
+        manifest_path.write_text(
+            json.dumps({"runtime": "not-a-runtime", "install_scope": "local"}),
+            encoding="utf-8",
+        )
+
+
 def _install_gemini_for_tests(gpd_root: Path, target: Path) -> None:
     adapter = get_adapter("gemini")
     result = adapter.install(gpd_root, target, is_global=True)
@@ -299,6 +316,41 @@ class TestCrossRuntimeManifestOwnershipRefusal:
         assert f"{adapter.display_name} (`{runtime}`)" in message
         assert preserved.read_text(encoding="utf-8") == "keep\n"
         assert json.loads((target / MANIFEST_NAME).read_text(encoding="utf-8"))["runtime"] == foreign_runtime
+
+    @pytest.mark.parametrize("manifest_state", ["missing", "corrupt", "unknown"])
+    def test_install_refuses_ambiguous_target_when_manifest_cannot_prove_ownership(
+        self, tmp_path: Path, manifest_state: str
+    ) -> None:
+        gpd_root = _make_gpd_root(tmp_path)
+        adapter = get_adapter("claude-code")
+        target = tmp_path / "ambiguous-target"
+        target.mkdir()
+        _seed_ambiguous_install_target(target, manifest_state=manifest_state)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            adapter.install(gpd_root, target, is_global=False, explicit_target=True)
+
+        message = str(excinfo.value)
+        assert f"Refusing to install into `{target}`" in message
+        assert (target / "commands" / "gpd" / "help.md").exists()
+        assert (target / "get-physics-done" / "VERSION").exists()
+
+    @pytest.mark.parametrize("manifest_state", ["missing", "corrupt", "unknown"])
+    def test_uninstall_refuses_ambiguous_target_when_manifest_cannot_prove_ownership(
+        self, tmp_path: Path, manifest_state: str
+    ) -> None:
+        adapter = get_adapter("claude-code")
+        target = tmp_path / "ambiguous-target"
+        target.mkdir()
+        _seed_ambiguous_install_target(target, manifest_state=manifest_state)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            adapter.uninstall(target)
+
+        message = str(excinfo.value)
+        assert f"Refusing to uninstall from `{target}`" in message
+        assert (target / "commands" / "gpd" / "help.md").exists()
+        assert (target / "get-physics-done" / "VERSION").exists()
 
     @pytest.mark.parametrize("runtime", ["claude-code", "codex", "gemini", "opencode"])
     def test_uninstall_refuses_foreign_manifest(self, tmp_path: Path, runtime: str) -> None:

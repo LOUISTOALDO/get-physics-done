@@ -28,8 +28,8 @@ if [ $? -ne 0 ]; then
 fi
 ```
 
-Parse JSON for: `project_exists`, `state_exists`, `commit_docs`, `project_contract`, `selected_protocol_bundle_ids`, `protocol_bundle_context`, `active_reference_context`.
-Treat `project_contract` and `active_reference_context` as authoritative contract-backed evidence context for later review stages. Stage 1 stays manuscript-first, but later adjudication must not ignore the approved contract or active anchor ledger.
+Parse JSON for: `project_exists`, `state_exists`, `commit_docs`, `project_contract`, `project_contract_validation`, `project_contract_load_info`, `selected_protocol_bundle_ids`, `protocol_bundle_context`, `active_reference_context`.
+Treat `project_contract`, `project_contract_load_info`, `project_contract_validation`, and `active_reference_context` as authoritative contract-backed evidence context for later review stages. Stage 1 stays manuscript-first, but later adjudication must not ignore the approved contract, its load/validation state, or the active anchor ledger.
 
 Run centralized context preflight before continuing:
 
@@ -422,6 +422,10 @@ Additive specialized guidance:
 {protocol_bundle_context}
 Project Contract:
 {project_contract}
+Project Contract Load Info:
+{project_contract_load_info}
+Project Contract Validation:
+{project_contract_validation}
 Active References:
 {active_reference_context}
 

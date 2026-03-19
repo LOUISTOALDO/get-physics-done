@@ -133,6 +133,35 @@ def normalize_contract_results_input(value: object, *, strict: bool | None = Non
     return normalized
 
 
+def _collect_strict_contract_results_errors(value: _StrictContractResultsInput) -> list[str]:
+    """Return strict contract-results shape errors before Pydantic defaults apply."""
+
+    errors: list[str] = []
+
+    for section_name in ("claims", "deliverables", "acceptance_tests", "references", "forbidden_proxies"):
+        section = value.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        for entry_id, entry in section.items():
+            if isinstance(entry, dict) and "status" not in entry:
+                errors.append(
+                    f"{section_name}.{entry_id}.status must be explicit in contract-backed contract_results"
+                )
+
+    markers = value.get("uncertainty_markers")
+    if isinstance(markers, dict):
+        if not markers.get("weakest_anchors"):
+            errors.append(
+                "uncertainty_markers.weakest_anchors must be non-empty in contract-backed contract_results"
+            )
+        if not markers.get("disconfirming_observations"):
+            errors.append(
+                "uncertainty_markers.disconfirming_observations must be non-empty in contract-backed contract_results"
+            )
+
+    return errors
+
+
 def _collect_contract_scalar_errors(
     value: object,
     *,
@@ -345,9 +374,13 @@ class ContractResults(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _require_explicit_uncertainty_markers(cls, value: object) -> object:
-        if isinstance(value, _StrictContractResultsInput) and "uncertainty_markers" not in value:
-            raise ValueError("uncertainty_markers must be explicit in contract-backed contract_results")
+    def _validate_strict_contract_results(cls, value: object) -> object:
+        if isinstance(value, _StrictContractResultsInput):
+            errors = _collect_strict_contract_results_errors(value)
+            if "uncertainty_markers" not in value:
+                errors.append("uncertainty_markers must be explicit in contract-backed contract_results")
+            if errors:
+                raise ValueError("; ".join(errors))
         return value
 
     @field_validator(

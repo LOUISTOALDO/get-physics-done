@@ -49,6 +49,10 @@ def test_normalize_value_metric():
     assert normalize_value("metric_signature", "++++") == "euclidean"
 
 
+def test_normalize_value_metric_euclidean_alias():
+    assert normalize_value("metric_signature", "Euclidean (+,+,+,+)") == "euclidean"
+
+
 def test_normalize_value_passthrough():
     assert normalize_value("metric_signature", "custom-value") == "custom-value"
     assert normalize_value("unknown_field", "anything") == "anything"
@@ -108,6 +112,14 @@ def test_convention_set_alias():
     assert result.updated is True
     assert result.key == "metric_signature"
     assert lock.metric_signature == "mostly-minus"
+
+
+def test_convention_set_metric_euclidean_alias_normalizes():
+    lock = ConventionLock()
+    result = convention_set(lock, "metric_signature", "Euclidean (+,+,+,+)")
+    assert result.updated is True
+    assert result.value == "euclidean"
+    assert lock.metric_signature == "euclidean"
 
 
 def test_convention_set_immutability_gate():
