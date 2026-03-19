@@ -1127,15 +1127,21 @@ def _detect_platform(cwd: Path | None = None) -> str:
     for descriptor in iter_runtime_descriptors():
         adapter = get_adapter(descriptor.runtime_name)
         local_config_dir = resolved_cwd / adapter.local_config_dir_name
-        if local_config_dir.is_dir():
-            return descriptor.runtime_name
+        try:
+            if adapter.has_complete_install(local_config_dir):
+                return descriptor.runtime_name
+        except Exception:
+            pass
 
         try:
             global_config_dir = adapter.resolve_global_config_dir(home=resolved_home)
         except Exception:
             continue
-        if global_config_dir.is_dir():
-            return descriptor.runtime_name
+        try:
+            if adapter.has_complete_install(global_config_dir):
+                return descriptor.runtime_name
+        except Exception:
+            continue
     return "unknown"
 
 
