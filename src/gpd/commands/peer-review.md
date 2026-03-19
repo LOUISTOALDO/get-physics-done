@@ -128,9 +128,9 @@ The workflow handles all logic including:
 1. **Init** — Load project context, detect manuscript target, and resolve scope
 2. **Preflight** — Run review preflight validation for the peer-review command
 3. **Artifact discovery** — Load manuscript files, bibliography, verification reports, and review-grade paper artifacts
-4. **Stage 1** — Spawn `gpd-review-reader` to read the whole manuscript and write `.gpd/review/CLAIMS.json` plus the Stage 1 handoff artifact
+4. **Stage 1** — Spawn `gpd-review-reader` to read the whole manuscript and write `.gpd/review/CLAIMS{round_suffix}.json` plus the Stage 1 handoff artifact
 5. **Stages 2-5** — Run four fresh-context specialist reviewers with compact stage artifacts: `gpd-review-literature`, `gpd-review-math`, `gpd-review-physics`, and `gpd-review-significance`
-6. **Final adjudication** — Spawn `gpd-referee` as the meta-reviewer to synthesize stage artifacts, populate `.gpd/review/REVIEW-LEDGER.json`, validate the decision floor, and issue the canonical final recommendation
+6. **Final adjudication** — Spawn `gpd-referee` as the meta-reviewer to synthesize stage artifacts, populate `.gpd/review/REVIEW-LEDGER{round_suffix}.json` and `.gpd/review/REFEREE-DECISION{round_suffix}.json`, validate the decision floor, and issue the canonical final recommendation
 7. **Report handling** — Read the generated referee report and classify the recommendation
 8. **Next-step routing** — Route to respond-to-referees, manuscript edits, or arxiv-submission depending on the outcome
 </process>
@@ -139,9 +139,9 @@ The workflow handles all logic including:
 - [ ] Manuscript target located or explicitly resolved from arguments
 - [ ] Review preflight passed or blocking issues were surfaced clearly
 - [ ] Claim index and specialist stage artifacts written under `.gpd/review/`
-- [ ] `.gpd/review/REVIEW-LEDGER.json` and `.gpd/review/REFEREE-DECISION.json` created
+- [ ] `.gpd/review/REVIEW-LEDGER{round_suffix}.json` and `.gpd/review/REFEREE-DECISION{round_suffix}.json` created
 - [ ] Final adjudicating gpd-referee spawned with the stage artifacts and manuscript
-- [ ] `.gpd/REFEREE-REPORT.md` or `.gpd/REFEREE-REPORT-R{N}.md` created with matching `.tex` companion
+- [ ] `.gpd/REFEREE-REPORT{round_suffix}.md` created with matching `.tex` companion
 - [ ] `.gpd/CONSISTENCY-REPORT.md` created when supported by the referee workflow
 - [ ] Recommendation, issue counts, and actionable next steps presented
 - [ ] Revision rounds respected if prior author responses already exist

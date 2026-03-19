@@ -41,5 +41,7 @@ def test_new_project_and_questioning_gate_do_not_treat_missing_anchor_notes_as_a
 
     assert "At least one concrete anchor, reference, prior-output constraint, or baseline" in new_project_text
     assert "If the decisive anchor is still unknown, keep that blocker explicit" in new_project_text
+    assert "Missing-anchor notes preserve uncertainty, but they do not satisfy approval on their own." in new_project_text
     assert "at least one concrete anchor, reference, prior output, or baseline" in questioning_text
     assert "if the decisive anchor is still unknown, an explicit missing-anchor note" in questioning_text
+    assert "do not replace the requirement for at least one concrete reference, prior output, baseline" in questioning_text

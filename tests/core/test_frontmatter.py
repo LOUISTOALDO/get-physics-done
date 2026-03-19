@@ -291,6 +291,17 @@ class TestParseContractBlock:
         with pytest.raises(FrontmatterValidationError, match="schema_version must be the integer 1"):
             parse_contract_block(content)
 
+    def test_rejects_singleton_list_drift(self):
+        content = _valid_plan_contract_frontmatter().replace("must_read_refs: [ref-main]", "must_read_refs: ref-main", 1) + (
+            "Body.\n"
+        )
+
+        with pytest.raises(
+            FrontmatterValidationError,
+            match=r"context_intake\.must_read_refs must be a list, not str",
+        ):
+            parse_contract_block(content)
+
 
 # ---------------------------------------------------------------------------
 # validate_frontmatter
@@ -322,6 +333,16 @@ class TestValidateFrontmatter:
 
         assert result.valid is False
         assert "contract: schema_version must be the integer 1" in result.errors
+
+    def test_plan_rejects_singleton_list_drift_in_contract(self):
+        content = _valid_plan_contract_frontmatter().replace("must_read_refs: [ref-main]", "must_read_refs: ref-main", 1) + (
+            "Body.\n"
+        )
+
+        result = validate_frontmatter(content, "plan")
+
+        assert result.valid is False
+        assert "contract: context_intake.must_read_refs must be a list, not str" in result.errors
 
     def test_missing_fields(self):
         content = "---\nphase: 01-test\n---\n\nBody."

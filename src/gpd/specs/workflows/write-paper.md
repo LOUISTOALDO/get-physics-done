@@ -914,13 +914,13 @@ Before finalizing, run the same staged peer-review panel used by `/gpd:peer-revi
 5. `gpd-review-significance`
 6. `gpd-referee` as final adjudicator
 
-For the detailed staging, artifact naming, round handling, `CLAIMS.json` / `STAGE-*.json` outputs, `REVIEW-LEDGER.json`, `REFEREE-DECISION.json`, and recommendation guardrails, follow `@{GPD_INSTALL_DIR}/workflows/peer-review.md` exactly, using `${PAPER_DIR}/main.tex` as the resolved target and the current draft's bibliography and audit artifacts. Keep the current `project_contract` and `active_reference_context` visible throughout that staged review; they remain authoritative when judging whether the manuscript has surfaced decisive evidence honestly.
+For the detailed staging, artifact naming, round handling, `CLAIMS{round_suffix}.json` / `STAGE-*{round_suffix}.json` outputs, `REVIEW-LEDGER{round_suffix}.json`, `REFEREE-DECISION{round_suffix}.json`, and recommendation guardrails, follow `@{GPD_INSTALL_DIR}/workflows/peer-review.md` exactly, using `${PAPER_DIR}/main.tex` as the resolved target and the current draft's bibliography and audit artifacts. Keep the current `project_contract` and `active_reference_context` visible throughout that staged review; they remain authoritative when judging whether the manuscript has surfaced decisive evidence honestly.
 
 **If the staged panel fails:** Do not silently waive the review. Note the failure and recommend running `/gpd:peer-review` directly after resolving the blocking issue.
 
 **After final adjudication:**
 
-Read `.gpd/review/REFEREE-DECISION.json` and `.gpd/review/REVIEW-LEDGER.json` first when they exist, then read `.gpd/REFEREE-REPORT.md` and assess the findings:
+Read `.gpd/review/REFEREE-DECISION{round_suffix}.json` and `.gpd/review/REVIEW-LEDGER{round_suffix}.json` first when they exist, then read `.gpd/REFEREE-REPORT{round_suffix}.md` and assess the findings:
 
 - **If recommendation is `accept` or `minor_revision` with 0 major issues:** Proceed to `final_review`. Note minor issues for the user.
 - **If recommendation is `major_revision` or `reject`:** Present the major issues to the user before proceeding. For each major issue, show the location, description, and suggested fix. Ask the user whether to:

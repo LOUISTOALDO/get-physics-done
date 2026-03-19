@@ -62,8 +62,8 @@ Referee report source: $ARGUMENTS (file path or "paste" for inline input)
 @.gpd/STATE.md
 @.gpd/AUTHOR-RESPONSE{round_suffix}.md
 @.gpd/paper/REFEREE_RESPONSE{round_suffix}.md
-@.gpd/review/REVIEW-LEDGER.json
-@.gpd/review/REFEREE-DECISION.json
+@.gpd/review/REVIEW-LEDGER{round_suffix}.json
+@.gpd/review/REFEREE-DECISION{round_suffix}.json
 
 Check for existing paper and prior response files:
 

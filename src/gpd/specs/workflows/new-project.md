@@ -83,7 +83,7 @@ Error: Could not extract research context from the provided file.
 The file should contain at minimum:
 - A research question or objective
 
-It should ideally also name at least one decisive output, anchor, prior output, or explicit "anchor unknown / need grounding / target not yet chosen" note so any repair prompt can stay narrow.
+It should ideally also name at least one decisive output, anchor, prior output, or explicit "anchor unknown / need grounding / target not yet chosen" note so any repair prompt can stay narrow. Missing-anchor notes preserve uncertainty, but they do not satisfy approval on their own.
 
 Example structure:
   # Research Question

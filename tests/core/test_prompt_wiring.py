@@ -561,12 +561,36 @@ def test_respond_to_referees_references_staged_review_artifacts() -> None:
     workflow_text = (WORKFLOWS_DIR / "respond-to-referees.md").read_text(encoding="utf-8")
     writer_text = (AGENTS_DIR / "gpd-paper-writer.md").read_text(encoding="utf-8")
 
-    assert ".gpd/review/REVIEW-LEDGER.json" in command_text
-    assert ".gpd/review/REFEREE-DECISION.json" in command_text
+    assert ".gpd/review/REVIEW-LEDGER{round_suffix}.json" in command_text
+    assert ".gpd/review/REFEREE-DECISION{round_suffix}.json" in command_text
     assert "REVIEW-LEDGER*.json" in workflow_text
     assert "REFEREE-DECISION*.json" in workflow_text
     assert "REVIEW-LEDGER{-RN}.json" in writer_text
     assert "REFEREE-DECISION{-RN}.json" in writer_text
+
+
+def test_review_workflows_keep_round_suffix_artifacts_visible_and_anchor_response_outputs() -> None:
+    peer_review = (COMMANDS_DIR / "peer-review.md").read_text(encoding="utf-8")
+    respond = (WORKFLOWS_DIR / "respond-to-referees.md").read_text(encoding="utf-8")
+    write_paper = (WORKFLOWS_DIR / "write-paper.md").read_text(encoding="utf-8")
+    panel = (REFERENCES_DIR / "publication" / "peer-review-panel.md").read_text(encoding="utf-8")
+
+    assert ".gpd/review/CLAIMS{round_suffix}.json" in peer_review
+    assert ".gpd/review/REVIEW-LEDGER{round_suffix}.json" in peer_review
+    assert ".gpd/review/REFEREE-DECISION{round_suffix}.json" in peer_review
+    assert ".gpd/REFEREE-REPORT{round_suffix}.md" in peer_review
+    assert ".gpd/REFEREE-REPORT{round_suffix}.tex" in panel
+
+    assert "${PAPER_DIR}/{section}.tex" in respond
+    assert "${PAPER_DIR}/BIBLIOGRAPHY-AUDIT.json" in respond
+    assert "${PAPER_DIR}/response-letter.tex" in respond
+    assert ".gpd/paper/REFEREE_RESPONSE{round_suffix}.md" in respond
+    assert ".gpd/AUTHOR-RESPONSE{round_suffix}.md" in respond
+
+    assert "CLAIMS{round_suffix}.json" in write_paper
+    assert "REVIEW-LEDGER{round_suffix}.json" in write_paper
+    assert "REFEREE-DECISION{round_suffix}.json" in write_paper
+    assert ".gpd/REFEREE-REPORT{round_suffix}.md" in write_paper
 
 
 def test_publication_commands_accept_documented_manuscript_layouts() -> None:
@@ -854,7 +878,7 @@ def test_revision_and_audit_workflows_verify_artifacts_before_trusting_success_t
     assert "Use `**Evidence:**` blocks for rebuttals" in respond
     assert "verify the promised artifacts before trusting the handoff text" in respond
     assert "If the agent claimed success but the files did not change, treat that section as failed" in respond
-    assert "Re-open `AUTHOR-RESPONSE.md` and `REFEREE_RESPONSE.md`" in respond
+    assert "Re-open `AUTHOR-RESPONSE{round_suffix}.md` and `REFEREE_RESPONSE{round_suffix}.md`" in respond
 
     assert "Verify the promised referee artifacts before trusting the handoff text" in audit
     assert "Confirm `.gpd/REFEREE-REPORT.md` exists" in audit
@@ -1520,7 +1544,7 @@ def test_publication_workflows_refresh_bibliography_audit_after_bibliography_cha
     assert "If the bibliography changed after the last audit, refresh `paper/BIBLIOGRAPHY-AUDIT.json` before strict review." in write_paper
     assert "Refresh `paper/BIBLIOGRAPHY-AUDIT.json` after the bibliography changes before entering strict review or `pre_submission_review`." in write_paper
     assert "If the manuscript bibliography or citation set changed after the last audit, refresh `paper/BIBLIOGRAPHY-AUDIT.json` before building the reproducibility manifest." in write_paper
-    assert "refresh `paper/BIBLIOGRAPHY-AUDIT.json` before generating the response letter or proceeding to final review" in respond
+    assert "refresh `${PAPER_DIR}/BIBLIOGRAPHY-AUDIT.json` before generating the response letter or proceeding to final review" in respond
     assert "If the manuscript bibliography changed after the last audit, refresh `BIBLIOGRAPHY_AUDIT_PATH` before proceeding." in peer_review
     assert "absent, stale, or not review-ready" in peer_review
 

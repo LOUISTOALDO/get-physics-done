@@ -2670,7 +2670,7 @@ def state_validate(cwd: Path, integrity_mode: str = "standard") -> StateValidate
             raw_state_json_backup = json.loads(bak_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
             raw_state_json_backup = None
-        state_json, normalization_issues, _recovered_from_backup = _normalize_state_schema_with_backup_project_contract(
+        state_json, normalization_issues, recovered_from_backup = _normalize_state_schema_with_backup_project_contract(
             raw_state_json,
             raw_state_json_backup if isinstance(raw_state_json_backup, dict) else None,
             allow_project_contract_salvage=False,
@@ -2679,6 +2679,11 @@ def state_validate(cwd: Path, integrity_mode: str = "standard") -> StateValidate
         if normalization_issues:
             target = issues if integrity_mode == "review" else warnings
             target.extend(normalization_issues)
+        if recovered_from_backup:
+            target = issues if integrity_mode == "review" else warnings
+            target.append(
+                "state.json project_contract was recovered from state.json.bak after primary state.json required blocking normalization"
+            )
         if isinstance(raw_state_json, dict):
             raw_version = raw_state_json.get("_version")
             if raw_version not in (None, 1):

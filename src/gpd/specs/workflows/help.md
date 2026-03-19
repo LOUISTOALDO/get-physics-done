@@ -549,7 +549,7 @@ Run skeptical peer review on an existing manuscript within the current GPD proje
 - Runs strict review preflight checks against project state, manuscript, artifacts, and reproducibility support
 - Loads manuscript files, phase summaries, verification reports, bibliography audit, and artifact manifest
 - Spawns a six-agent review panel: reader, literature, math, physics, significance, and final gpd-referee adjudicator
-- Produces stage artifacts under `.gpd/review/` plus `.gpd/REFEREE-REPORT.md` and `.gpd/REFEREE-REPORT.tex` (or revision-round follow-up pairs)
+- Produces stage artifacts under `.gpd/review/` plus `.gpd/REFEREE-REPORT{round_suffix}.md` and `.gpd/REFEREE-REPORT{round_suffix}.tex`
 - Routes the result to `/gpd:respond-to-referees` or `/gpd:arxiv-submission`
 - Requires an initialized `.gpd/PROJECT.md` workspace; manuscript paths do not bypass project preflight
 
@@ -560,7 +560,7 @@ Usage: `/gpd:peer-review paper/`
 Structure point-by-point response to referee reports and revise the manuscript.
 
 - Parses referee comments into structured items with severity levels
-- Drafts AUTHOR-RESPONSE.md with REF-xxx issue tracking (fixed/rebutted/acknowledged)
+- Drafts AUTHOR-RESPONSE{round_suffix}.md with REF-xxx issue tracking (fixed/rebutted/acknowledged)
 - Consumes `.gpd/review/REVIEW-LEDGER*.json` and `.gpd/review/REFEREE-DECISION*.json` when present to preserve blocking-issue context
 - Spawns paper-writer agents for targeted section revisions
 - Tracks new calculations required by referees as revision tasks

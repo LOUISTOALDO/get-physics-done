@@ -26,6 +26,8 @@ def test_respond_to_referees_workflow_runs_centralized_review_preflight() -> Non
 
     assert 'gpd validate review-preflight respond-to-referees "$ARGUMENTS" --strict' in workflow
     assert "gpd validate review-preflight respond-to-referees --strict" in workflow
+    assert "${PAPER_DIR}/response-letter.tex" in workflow
+    assert "${PAPER_DIR}/{section}.tex" in workflow
 
 
 def test_arxiv_submission_workflow_runs_centralized_review_preflight() -> None:

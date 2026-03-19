@@ -599,33 +599,6 @@ def _light_contract_consistency_errors(contract: ResearchContract) -> list[str]:
 
     return errors
 
-
-def _has_explicit_anchor_unknown(contract: ResearchContract) -> bool:
-    """Return whether the contract explicitly records that anchors are still unknown."""
-
-    candidates = [
-        *contract.scope.unresolved_questions,
-        *contract.context_intake.context_gaps,
-        *contract.uncertainty_markers.weakest_anchors,
-    ]
-    for item in candidates:
-        if not isinstance(item, str):
-            continue
-        lowered = item.casefold()
-        if any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_DIRECT_PATTERNS):
-            return True
-        if not any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_TOPIC_PATTERNS):
-            continue
-        if any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_BLOCKER_PATTERNS):
-            return True
-        if (
-            all(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_QUESTION_PATTERNS)
-            and any(pattern.search(lowered) for pattern in _ANCHOR_UNKNOWN_SELECTION_PATTERNS)
-        ):
-            return True
-    return False
-
-
 def _is_project_artifact_path(value: str) -> bool:
     """Return whether *value* names a concrete prior-output artifact path."""
 

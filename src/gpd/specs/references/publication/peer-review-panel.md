@@ -95,8 +95,8 @@ Goal:
 Output:
 - `.gpd/review/REVIEW-LEDGER{round_suffix}.json`
 - `.gpd/review/REFEREE-DECISION{round_suffix}.json`
-- `.gpd/REFEREE-REPORT.md`
-- `.gpd/REFEREE-REPORT.tex`
+- `.gpd/REFEREE-REPORT{round_suffix}.md`
+- `.gpd/REFEREE-REPORT{round_suffix}.tex`
 - `.gpd/CONSISTENCY-REPORT.md` when applicable
 
 ## Fresh-Context Rule
@@ -158,9 +158,6 @@ Additionally:
 - In strict mode, specialist stage filenames must match `STAGE-(reader|literature|math|physics|interestingness)(-R<round>)?.json`, and all five must share the same optional `-R<round>` suffix.
 - The final adjudicator must emit `REVIEW-LEDGER{round_suffix}.json` and `REFEREE-DECISION{round_suffix}.json` (empty suffix on the first round).
 - The artifact should stay compact. It is a decision handoff, not a second manuscript.
-
-Stage 1 `CLAIMS.json` must follow this compact `ClaimIndex` shape:
-Use `CLAIMS{round_suffix}.json` for the runtime artifact path, with an empty suffix on round 1.
 
 Stage 1 `CLAIMS{round_suffix}.json` must follow this compact `ClaimIndex` shape:
 

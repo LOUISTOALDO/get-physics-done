@@ -1014,6 +1014,48 @@ def test_state_validate_matches_load_for_recoverable_project_contract_warning_dr
     assert not any("references.0.aliases" in warning for warning in validation.warnings)
 
 
+def test_state_validate_warns_when_project_contract_is_recovered_from_backup(tmp_path: Path) -> None:
+    layout = ProjectLayout(tmp_path)
+    layout.gpd.mkdir(parents=True, exist_ok=True)
+
+    broken_state = default_state_dict()
+    contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    contract["context_intake"]["must_read_refs"] = "ref-benchmark"
+    broken_state["project_contract"] = contract
+    layout.state_json.write_text(json.dumps(broken_state, indent=2) + "\n", encoding="utf-8")
+
+    backup_state = default_state_dict()
+    backup_state["project_contract"] = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    layout.state_json_backup.write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
+
+    validation = state_validate(tmp_path)
+
+    assert validation.valid is True
+    assert validation.integrity_status == "warning"
+    assert any("project_contract was recovered from state.json.bak" in warning for warning in validation.warnings)
+
+
+def test_state_validate_review_blocks_when_project_contract_is_recovered_from_backup(tmp_path: Path) -> None:
+    layout = ProjectLayout(tmp_path)
+    layout.gpd.mkdir(parents=True, exist_ok=True)
+
+    broken_state = default_state_dict()
+    contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    contract["context_intake"]["must_read_refs"] = "ref-benchmark"
+    broken_state["project_contract"] = contract
+    layout.state_json.write_text(json.dumps(broken_state, indent=2) + "\n", encoding="utf-8")
+
+    backup_state = default_state_dict()
+    backup_state["project_contract"] = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    layout.state_json_backup.write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
+
+    validation = state_validate(tmp_path, integrity_mode="review")
+
+    assert validation.valid is False
+    assert validation.integrity_status == "blocked"
+    assert any("project_contract was recovered from state.json.bak" in issue for issue in validation.issues)
+
+
 def test_state_validate_review_blocks_missing_evidence_file(tmp_path):
     state = _state_with_result(
         {

@@ -31,7 +31,11 @@ from gpd.core.constants import (
     STANDALONE_SUMMARY,
     SUMMARY_SUFFIX,
 )
-from gpd.core.contract_validation import _format_schema_error, _sanitize_contract_scalars
+from gpd.core.contract_validation import (
+    _collect_list_shape_drift_errors,
+    _format_schema_error,
+    _sanitize_contract_scalars,
+)
 from gpd.core.errors import GPDError
 from gpd.core.observability import instrument_gpd_function, resolve_project_root
 from gpd.core.utils import safe_read_file
@@ -238,12 +242,13 @@ def _validate_contract_mapping(
     if not isinstance(contract_data, dict):
         return _PlanContractResolution(errors=["expected an object"])
 
+    list_shape_drift_errors = _collect_list_shape_drift_errors(contract_data)
     scalar_errors: list[str] = []
     sanitized_contract_data = _sanitize_contract_scalars(contract_data, errors=scalar_errors)
     if not isinstance(sanitized_contract_data, dict):
         return _PlanContractResolution(errors=["expected an object"])
-    if scalar_errors:
-        return _PlanContractResolution(errors=scalar_errors)
+    if scalar_errors or list_shape_drift_errors:
+        return _PlanContractResolution(errors=list(dict.fromkeys([*scalar_errors, *list_shape_drift_errors])))
 
     try:
         contract = ResearchContract.model_validate(sanitized_contract_data)
