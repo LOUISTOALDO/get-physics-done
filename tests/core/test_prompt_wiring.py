@@ -939,6 +939,9 @@ def test_stage4_templates_and_workflows_surface_contract_results_and_verdict_led
     assert "Choose the depth explicitly" in summary_template
     assert "default: full" not in summary_template
     assert "Keep `uncertainty_markers` explicit and user-visible" in summary_template
+    assert "uncertainty_markers:" in summary_template
+    assert "weakest_anchors: [anchor-1]" in summary_template
+    assert "disconfirming_observations: [observation-1]" in summary_template
     assert "omitting the corresponding `comparison_verdicts` entry makes the summary incomplete" in summary_template
     assert "verification_inputs" not in summary_template
     assert "contract_results" in verification_template
@@ -947,9 +950,15 @@ def test_stage4_templates_and_workflows_surface_contract_results_and_verdict_led
     assert "status: passed` is strict" in verification_template
     assert "absence of a verdict is itself a gap" in verification_template
     assert "Reload `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` immediately before writing the YAML" in verification_template
+    assert "uncertainty_markers:" in verification_template
+    assert "weakest_anchors: [anchor-1]" in verification_template
+    assert "disconfirming_observations: [observation-1]" in verification_template
     assert "Use `@{GPD_INSTALL_DIR}/templates/verification-report.md` for the canonical verification frontmatter contract." in research_verification
     assert "status: passed | gaps_found | expert_needed | human_needed" in research_verification
     assert "comparison_verdicts: []" in research_verification
+    assert "uncertainty_markers:" in research_verification
+    assert "weakest_anchors: [anchor-1]" in research_verification
+    assert "disconfirming_observations: [observation-1]" in research_verification
     assert "session_status: validating | completed | diagnosed" in research_verification
     assert "The frontmatter `comparison_verdicts` ledger is authoritative" in research_verification
     assert "decisive benchmark / cross-method check remains partial, not attempted, or still lacks a decisive verdict" in research_verification
@@ -1082,6 +1091,8 @@ def test_contract_schema_references_stay_wired_into_templates_and_review_docs() 
     assert "XX-VERIFICATION.md" in contract_results_schema
     assert "Must be the canonical project-root-relative `.gpd/phases/XX-name/XX-YY-PLAN.md#/contract` path" in contract_results_schema
     assert "`uncertainty_markers` must remain explicit in contract-backed outputs" in contract_results_schema
+    assert "weakest_anchors: [anchor-1]" in contract_results_schema
+    assert "disconfirming_observations: [observation-1]" in contract_results_schema
     assert "forbidden_proxy_id: fp-main" in contract_results_schema
     assert "closed action vocabulary: `read`, `use`, `compare`, `cite`, `avoid`" in contract_results_schema
     assert "forbidden_proxy_id: forbidden-proxy-id" in summary_template
@@ -1529,11 +1540,17 @@ def test_stage7_runtime_parity_docs_use_canonical_model_resolution_and_generic_h
     assert "Handoff verification" in execute_phase
     assert "False failure report despite delivered work" in execute_phase
     assert "Handoff verification" in quick
+    assert "templates/planner-subagent-prompt.md" in quick
+    assert "templates/phase-prompt.md" in quick
+    assert "templates/plan-contract-schema.md" in quick
+    assert "project_contract_load_info.status" in quick
+    assert "project_contract_validation.valid" in quick
     assert "project_contract_validation" in quick
     assert "project_contract_load_info" in quick
     assert "Quick mode still inherits the approved `project_contract` only when `project_contract_load_info` is clean and `project_contract_validation` passes" in quick
     assert "**Project Contract Load Info:** {project_contract_load_info}" in quick
     assert "**Project Contract Validation:** {project_contract_validation}" in quick
+    assert "## CHECKPOINT REACHED" in quick
     assert "classifyHandoffIfNeeded" not in execute_phase
     assert "classifyHandoffIfNeeded" not in execute_plan
     assert "classifyHandoffIfNeeded" not in quick
@@ -1616,6 +1633,12 @@ def test_stage9_adaptive_mode_and_review_cadence_docs_stay_aligned() -> None:
     assert expected_anchor in meta_orchestration
     assert "anchors or decisive evidence make one method family clearly preferable" in new_project
     assert "prior milestones already provide decisive evidence or an explicit approach lock" in new_milestone
+    assert "project_contract_validation" in new_milestone
+    assert "project_contract_load_info" in new_milestone
+    assert "project_contract_load_info.status" in new_milestone
+    assert "project_contract_validation.valid" in new_milestone
+    assert "only when `project_contract_load_info` is clean and `project_contract_validation.valid` is true" in new_milestone
+    assert "checkpoint with the user and repair the stored contract before using it for milestone scope" in new_milestone
     assert "same contract-critical floor at all times" in verify_work
     assert "phase 1-2" not in plan_phase
     assert "phase 3+" not in plan_phase

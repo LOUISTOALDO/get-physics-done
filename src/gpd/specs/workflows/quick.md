@@ -53,6 +53,7 @@ Parse JSON for: `planner_model`, `executor_model`, `commit_docs`, `autonomy`, `n
 
 Quick tasks can run mid-phase and do NOT require ROADMAP.md. They only need `.gpd/` to exist for directory structure.
 Quick mode still inherits the approved `project_contract` only when `project_contract_load_info` is clean and `project_contract_validation` passes, and it still inherits the active reference ledger. Do not bypass required anchors, baselines, or forbidden-proxy constraints just because the task is small.
+Before planning, also load `{GPD_INSTALL_DIR}/templates/planner-subagent-prompt.md`, `{GPD_INSTALL_DIR}/templates/phase-prompt.md`, and `{GPD_INSTALL_DIR}/templates/plan-contract-schema.md` so the canonical PLAN structure and contract rules are visible to the planner before it writes anything.
 
 ---
 
@@ -84,6 +85,8 @@ Spawn gpd-planner with quick mode context:
 task(
   prompt="First, read {GPD_AGENTS_DIR}/gpd-planner.md for your role and instructions.
 
+Then read {GPD_INSTALL_DIR}/templates/planner-subagent-prompt.md, {GPD_INSTALL_DIR}/templates/phase-prompt.md, and {GPD_INSTALL_DIR}/templates/plan-contract-schema.md before drafting the plan. Those files are the canonical sources for PLAN frontmatter and contract completeness.
+
 <planning_context>
 
 **Mode:** quick
@@ -106,6 +109,7 @@ Read the file at .gpd/STATE.md
 - Create a SINGLE plan with 1-3 focused tasks
 - Quick tasks should be atomic and self-contained
 - No literature review phase, no checker phase
+- If `project_contract_load_info.status` starts with `blocked` or `project_contract_validation.valid` is false, return `## CHECKPOINT REACHED` instead of drafting a plan from guessed scope.
 - Target ~30% context usage (simple, focused)
 </constraints>
 

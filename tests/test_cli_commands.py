@@ -453,6 +453,38 @@ review_summary:
         assert ".gpd/phases/01-test-phase/01-SUMMARY.md" in payload["effective_reference_intake"]["must_include_prior_outputs"]
         assert ".gpd/research-map/CONCERNS.md" in payload["research_map_reference_files"]
 
+    def test_new_milestone_surfaces_contract_load_and_validation_gates(self, gpd_project: Path) -> None:
+        (gpd_project / ".gpd" / "ROADMAP.md").write_text(
+            "# Roadmap\n\n## Milestone v1.1: Scaling Study\n",
+            encoding="utf-8",
+        )
+        state = json.loads((gpd_project / ".gpd" / "state.json").read_text(encoding="utf-8"))
+        contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+        contract["context_intake"] = {
+            "must_read_refs": [],
+            "must_include_prior_outputs": [],
+            "user_asserted_anchors": [],
+            "known_good_baselines": [],
+            "context_gaps": [],
+            "crucial_inputs": [],
+        }
+        contract["references"][0]["role"] = "background"
+        contract["references"][0]["must_surface"] = False
+        state["project_contract"] = contract
+        (gpd_project / ".gpd" / "state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+        result = runner.invoke(app, ["--raw", "init", "new-milestone"], catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+
+        assert payload["project_contract"] is not None
+        assert payload["project_contract"]["references"][0]["must_surface"] is False
+        assert payload["project_contract"]["references"][0]["role"] == "background"
+        assert payload["project_contract_load_info"]["status"] == "loaded_with_approval_blockers"
+        assert payload["project_contract_validation"]["valid"] is False
+        assert "project_contract_load_info" in payload
+        assert "project_contract_validation" in payload
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Phase commands

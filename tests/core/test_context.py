@@ -869,6 +869,39 @@ class TestInitNewMilestone:
         assert "Benchmark Ref 2024" in ctx["active_reference_context"]
         assert ".gpd/research-map/REFERENCES.md" in ctx["reference_artifact_files"]
 
+    def test_surfaces_project_contract_load_and_validation_gates_when_contract_is_not_authoritative(
+        self, tmp_path: Path
+    ) -> None:
+        _setup_project(tmp_path)
+        _create_roadmap(tmp_path, "## Milestone v1.0: Setup Phase\n")
+
+        from gpd.core.state import default_state_dict
+
+        state = default_state_dict()
+        contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+        contract["context_intake"] = {
+            "must_read_refs": [],
+            "must_include_prior_outputs": [],
+            "user_asserted_anchors": [],
+            "known_good_baselines": [],
+            "context_gaps": [],
+            "crucial_inputs": [],
+        }
+        contract["references"][0]["role"] = "background"
+        contract["references"][0]["must_surface"] = False
+        state["project_contract"] = contract
+        (tmp_path / ".gpd" / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+        ctx = init_new_milestone(tmp_path)
+
+        assert ctx["project_contract"] is not None
+        assert ctx["project_contract"]["references"][0]["role"] == "background"
+        assert ctx["project_contract"]["references"][0]["must_surface"] is False
+        assert ctx["project_contract_load_info"]["status"] == "loaded_with_approval_blockers"
+        assert ctx["project_contract_validation"]["valid"] is False
+        assert "project_contract_load_info" in ctx
+        assert "project_contract_validation" in ctx
+
 
 # ─── init_quick ───────────────────────────────────────────────────────────────
 
