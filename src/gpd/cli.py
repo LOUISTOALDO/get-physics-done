@@ -4598,19 +4598,46 @@ def uninstall(
             console.print("[dim]Cancelled.[/]")
             raise typer.Exit()
 
-    removed_results: list[tuple[str, dict[str, object]]] = []
+    uninstall_results: list[dict[str, object]] = []
+    failures = False
     for rt in selected:
         adapter = _get_adapter_or_error(rt, action="uninstall")
         target = _resolve_cli_target_dir(target_dir) if target_dir else adapter.resolve_target_dir(is_global, _get_cwd())
         if not target.is_dir():
+            outcome = {
+                "runtime": rt,
+                "status": "skipped",
+                "target": str(target),
+                "reason": f"not installed at {_format_display_path(target)}",
+            }
             if not _raw:
                 console.print(f"  [yellow]⊘[/] {adapter.display_name} — not installed at {_format_display_path(target)}")
+            uninstall_results.append(outcome)
             continue
         try:
             result = adapter.uninstall(target)
         except Exception as exc:
-            _error(str(exc))
-        removed_items = result.get("removed", [])
+            failures = True
+            outcome = {
+                "runtime": rt,
+                "status": "failed",
+                "target": str(target),
+                "error": str(exc),
+            }
+            if not _raw:
+                console.print(f"  [red]✗[/] {adapter.display_name} — {exc}")
+            uninstall_results.append(outcome)
+            continue
+        removed_items = list(result.get("removed", []))
+        status = "removed" if removed_items else "skipped"
+        outcome = {
+            "runtime": rt,
+            "target": str(target),
+            **result,
+            "status": status,
+        }
+        if not removed_items:
+            outcome["reason"] = "nothing to remove"
         if not _raw:
             if removed_items:
                 console.print(
@@ -4618,10 +4645,12 @@ def uninstall(
                 )
             else:
                 console.print(f"  [dim]⊘[/] {adapter.display_name} — nothing to remove")
-        removed_results.append((rt, result))
+        uninstall_results.append(outcome)
 
     if _raw:
-        _output({"uninstalled": [{"runtime": rt, **res} for rt, res in removed_results]})
+        _output({"uninstalled": uninstall_results})
+    if failures:
+        raise typer.Exit(code=1)
 
 
 def entrypoint() -> int | None:

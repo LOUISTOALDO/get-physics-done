@@ -10,6 +10,7 @@ import pytest
 
 from gpd import registry
 from gpd.adapters.install_utils import expand_at_includes
+from gpd.adapters.runtime_catalog import iter_runtime_descriptors
 from gpd.contracts import ResearchContract, VerificationEvidence
 from gpd.registry import _parse_frontmatter, _parse_tools
 from scripts.repo_graph_contract import parse_scope_count
@@ -1373,7 +1374,20 @@ def test_sync_state_and_write_paper_command_prompts_expand_required_schema_bodie
 
 
 def test_non_adapter_sources_do_not_hardcode_runtime_names() -> None:
-    runtime_name_re = re.compile(r"\b(?:claude(?:-code)?|codex|gemini|opencode)\b", re.IGNORECASE)
+    runtime_terms = {
+        descriptor.runtime_name
+        for descriptor in iter_runtime_descriptors()
+    }
+    runtime_terms.update(
+        alias
+        for descriptor in iter_runtime_descriptors()
+        for alias in descriptor.selection_aliases
+        if alias.strip()
+    )
+    runtime_name_re = re.compile(
+        r"\b(?:%s)\b" % "|".join(re.escape(term) for term in sorted(runtime_terms, key=len, reverse=True)),
+        re.IGNORECASE,
+    )
     offenders: list[str] = []
 
     for path in sorted((REPO_ROOT / "src" / "gpd").rglob("*")):

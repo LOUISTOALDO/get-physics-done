@@ -154,6 +154,13 @@ def _runtime_display_name(runtime: str) -> str:
         return runtime
 
 
+def _format_unknown_runtime_error(exc: KeyError) -> str:
+    """Return the stable user-facing message for an unknown runtime."""
+    if len(exc.args) == 1 and isinstance(exc.args[0], str):
+        return exc.args[0]
+    return str(exc)
+
+
 def _canonical_runtime_name(runtime: str) -> str:
     """Return the canonical runtime id for aliases and display names."""
     normalized = normalize_runtime_name(runtime)
@@ -375,6 +382,11 @@ def main(argv: list[str] | None = None) -> int:
     runtime = _canonical_runtime_name(options.runtime)
     cli_cwd = _resolve_cli_cwd_from_argv(gpd_args)
     _maybe_reexec_from_checkout(raw_argv, cli_cwd=cli_cwd)
+    try:
+        adapter = get_adapter(runtime)
+    except KeyError as exc:
+        sys.stderr.write(_format_unknown_runtime_error(exc) + "\n")
+        return 127
     config_dir = _resolve_config_dir(
         options.config_dir,
         runtime=runtime,
@@ -409,7 +421,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 127
 
-    adapter = get_adapter(runtime)
     missing = adapter.missing_install_artifacts(config_dir)
     if missing:
         sys.stderr.write(

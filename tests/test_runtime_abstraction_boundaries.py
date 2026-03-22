@@ -74,7 +74,6 @@ _RUNTIME_PATTERN = (
         [
             *_runtime_literal_patterns(),
             *_runtime_env_prefix_patterns(),
-            r"codex_notify\.py",
         ]
     )
     + ")"
@@ -141,6 +140,7 @@ _SHARED_TEST_RUNTIME_SURFACE_PATHS = (
     REPO_ROOT / "tests/test_bootstrap_installer.py",
     REPO_ROOT / "tests/test_install_lifecycle.py",
     REPO_ROOT / "tests/core/test_prompt_tool_name_consistency.py",
+    REPO_ROOT / "tests/core/test_prompt_wiring.py",
     REPO_ROOT / "tests/test_update_workflow.py",
 )
 _TEXT_SURFACE_SUFFIXES = {".json", ".md", ".py"}

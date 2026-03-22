@@ -349,6 +349,99 @@ def test_uninstall_nonexistent_target_skips(tmp_path: Path):
     assert result.exit_code == 0
 
 
+def test_uninstall_all_continues_after_one_runtime_failure(tmp_path: Path) -> None:
+    """A failure in one runtime uninstall must not stop later runtimes."""
+
+    removed_target = tmp_path / ".claude"
+    removed_target.mkdir()
+    failed_target = tmp_path / ".codex"
+    failed_target.mkdir()
+
+    claude_adapter = MagicMock()
+    claude_adapter.display_name = "Claude Code"
+    claude_adapter.resolve_target_dir.return_value = removed_target
+    claude_adapter.uninstall.return_value = {"removed": ["commands"]}
+
+    codex_adapter = MagicMock()
+    codex_adapter.display_name = "Codex"
+    codex_adapter.resolve_target_dir.return_value = failed_target
+    codex_adapter.uninstall.side_effect = RuntimeError("boom")
+
+    with (
+        patch("gpd.adapters.list_runtimes", return_value=["claude-code", "codex"]),
+        patch("gpd.adapters.get_adapter", side_effect=lambda runtime: claude_adapter if runtime == "claude-code" else codex_adapter),
+    ):
+        result = runner.invoke(app, ["uninstall", "--all", "--local"], input="y\n")
+
+    assert result.exit_code == 1
+    claude_adapter.uninstall.assert_called_once_with(removed_target)
+    codex_adapter.uninstall.assert_called_once_with(failed_target)
+    assert "boom" in result.output
+    assert "Claude Code" in result.output
+    assert "Codex" in result.output
+
+
+def test_uninstall_raw_outputs_structured_outcomes(tmp_path: Path) -> None:
+    """--raw uninstall should report removed, skipped, and failed outcomes explicitly."""
+
+    removed_target = tmp_path / ".claude"
+    removed_target.mkdir()
+    failed_target = tmp_path / ".codex"
+    failed_target.mkdir()
+    skipped_target = tmp_path / ".gemini"
+
+    claude_adapter = MagicMock()
+    claude_adapter.display_name = "Claude Code"
+    claude_adapter.resolve_target_dir.return_value = removed_target
+    claude_adapter.uninstall.return_value = {"removed": ["commands", "agents"]}
+
+    codex_adapter = MagicMock()
+    codex_adapter.display_name = "Codex"
+    codex_adapter.resolve_target_dir.return_value = failed_target
+    codex_adapter.uninstall.side_effect = RuntimeError("boom")
+
+    gemini_adapter = MagicMock()
+    gemini_adapter.display_name = "Gemini CLI"
+    gemini_adapter.resolve_target_dir.return_value = skipped_target
+    gemini_adapter.uninstall.return_value = {"removed": []}
+
+    with (
+        patch("gpd.adapters.list_runtimes", return_value=["claude-code", "codex", "gemini"]),
+        patch(
+            "gpd.adapters.get_adapter",
+            side_effect=lambda runtime: {
+                "claude-code": claude_adapter,
+                "codex": codex_adapter,
+                "gemini": gemini_adapter,
+            }[runtime],
+        ),
+    ):
+        result = runner.invoke(app, ["--raw", "uninstall", "--all", "--local"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["uninstalled"] == [
+        {
+            "runtime": "claude-code",
+            "status": "removed",
+            "target": str(removed_target),
+            "removed": ["commands", "agents"],
+        },
+        {
+            "runtime": "codex",
+            "status": "failed",
+            "target": str(failed_target),
+            "error": "boom",
+        },
+        {
+            "runtime": "gemini",
+            "status": "skipped",
+            "target": str(skipped_target),
+            "reason": f"not installed at {skipped_target.as_posix()}",
+        },
+    ]
+
+
 # ─── 5. Non-TTY interactive mode ────────────────────────────────────────────
 
 
@@ -476,7 +569,12 @@ def test_uninstall_raw_outputs_json(tmp_path: Path):
     )
 
     assert result.exit_code == 0
-    assert '"uninstalled"' in result.output
+    payload = json.loads(result.output)
+    assert payload["uninstalled"][0]["runtime"] == "claude-code"
+    assert payload["uninstalled"][0]["status"] == "skipped"
+    assert payload["uninstalled"][0]["target"] == str(target)
+    assert payload["uninstalled"][0]["reason"] == "nothing to remove"
+    assert payload["uninstalled"][0]["removed"] == []
 
 
 # ─── 7. is_global forwarding ────────────────────────────────────────────────

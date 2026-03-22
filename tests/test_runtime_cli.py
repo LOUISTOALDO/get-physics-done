@@ -83,6 +83,29 @@ def _run_runtime_cli_with_recording(
     return main(argv), observed
 
 
+def test_runtime_cli_returns_stable_error_for_unknown_runtime(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.setattr("gpd.runtime_cli._maybe_reexec_from_checkout", lambda *_args, **_kwargs: None)
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(
+        [
+            "--runtime",
+            "nonexistent-runtime",
+            "--config-dir",
+            str(tmp_path / ".gpd"),
+            "--install-scope",
+            "global",
+            "state",
+            "load",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 127
+    assert "Unknown runtime 'nonexistent-runtime'" in captured.err
+    assert "Supported:" in captured.err
+
+
 @pytest.mark.parametrize("descriptor", _RUNTIME_DESCRIPTORS, ids=lambda descriptor: descriptor.runtime_name)
 def test_runtime_cli_fails_cleanly_for_incomplete_install(tmp_path: Path, capsys, descriptor) -> None:
     adapter = get_adapter(descriptor.runtime_name)
