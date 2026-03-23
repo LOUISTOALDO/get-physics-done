@@ -171,6 +171,20 @@ def _manifest_runtime_status(config_dir: Path) -> tuple[str | None, bool]:
     return normalize_runtime_name(normalized), True
 
 
+def _has_trusted_manifest_mapping(config_dir: Path) -> bool:
+    """Return whether *config_dir* has a parseable manifest mapping."""
+    manifest_path = config_dir / MANIFEST_NAME
+    if not manifest_path.exists():
+        return False
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    return isinstance(manifest, dict)
+
+
 def _runtime_from_manifest_or_path(config_dir: Path, *, home: Path | None = None) -> str | None:
     """Infer the owning runtime for *config_dir* from its manifest or path."""
     manifest_runtime, manifest_has_runtime = _manifest_runtime_status(config_dir)
@@ -178,20 +192,19 @@ def _runtime_from_manifest_or_path(config_dir: Path, *, home: Path | None = None
         return manifest_runtime or RUNTIME_UNKNOWN
 
     resolved_home = home or Path.home()
+    trusted_manifest = _has_trusted_manifest_mapping(config_dir)
     for runtime in ALL_RUNTIMES:
         adapter = _adapter(runtime)
         if adapter is None:
             continue
         if config_dir.name == adapter.local_config_dir_name:
             return runtime
-        if _paths_equal(config_dir, adapter.resolve_global_config_dir(home=home)):
-            return runtime
         # Explicit config-dir ownership should remain stable even when the
         # current process carries unrelated runtime/XDG override env vars.
-        if _paths_equal(
-            config_dir,
-            _resolve_global_config_dir(adapter.runtime_descriptor, home=resolved_home, environ={}),
-        ):
+        canonical_global_dir = _resolve_global_config_dir(adapter.runtime_descriptor, home=resolved_home, environ={})
+        if _paths_equal(config_dir, canonical_global_dir):
+            return runtime
+        if trusted_manifest and _paths_equal(config_dir, adapter.resolve_global_config_dir(home=home)):
             return runtime
     return None
 

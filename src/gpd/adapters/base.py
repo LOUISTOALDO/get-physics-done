@@ -59,6 +59,13 @@ def _normalize_manifest_runtime(runtime: object) -> str | None:
     return normalize_runtime_name(normalized) or normalized
 
 
+def _paths_equal(left: Path, right: Path) -> bool:
+    try:
+        return left.expanduser().resolve() == right.expanduser().resolve()
+    except OSError:
+        return left.expanduser() == right.expanduser()
+
+
 class RuntimeAdapter(abc.ABC):
     """Abstract base for GPD runtime adapters."""
 
@@ -307,17 +314,26 @@ class RuntimeAdapter(abc.ABC):
 
         inferred_runtime = installed_runtime(target_dir)
         if inferred_runtime is not None:
-            if inferred_runtime == self.runtime_name:
-                return
-            try:
-                other_runtime = get_runtime_descriptor(inferred_runtime).display_name
-            except KeyError:
-                other_runtime = inferred_runtime
-            raise RuntimeError(
-                f"Refusing to {action} `{target_dir}`.\n"
-                f"Its GPD install belongs to {other_runtime} (`{inferred_runtime}`), "
-                f"not {self.display_name} (`{self.runtime_name}`)."
-            )
+            env_global_target = self.resolve_global_config_dir()
+            canonical_global_target = resolve_global_config_dir(self.runtime_descriptor, home=Path.home(), environ={})
+            if (
+                manifest_state == "missing"
+                and _paths_equal(target_dir, env_global_target)
+                and not _paths_equal(target_dir, canonical_global_target)
+            ):
+                inferred_runtime = None
+            else:
+                if inferred_runtime == self.runtime_name:
+                    return
+                try:
+                    other_runtime = get_runtime_descriptor(inferred_runtime).display_name
+                except KeyError:
+                    other_runtime = inferred_runtime
+                raise RuntimeError(
+                    f"Refusing to {action} `{target_dir}`.\n"
+                    f"Its GPD install belongs to {other_runtime} (`{inferred_runtime}`), "
+                    f"not {self.display_name} (`{self.runtime_name}`)."
+                )
 
         if manifest_state in {"corrupt", "invalid"}:
             raise RuntimeError(

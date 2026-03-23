@@ -15,6 +15,7 @@ import pytest
 
 from gpd.adapters import get_adapter
 from gpd.adapters.runtime_catalog import iter_runtime_descriptors
+from gpd.hooks.install_metadata import installed_runtime
 from gpd.hooks.runtime_detect import (
     RUNTIME_UNKNOWN,
     SCOPE_GLOBAL,
@@ -470,6 +471,83 @@ class TestDetectActiveRuntimeWithInstall:
         env = _clean_runtime_env()
         with patch.dict(os.environ, env, clear=True):
             assert detect_active_runtime_with_gpd_install(cwd=workspace, home=home) == RUNTIME_OPENCODE
+
+    def test_installed_runtime_ignores_corrupt_env_resolved_global_dir_without_trusted_manifest(
+        self, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        custom_dir = tmp_path / "custom-codex"
+        custom_dir.mkdir()
+        (custom_dir / "gpd-file-manifest.json").write_text("not-json", encoding="utf-8")
+
+        env = _clean_runtime_env()
+        env["CODEX_CONFIG_DIR"] = str(custom_dir)
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("gpd.hooks.runtime_detect.Path.home", return_value=home),
+        ):
+            assert installed_runtime(custom_dir) is None
+
+    def test_installed_runtime_ignores_manifestless_env_resolved_global_dir_without_trusted_manifest(
+        self, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        custom_dir = tmp_path / "custom-codex"
+        custom_dir.mkdir()
+
+        env = _clean_runtime_env()
+        env["CODEX_CONFIG_DIR"] = str(custom_dir)
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("gpd.hooks.runtime_detect.Path.home", return_value=home),
+        ):
+            assert installed_runtime(custom_dir) is None
+
+    def test_installed_runtime_accepts_env_resolved_global_dir_with_parseable_legacy_manifest(
+        self, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        custom_dir = tmp_path / "custom-codex"
+        custom_dir.mkdir()
+        (custom_dir / "gpd-file-manifest.json").write_text(
+            json.dumps({"install_scope": SCOPE_GLOBAL}),
+            encoding="utf-8",
+        )
+
+        env = _clean_runtime_env()
+        env["CODEX_CONFIG_DIR"] = str(custom_dir)
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("gpd.hooks.runtime_detect.Path.home", return_value=home),
+        ):
+            assert installed_runtime(custom_dir) == RUNTIME_CODEX
+
+    def test_installed_runtime_prefers_canonical_global_dir_over_env_override(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        canonical_dir = home / ".config" / "opencode"
+        canonical_dir.mkdir(parents=True)
+        (canonical_dir / "gpd-file-manifest.json").write_text("not-json", encoding="utf-8")
+
+        env = _clean_runtime_env()
+        env["OPENCODE_CONFIG_DIR"] = str(tmp_path / "foreign-opencode")
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("gpd.hooks.runtime_detect.Path.home", return_value=home),
+        ):
+            assert installed_runtime(canonical_dir) == RUNTIME_OPENCODE
+
+    def test_validate_target_runtime_rejects_manifestless_env_global_dir_with_gpd_markers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        adapter = get_adapter(RUNTIME_CODEX)
+        target_dir = tmp_path / "custom-codex"
+        (target_dir / "get-physics-done").mkdir(parents=True)
+
+        monkeypatch.setattr(adapter, "_install_explicit_target", True, raising=False)
+        monkeypatch.setenv("CODEX_CONFIG_DIR", str(target_dir))
+
+        with pytest.raises(RuntimeError, match="contains GPD artifacts but no manifest"):
+            adapter._validate_target_runtime(target_dir, action="install")
 
 
 class TestDetectRuntimeForGpdUse:
