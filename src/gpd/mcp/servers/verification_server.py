@@ -728,13 +728,6 @@ def _contract_check_request_hint(check_key: str, *, contract: ResearchContract |
 
     binding = request_template.setdefault("binding", {})
     metadata = request_template.setdefault("metadata", {})
-    has_policy_defaults = bool(
-        contract.approach_policy.allowed_fit_families
-        or contract.approach_policy.forbidden_fit_families
-        or contract.approach_policy.allowed_estimator_families
-        or contract.approach_policy.forbidden_estimator_families
-    )
-
     if check_key == "contract.benchmark_reproduction":
         benchmark_reference_ids = [
             reference.id
@@ -758,10 +751,9 @@ def _contract_check_request_hint(check_key: str, *, contract: ResearchContract |
                     "reference_ids",
                     [reference_id for reference_id in benchmark_test.evidence_required if reference_id in benchmark_reference_ids],
                 )
-            if has_policy_defaults:
-                enriched_hint["required_request_fields"] = [
-                    field for field in enriched_hint["required_request_fields"] if field != "metadata.source_reference_id"
-                ]
+            enriched_hint["required_request_fields"] = [
+                field for field in enriched_hint["required_request_fields"] if field != "metadata.source_reference_id"
+            ]
 
     elif check_key == "contract.limit_recovery":
         limit_tests = _matching_acceptance_tests(
@@ -792,11 +784,14 @@ def _contract_check_request_hint(check_key: str, *, contract: ResearchContract |
                 limit_test = _resolve_single_limit_acceptance_test(contract, binding_ids)
             if limit_test is not None and limit_test.pass_condition:
                 metadata["expected_behavior"] = limit_test.pass_condition
-            if has_policy_defaults:
+            enriched_hint["required_request_fields"] = [
+                field for field in enriched_hint["required_request_fields"] if field != "metadata.regime_label"
+            ]
+            if limit_test is not None and limit_test.pass_condition:
                 enriched_hint["required_request_fields"] = [
                     field
                     for field in enriched_hint["required_request_fields"]
-                    if field not in {"metadata.regime_label", "metadata.expected_behavior"}
+                    if field != "metadata.expected_behavior"
                 ]
 
     elif check_key == "contract.direct_proxy_consistency":

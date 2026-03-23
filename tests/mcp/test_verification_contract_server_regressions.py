@@ -728,6 +728,29 @@ def test_suggest_contract_checks_leaves_ambiguous_subject_bindings_unresolved() 
     assert limit["metadata"]["expected_behavior"] is None
 
 
+def test_suggest_contract_checks_unique_context_drops_redundant_selector_metadata_without_policy_defaults() -> None:
+    from gpd.mcp.servers.verification_server import suggest_contract_checks
+
+    contract = _derived_template_contract()
+    contract.pop("approach_policy", None)
+
+    result = suggest_contract_checks(contract)
+    checks = {entry["check_key"]: entry for entry in result["suggested_checks"]}
+
+    benchmark = checks["contract.benchmark_reproduction"]
+    limit = checks["contract.limit_recovery"]
+
+    assert benchmark["required_request_fields"] == [
+        "observed.metric_value",
+        "observed.threshold_value",
+    ]
+    assert benchmark["request_template"]["metadata"]["source_reference_id"] == "ref-benchmark"
+
+    assert limit["required_request_fields"] == []
+    assert limit["request_template"]["metadata"]["regime_label"] == "large-k"
+    assert limit["request_template"]["metadata"]["expected_behavior"] == "Recovers the contracted large-k scaling"
+
+
 def test_run_contract_check_ambiguous_context_requires_explicit_subject_selector() -> None:
     from gpd.mcp.servers.verification_server import run_contract_check
 

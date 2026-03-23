@@ -2155,7 +2155,6 @@ class TestVerificationServer:
         benchmark = next(entry for entry in result["suggested_checks"] if entry["check_key"] == "contract.benchmark_reproduction")
         assert benchmark["binding_targets"] == ["claim", "deliverable", "acceptance_test", "reference"]
         assert benchmark["required_request_fields"] == [
-            "metadata.source_reference_id",
             "observed.metric_value",
             "observed.threshold_value",
         ]
