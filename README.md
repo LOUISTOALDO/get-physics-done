@@ -339,7 +339,7 @@ The full command reference below uses Claude Code / Gemini CLI syntax. Codex use
 | `/gpd:numerical-convergence` | Systematic convergence testing for numerical physics computations |
 | `/gpd:compare-experiment` | Systematically compare theoretical predictions with experimental or observational data |
 | `/gpd:validate-conventions [phase]` | Validate convention consistency across all phases |
-| `/gpd:regression-check [phase]` | Re-verify all previously verified truths to catch regressions after changes |
+| `/gpd:regression-check [phase]` | Scan completed phase summaries and verifications for convention conflicts and verification-state regressions |
 
 #### Quantitative Analysis
 

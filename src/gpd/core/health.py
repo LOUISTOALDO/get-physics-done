@@ -681,24 +681,52 @@ def check_checkpoint_tags(cwd: Path) -> HealthCheck:
 # ─── Auto-Fix ────────────────────────────────────────────────────────────────
 
 
-def _apply_fixes(cwd: Path, checks: list[HealthCheck]) -> list[str]:
-    """Apply automatic fixes for known issues. Returns list of fix descriptions."""
+def _apply_fixes(
+    cwd: Path,
+    checks: list[HealthCheck],
+    *,
+    return_refreshed_labels: bool = False,
+) -> list[str] | tuple[list[str], set[str]]:
+    """Apply automatic fixes for known issues.
+
+    Returns a tuple of the fix descriptions and the labels that should be
+    recomputed so the final report reflects the post-fix filesystem state.
+    """
     layout = ProjectLayout(cwd)
     fixes: list[str] = []
+    refreshed_labels: set[str] = set()
 
-    # Fix 1: Regenerate state.json from STATE.md if missing
+    # Fix 1: Restore state.json through the state loader if missing.
+    # The loader prefers a valid state.json.bak before falling back to STATE.md.
     state_check = next((c for c in checks if c.label == "State Validity"), None)
     if state_check and state_check.details.get("has_md") and not state_check.details.get("has_json"):
-        md_path = layout.state_md
-        content = safe_read_file(md_path)
-        if content is not None:
-            try:
-                sync_state_json(cwd, content)
+        restored = load_state_json(cwd)
+        if restored is not None:
+            if layout.state_json_backup.exists():
+                fixes.append("Restored state.json from state.json.bak")
+            else:
                 fixes.append("Regenerated state.json from STATE.md")
-                state_check.issues = [i for i in state_check.issues if "state.json not found" not in i]
-                state_check.status = CheckStatus.WARN if state_check.warnings else CheckStatus.OK
-            except Exception as e:
-                fixes.append(f"Failed to regenerate state.json: {e}")
+            state_check.issues = [i for i in state_check.issues if "state.json not found" not in i]
+            state_check.status = CheckStatus.WARN if state_check.warnings else CheckStatus.OK
+            refreshed_labels.add("State Validity")
+            structure_check = next((c for c in checks if c.label == "Project Structure"), None)
+            if structure_check is not None:
+                structure_check.details["state.json"] = "present"
+        else:
+            md_path = layout.state_md
+            content = safe_read_file(md_path)
+            if content is not None:
+                try:
+                    sync_state_json(cwd, content)
+                    fixes.append("Regenerated state.json from STATE.md")
+                    state_check.issues = [i for i in state_check.issues if "state.json not found" not in i]
+                    state_check.status = CheckStatus.WARN if state_check.warnings else CheckStatus.OK
+                    refreshed_labels.add("State Validity")
+                    structure_check = next((c for c in checks if c.label == "Project Structure"), None)
+                    if structure_check is not None:
+                        structure_check.details["state.json"] = "present"
+                except Exception as e:
+                    fixes.append(f"Failed to regenerate state.json: {e}")
 
     # Fix 2: Create config.json if missing or malformed
     config_check = next((c for c in checks if c.label == "Config"), None)
@@ -730,6 +758,12 @@ def _apply_fixes(cwd: Path, checks: list[HealthCheck]) -> list[str]:
                 shutil.copy2(config_path, config_path.with_suffix(".json.bak"))
             atomic_write(config_path, json.dumps(config_dict, indent=2) + "\n")
             fixes.append("Created default config.json")
+            config_check.details = {
+                "commit_docs": defaults.commit_docs,
+                "model_profile": defaults.model_profile.value,
+                "autonomy": defaults.autonomy.value,
+                "research_mode": defaults.research_mode.value,
+            }
             config_check.warnings = []
             config_check.issues = []
             config_check.status = CheckStatus.OK
@@ -762,6 +796,8 @@ def _apply_fixes(cwd: Path, checks: list[HealthCheck]) -> list[str]:
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             fixes.append(f"Failed to delete stale checkpoint tags: {e}")
 
+    if return_refreshed_labels:
+        return fixes, refreshed_labels
     return fixes
 
 
@@ -804,7 +840,35 @@ def run_health(cwd: Path, *, fix: bool = False) -> HealthReport:
 
         fixes: list[str] = []
         if fix:
-            fixes = _apply_fixes(cwd, checks)
+            fixes, refreshed_labels = _apply_fixes(cwd, checks, return_refreshed_labels=True)
+            if refreshed_labels:
+                refreshed_checks: list[HealthCheck] = []
+                check_labels = {
+                    "environment": "Environment",
+                    "project_structure": "Project Structure",
+                    "storage_paths": "Storage-Path Policy",
+                    "state_validity": "State Validity",
+                    "compaction": "State Compaction",
+                    "roadmap": "Roadmap Consistency",
+                    "orphans": "Orphan Detection",
+                    "convention_lock": "Convention Lock",
+                    "plan_frontmatter": "Plan Frontmatter",
+                    "latest_return": "Latest Return Envelope",
+                    "config": "Config",
+                    "checkpoint_tags": "Checkpoint Tags",
+                    "git_status": "Git Status",
+                }
+                for name, check_fn in _ALL_CHECKS:
+                    label = check_labels[name]
+                    if label not in refreshed_labels:
+                        refreshed_checks.append(next(c for c in checks if c.label == label))
+                        continue
+                    with gpd_span(f"health.check.{name}"):
+                        if name == "environment":
+                            refreshed_checks.append(check_fn())  # type: ignore[operator]
+                        else:
+                            refreshed_checks.append(check_fn(cwd))  # type: ignore[operator]
+                checks = refreshed_checks
 
         ok_count = sum(1 for c in checks if c.status == CheckStatus.OK)
         warn_count = sum(1 for c in checks if c.status == CheckStatus.WARN)

@@ -477,12 +477,41 @@ class TestRunHealth:
         report = run_health(tmp_path, fix=True)
         assert isinstance(report.fixes_applied, list)
 
+    def test_fix_mode_restores_backup_state_and_refreshes_report_details(self, tmp_path: Path) -> None:
+        cwd = _bootstrap_health_project(tmp_path)
+        layout = ProjectLayout(cwd)
+
+        backup_state = default_state_dict()
+        backup_state["position"]["status"] = "Executing"
+        backup_state["position"]["current_phase"] = "12"
+        backup_state["open_questions"] = ["Recovered from backup"]
+        save_state_json(cwd, backup_state)
+        backup_payload = json.loads(layout.state_json_backup.read_text(encoding="utf-8"))
+
+        layout.state_json.unlink()
+        layout.state_md.write_text("# State\nStale markdown that should not win.\n", encoding="utf-8")
+
+        report = run_health(cwd, fix=True)
+
+        restored_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
+        state_check = next(check for check in report.checks if check.label == "State Validity")
+
+        assert restored_state == backup_payload
+        assert layout.state_json.exists()
+        assert state_check.details["has_json"] is True
+        assert state_check.details["has_md"] is True
+        assert not any("state.json not found" in issue for issue in state_check.issues)
+        assert report.fixes_applied
+        assert any("state.json" in fix.lower() for fix in report.fixes_applied)
+
     def test_fix_mode_removes_stale_checkpoint_tags(self, tmp_path: Path):
         def _run(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
             if args == ["git", "--version"]:
                 return subprocess.CompletedProcess(args=args, returncode=0, stdout="git version 2.45.0\n", stderr="")
             if args[:3] == ["git", "status", "--porcelain"]:
                 return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "check-ignore", "--quiet"]:
+                return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="")
             if args[:3] == ["git", "tag", "-l"]:
                 return subprocess.CompletedProcess(args=args, returncode=0, stdout="gpd-checkpoint/old\n", stderr="")
             if args[:4] == ["git", "log", "-1", "--format=%ct"]:

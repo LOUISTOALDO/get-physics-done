@@ -132,6 +132,7 @@ def _expected_wheel_dependency_names() -> set[str]:
 
 
 HELP_COMMAND_HEADING_RE = re.compile(r"^\*\*`/gpd:([a-z0-9-]+)(?:[^`]*)`\*\*$", re.MULTILINE)
+README_COMMAND_ROW_RE = re.compile(r"^\| `/gpd:([a-z0-9-]+)(?:[^`]*)` \| (.*?) \|$", re.MULTILINE)
 
 
 def _normalized_requirement_name(requirement: str) -> str:
@@ -163,6 +164,10 @@ def _command_inventory_stems(repo_root: Path) -> set[str]:
 
 def _help_heading_stems(content: str) -> set[str]:
     return set(HELP_COMMAND_HEADING_RE.findall(content))
+
+
+def _readme_command_rows(content: str) -> dict[str, str]:
+    return {stem: description.strip() for stem, description in README_COMMAND_ROW_RE.findall(content)}
 
 
 def test_required_public_release_artifacts_exist() -> None:
@@ -561,6 +566,20 @@ def test_public_cli_docs_cover_project_contract_comparison_and_paper_build() -> 
     assert "`gpd validate project-contract <file.json or -> [--mode approved|draft]`" in readme
     assert "| `/gpd:compare-results [phase, artifact, or comparison target]` |" in readme
     assert "`gpd paper-build [PAPER-CONFIG.json] [--output-dir <dir>]`" in readme
+
+
+def test_public_readme_command_table_matches_command_inventory_and_regression_check_wording() -> None:
+    repo_root = _repo_root()
+    readme = (repo_root / "README.md").read_text(encoding="utf-8")
+    inventory = _command_inventory_stems(repo_root)
+    readme_rows = _readme_command_rows(readme)
+
+    assert readme_rows, "expected README command table entries"
+    assert set(readme_rows) == inventory
+    assert (
+        readme_rows["regression-check"]
+        == "Scan completed phase summaries and verifications for convention conflicts and verification-state regressions"
+    )
 
 
 def test_help_reference_surfaces_clarify_runtime_slash_commands_vs_local_cli() -> None:

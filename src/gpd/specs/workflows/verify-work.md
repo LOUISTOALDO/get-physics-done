@@ -342,12 +342,14 @@ contract_results:
       summary: [verification not started yet]
   references:
     reference-id:
-      status: not_attempted
+      status: missing
+      completed_actions: []
+      missing_actions: [read]
       summary: [verification not started yet]
   forbidden_proxies:
     forbidden-proxy-id:
       status: unresolved
-      summary: [verification not started yet]
+      notes: [verification not started yet]
   uncertainty_markers:
     weakest_anchors: [anchor-1]
     unvalidated_assumptions: [assumption-1]
@@ -369,6 +371,11 @@ suggested_contract_checks:
     reason: [why the missing check matters]
     suggested_subject_kind: acceptance_test
     suggested_subject_id: test-benchmark
+    evidence_path: [artifact path or expected evidence path]
+  - check: [missing decisive reference comparison]
+    reason: [why the missing compare-required reference matters]
+    suggested_subject_kind: reference
+    suggested_subject_id: reference-id
     evidence_path: [artifact path or expected evidence path]
 source: [list of SUMMARY.md files]
 started: [ISO timestamp]
@@ -407,6 +414,8 @@ suggested_contract_checks:
     suggested_subject_kind: [claim | deliverable | acceptance_test | reference]
     suggested_subject_id: [matching contract id]
     evidence_path: [artifact path or expected evidence path]
+  # Add a reference-backed decisive gap here whenever a benchmark reference or
+  # a reference with required_actions including `compare` is still incomplete.
 awaiting: researcher response
 
 ## Checks
