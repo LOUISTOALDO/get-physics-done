@@ -34,7 +34,7 @@ from rich.text import Text
 from gpd.command_labels import canonical_command_label
 from gpd.core.constants import ENV_GPD_DISABLE_CHECKOUT_REEXEC
 from gpd.core.errors import ConfigError, GPDError
-from gpd.hooks.runtime_detect import normalize_runtime_name
+from gpd.hooks.runtime_detect import detect_runtime_for_gpd_use, normalize_runtime_name
 
 if TYPE_CHECKING:
     from gpd.mcp.paper.models import PaperConfig
@@ -262,12 +262,9 @@ class ReviewPreflightResult:
     required_outputs: list[str]
     required_evidence: list[str]
     blocking_conditions: list[str]
-    validated_surface: str = "public_runtime_slash_command"
+    validated_surface: str = "public_runtime_command_surface"
     local_cli_equivalence_guaranteed: bool = False
-    dispatch_note: str = (
-        "This preflight validates the public `/gpd:*` runtime slash-command surface from the command registry. "
-        "It does not guarantee a same-name local `gpd` subcommand exists."
-    )
+    dispatch_note: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -291,12 +288,9 @@ class CommandContextPreflightResult:
     explicit_inputs: list[str]
     guidance: str
     checks: list[CommandContextCheck]
-    validated_surface: str = "public_runtime_slash_command"
+    validated_surface: str = "public_runtime_command_surface"
     local_cli_equivalence_guaranteed: bool = False
-    dispatch_note: str = (
-        "This preflight validates the public `/gpd:*` runtime slash-command surface from the command registry. "
-        "It does not guarantee a same-name local `gpd` subcommand exists."
-    )
+    dispatch_note: str = ""
 
 
 def _format_runtime_list(runtime_names: list[str]) -> str:
@@ -2973,12 +2967,9 @@ _PROJECT_AWARE_EXPLICIT_INPUTS: dict[str, tuple[list[str], Callable[[str | None]
 }
 
 
-def _build_project_aware_guidance(explicit_inputs: list[str]) -> str:
+def _build_project_aware_guidance(explicit_inputs: list[str], *, init_command: str) -> str:
     """Render the standardized project-aware guidance string."""
-    init_guidance = (
-        "initialize a project with `/gpd:new-project` in the runtime surface "
-        "or `gpd init new-project` in the local CLI"
-    )
+    init_guidance = f"initialize a project with `{init_command}` in the runtime surface or `gpd init new-project` in the local CLI"
     if not explicit_inputs:
         return f"Either provide explicit inputs for this command, or {init_guidance}."
     if len(explicit_inputs) == 1:
@@ -2988,6 +2979,54 @@ def _build_project_aware_guidance(explicit_inputs: list[str]) -> str:
     else:
         requirement_text = ", ".join(explicit_inputs[:-1]) + f", and {explicit_inputs[-1]}"
     return f"Either provide {requirement_text} explicitly, or {init_guidance}."
+
+
+def _active_runtime_command_prefix(*, cwd: Path | None = None) -> str | None:
+    """Return the public command prefix for the active runtime, if available."""
+    from gpd.adapters import get_adapter
+
+    try:
+        runtime_name = detect_runtime_for_gpd_use(cwd=cwd or _get_cwd())
+        return get_adapter(runtime_name).command_prefix
+    except Exception:
+        return None
+
+
+def _validated_runtime_surface(*, cwd: Path | None = None) -> str:
+    """Return the machine-readable surface label for the active runtime command prefix."""
+    prefix = _active_runtime_command_prefix(cwd=cwd)
+    if not prefix:
+        return "public_runtime_command_surface"
+    if prefix.startswith("/"):
+        return "public_runtime_slash_command"
+    if prefix.startswith("$"):
+        return "public_runtime_dollar_command"
+    return "public_runtime_command_surface"
+
+
+def _active_runtime_command_family(*, cwd: Path | None = None) -> str:
+    """Return the runtime-native public command family, if it can be resolved."""
+    prefix = _active_runtime_command_prefix(cwd=cwd)
+    return f"{prefix}*" if prefix else "the active runtime command surface"
+
+
+def _active_runtime_new_project_command(*, cwd: Path | None = None) -> str:
+    """Return the runtime-native new-project command, if it can be resolved."""
+    prefix = _active_runtime_command_prefix(cwd=cwd)
+    return f"{prefix}new-project" if prefix else "the active runtime's `new-project` command"
+
+
+def _runtime_surface_dispatch_note(*, cwd: Path | None = None) -> str:
+    """Render the standardized runtime-surface note for preflight payloads."""
+    family = _active_runtime_command_family(cwd=cwd)
+    if family == "the active runtime command surface":
+        surface_text = family
+    else:
+        surface_text = f"the public `{family}` runtime command surface"
+    return (
+        f"This preflight validates {surface_text} from the command registry. "
+        "It does not guarantee a same-name local `gpd` subcommand exists."
+    )
 
 
 def _unique_preserving_order(values: list[str]) -> list[str]:
@@ -3027,6 +3066,8 @@ def _build_command_context_preflight(
     layout = ProjectLayout(cwd)
     command, public_command_name = _resolve_registry_command(command_name)
     project_exists = layout.project_md.exists()
+    dispatch_note = _runtime_surface_dispatch_note(cwd=cwd)
+    init_command = _active_runtime_new_project_command(cwd=cwd)
 
     checks: list[CommandContextCheck] = []
 
@@ -3045,6 +3086,8 @@ def _build_command_context_preflight(
             explicit_inputs=[],
             guidance="",
             checks=checks,
+            validated_surface=_validated_runtime_surface(cwd=cwd),
+            dispatch_note=dispatch_note,
         )
 
     if command.context_mode == "projectless":
@@ -3066,6 +3109,8 @@ def _build_command_context_preflight(
             explicit_inputs=[],
             guidance="",
             checks=checks,
+            validated_surface=_validated_runtime_surface(cwd=cwd),
+            dispatch_note=dispatch_note,
         )
 
     if command.context_mode == "project-required":
@@ -3083,7 +3128,7 @@ def _build_command_context_preflight(
             if project_exists
             else (
                 "This command requires an initialized GPD project. "
-                "Use `/gpd:new-project` in the runtime surface or `gpd init new-project` in the local CLI."
+                f"Use `{init_command}` in the runtime surface or `gpd init new-project` in the local CLI."
             )
         )
         return CommandContextPreflightResult(
@@ -3094,6 +3139,8 @@ def _build_command_context_preflight(
             explicit_inputs=[],
             guidance=guidance,
             checks=checks,
+            validated_surface=_validated_runtime_surface(cwd=cwd),
+            dispatch_note=dispatch_note,
         )
 
     explicit_inputs, predicate = _PROJECT_AWARE_EXPLICIT_INPUTS.get(
@@ -3122,7 +3169,7 @@ def _build_command_context_preflight(
         blocking=not project_exists,
     )
     passed = project_exists or explicit_inputs_ok
-    guidance = "" if passed else _build_project_aware_guidance(explicit_inputs)
+    guidance = "" if passed else _build_project_aware_guidance(explicit_inputs, init_command=init_command)
     return CommandContextPreflightResult(
         command=public_command_name,
         context_mode=command.context_mode,
@@ -3131,6 +3178,8 @@ def _build_command_context_preflight(
         explicit_inputs=explicit_inputs,
         guidance=guidance,
         checks=checks,
+        validated_surface=_validated_runtime_surface(cwd=cwd),
+        dispatch_note=dispatch_note,
     )
 
 

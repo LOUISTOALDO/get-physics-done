@@ -23,7 +23,6 @@ from pydantic import ValidationError as PydanticValidationError
 
 from gpd.contracts import ResearchContract, collect_contract_integrity_errors
 from gpd.core.contract_validation import (
-    _collect_list_shape_drift_errors,
     _sanitize_contract_scalars,
     _split_project_contract_schema_findings,
     salvage_project_contract,
@@ -935,7 +934,7 @@ def _validate_binding_payload(binding: dict[str, object], *, allowed_targets: It
                 return plural_error
             singular_values = _normalize_binding_alias_values(binding[singular_key])
             plural_values = _normalize_binding_alias_values(binding[plural_key])
-            if singular_values != plural_values:
+            if set(singular_values) != set(plural_values):
                 return f"binding.{singular_key} and binding.{plural_key} must match when both are provided"
 
     for key in sorted(binding):
@@ -1110,9 +1109,11 @@ def _optional_mapping_field(request: dict[str, object], field_name: str) -> tupl
     raw = request.get(field_name)
     if raw is None:
         return None, None
-    if not isinstance(raw, dict):
-        return None, _error_result(f"{field_name} must be an object")
-    return raw, None
+    if isinstance(raw, dict):
+        return raw, None
+    if isinstance(raw, BaseModel):
+        return raw.model_dump(mode="python", exclude_none=True), None
+    return None, _error_result(f"{field_name} must be an object")
 
 
 def _validate_string(value: object, *, field_name: str) -> tuple[str | None, dict[str, object] | None]:
@@ -1396,6 +1397,71 @@ def _binding_values_by_field_for_target(binding: dict[str, object], target: str)
         if unique:
             values_by_field[key] = unique
     return values_by_field
+
+
+def _binding_claim_contexts(
+    *,
+    binding_ids: dict[str, list[str]],
+    contract: ResearchContract,
+) -> dict[str, list[str]]:
+    """Return the claim IDs implied by each binding target family."""
+
+    claims_by_id = {claim.id: claim for claim in contract.claims}
+    claims_by_deliverable = _claim_ids_by_deliverable(contract)
+    tests_by_id = {test.id: test for test in contract.acceptance_tests}
+
+    contexts: dict[str, list[str]] = {}
+
+    claim_ids = _unique_strings(binding_ids.get("claim", []))
+    if claim_ids:
+        contexts["claim"] = [claim_id for claim_id in claim_ids if claim_id in claims_by_id]
+
+    deliverable_claim_ids: list[str] = []
+    for deliverable_id in _unique_strings(binding_ids.get("deliverable", [])):
+        deliverable_claim_ids.extend(claims_by_deliverable.get(deliverable_id, []))
+    if binding_ids.get("deliverable"):
+        contexts["deliverable"] = _unique_strings(deliverable_claim_ids)
+
+    acceptance_test_claim_ids: list[str] = []
+    for test_id in _unique_strings(binding_ids.get("acceptance_test", [])):
+        test = tests_by_id.get(test_id)
+        if test is None:
+            continue
+        acceptance_test_claim_ids.extend(
+            _claim_ids_for_subject(
+                test.subject,
+                claims_by_id=claims_by_id,
+                claims_by_deliverable=claims_by_deliverable,
+            )
+        )
+    if binding_ids.get("acceptance_test"):
+        contexts["acceptance_test"] = _unique_strings(acceptance_test_claim_ids)
+
+    return contexts
+
+
+def _binding_claim_context_issue(
+    *,
+    binding_ids: dict[str, list[str]],
+    contract: ResearchContract | None,
+) -> str | None:
+    """Return an error when claim/deliverable/acceptance-test bindings disagree."""
+
+    if contract is None:
+        return None
+
+    contexts = _binding_claim_contexts(binding_ids=binding_ids, contract=contract)
+    provided_contexts = [(name, values) for name, values in contexts.items()]
+    if len(provided_contexts) < 2:
+        return None
+
+    expected = set(provided_contexts[0][1])
+    for _name, values in provided_contexts[1:]:
+        if set(values) != expected:
+            details = "; ".join(f"{name} -> {', '.join(values)}" for name, values in provided_contexts)
+            return f"binding contexts disagree on claim targets; {details}"
+
+    return None
 
 
 def _contract_ids_for_target(contract: ResearchContract, target: str) -> set[str]:
@@ -1926,7 +1992,6 @@ def _validate_contract_scalar_fields(contract_raw: dict[str, object]) -> dict[st
 
     errors: list[str] = []
     _sanitize_contract_scalars(contract_raw, errors=errors)
-    errors.extend(_collect_list_shape_drift_errors(contract_raw))
     errors = list(dict.fromkeys(errors))
     if not errors:
         return None
@@ -1938,7 +2003,12 @@ def _validate_contract_list_members(contract_raw: dict[str, object]) -> dict[str
 
     errors: list[str] = []
 
+    def _validate_scalar_list_drift(container: object, field_name: str) -> None:
+        if isinstance(container, str) and not container.strip():
+            errors.append(f"{field_name} must not be blank")
+
     def _validate_list_field(container: object, field_name: str) -> None:
+        _validate_scalar_list_drift(container, field_name)
         error = _validate_string_list_members(container, field_name=field_name)
         if error is not None:
             errors.append(error)
@@ -2284,16 +2354,21 @@ def run_contract_check(request: RunContractCheckPayload) -> dict:
     and must equal ``1`` when provided. The payload is treated as a hard schema
     boundary for authoritative fields: non-object sections,
     coercive scalars, blank strings, and malformed list members are rejected
-    instead of being guessed. Contract payloads must also satisfy the shared
-    semantic integrity rules: same-kind IDs must be unique, target IDs must not
-    be reused across claim/deliverable/acceptance-test/reference kinds when
-    that would make resolution ambiguous, and ``references[].carry_forward_to``
-    is only for workflow scope labels, never contract IDs. Binding-derived
-    contract context must stay consistent with metadata defaults and explicit
-    metadata fields, so benchmark anchors, regime labels, and family
-    selections cannot contradict the resolved binding. Limited recoverable
-    structural drift may still be salvaged, and any such recovery is surfaced
-    back as structured salvage findings.
+    instead of being guessed. Recoverable scalar-to-list drift is normalized by
+    the shared contract parser before verification, and benchmark prose may
+    still surface a warning when direct evidence is incomplete. Contract
+    payloads must also satisfy the shared semantic integrity rules: same-kind IDs must be unique.
+    references[].carry_forward_to uses workflow scope labels, never contract IDs.
+    target IDs must not be reused across claim/deliverable/acceptance-test/reference kinds when that would make resolution ambiguous.
+    contract context must stay consistent with metadata defaults and explicit metadata fields, so benchmark anchors, regime labels, and family selections cannot contradict the resolved binding.
+    payloads must also satisfy the shared semantic integrity rules: same-kind IDs must be unique, target IDs must not be reused across
+    claim/deliverable/acceptance-test/reference kinds when that would make
+    resolution ambiguous, and ``references[].carry_forward_to`` is only for
+    workflow scope labels, never contract IDs. contract context must stay consistent with metadata defaults and explicit metadata
+    fields, so benchmark anchors, regime labels, and family selections cannot
+    contradict the resolved binding. Limited recoverable structural drift may
+    still be salvaged, and any such recovery is surfaced back as structured
+    salvage findings.
 
     ``request.binding``, ``request.metadata``, and ``request.observed`` are each
     optional objects. Decisive pass/fail verdicts still require the check-specific
@@ -2393,6 +2468,9 @@ def run_contract_check(request: RunContractCheckPayload) -> dict:
                 contract=contract,
                 binding_supplied=binding_supplied,
             )
+            binding_context_issue = _binding_claim_context_issue(binding_ids=binding_ids, contract=contract)
+            if binding_context_issue is not None:
+                binding_issues.append(binding_context_issue)
             metadata = _with_contract_policy_defaults(
                 check_meta.check_key,
                 contract=contract,
@@ -2496,10 +2574,8 @@ def run_contract_check(request: RunContractCheckPayload) -> dict:
                     else:
                         automated_issues.append("Benchmark comparison exceeds the allowed tolerance")
                         status = "fail"
-                elif (
-                    artifact_content
-                    and not missing_inputs
-                    and any(token in artifact_content.lower() for token in ["benchmark", "baseline", "published", "reference"])
+                elif artifact_content and any(
+                    token in artifact_content.lower() for token in ["benchmark", "baseline", "published", "reference"]
                 ):
                     status = "warning"
                     evidence_directness = "mixed"
@@ -2556,7 +2632,7 @@ def run_contract_check(request: RunContractCheckPayload) -> dict:
                     status = "fail"
                     evidence_directness = "mixed"
                 elif direct_available is True:
-                    status = "warning"
+                    status = "pass"
                     evidence_directness = "direct"
 
             elif check_meta.check_key == "contract.fit_family_mismatch":
@@ -2703,16 +2779,19 @@ def suggest_contract_checks(contract: SuggestContractPayload, active_checks: Str
     ``schema_version`` defaults to ``1`` when omitted and must equal ``1`` when
     provided. The tool keeps authoritative fields strict: non-object
     payloads, coercive scalars, and malformed list members are rejected rather
-    than inferred. Contract payloads must also satisfy the shared semantic
-    integrity rules: same-kind IDs must be unique, target IDs must not be
-    reused across claim/deliverable/acceptance-test/reference kinds when that
-    would make resolution ambiguous, and ``references[].carry_forward_to`` is
-    only for workflow scope labels, never contract IDs. Binding-derived
-    contract context must stay consistent with metadata defaults and explicit
-    metadata fields, so benchmark anchors, regime labels, and family
-    selections cannot contradict the resolved binding. Limited recoverable
-    structural drift may still be salvaged, and any such recovery is carried
-    through the suggestion metadata.
+    than inferred. Recoverable scalar-to-list drift is normalized by the shared
+    contract parser before verification. Contract payloads must also satisfy
+    the shared semantic integrity rules: same-kind IDs must be unique.
+    references[].carry_forward_to uses workflow scope labels, never contract IDs.
+    target IDs must not be reused across claim/deliverable/acceptance-test/reference kinds when that would make resolution ambiguous.
+    contract context must stay consistent with metadata defaults and explicit metadata fields, so benchmark anchors, regime labels, and family selections cannot contradict the resolved binding.
+    the shared semantic integrity rules: same-kind IDs must be unique, target IDs must not be reused across claim/deliverable/acceptance-test/reference
+    kinds when that would make resolution ambiguous, and
+    ``references[].carry_forward_to`` is only for workflow scope labels, never
+    contract IDs. contract context must stay consistent with metadata defaults and explicit metadata fields, so benchmark anchors,
+    regime labels, and family selections cannot contradict the resolved
+    binding. Limited recoverable structural drift may still be salvaged, and
+    any such recovery is carried through the suggestion metadata.
 
     ``active_checks`` is optional and must be ``list[str]`` when provided. Supply
     already-enabled check ids or check keys so each suggestion can mark

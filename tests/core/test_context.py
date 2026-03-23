@@ -489,10 +489,10 @@ class TestInitExecutePhase:
             encoding="utf-8",
         )
 
-        def _unexpected_load(_cwd: Path) -> dict[str, object] | None:
+        def _unexpected_load(_cwd: Path) -> tuple[dict[str, object] | None, list[str], str | None]:
             raise AssertionError("_state_exists should not load state")
 
-        monkeypatch.setattr("gpd.core.context._load_state_json", _unexpected_load)
+        monkeypatch.setattr("gpd.core.context._peek_state_json", _unexpected_load)
 
         assert _state_exists(tmp_path) is True
         assert not (tmp_path / ".gpd" / "state.json").exists()
@@ -1436,6 +1436,34 @@ class TestInitProgress:
         assert loaded.state["project_contract"]["claims"][0]["id"] == "claim-benchmark"
         assert "notes" not in loaded.state["project_contract"]["claims"][0]
 
+    def test_load_project_contract_uses_backup_when_primary_root_is_schema_corrupt(
+        self, tmp_path: Path
+    ) -> None:
+        _setup_project(tmp_path)
+        _write_project_contract_state(tmp_path)
+
+        from gpd.core.state import default_state_dict
+
+        planning = tmp_path / ".gpd"
+        primary_state = json.loads((planning / "state.json").read_text(encoding="utf-8"))
+        primary_state["position"] = []
+        (planning / "state.json").write_text(json.dumps(primary_state, indent=2) + "\n", encoding="utf-8")
+
+        backup_state = default_state_dict()
+        backup_contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+        backup_contract["scope"]["question"] = "Recovered from schema-corrupt backup state"
+        backup_state["project_contract"] = backup_contract
+        (planning / "state.json.bak").write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
+
+        loaded, load_info = _load_project_contract(tmp_path)
+        ctx = init_progress(tmp_path)
+
+        assert loaded is not None
+        assert load_info["source_path"].endswith("state.json.bak")
+        assert ctx["project_contract"] is not None
+        assert ctx["project_contract"]["scope"]["question"] == "Recovered from schema-corrupt backup state"
+        assert ctx["project_contract_load_info"]["source_path"].endswith("state.json.bak")
+
     def test_load_project_contract_rejects_list_shape_drift_from_raw_state(self, tmp_path: Path) -> None:
         _setup_project(tmp_path)
 
@@ -1466,7 +1494,7 @@ class TestInitProgress:
         from gpd.core.state import ensure_state_schema
 
         normalized_state = ensure_state_schema({"project_contract": contract})
-        monkeypatch.setattr("gpd.core.context._load_state_json", lambda cwd: normalized_state)
+        monkeypatch.setattr("gpd.core.context._peek_state_json", lambda cwd: (normalized_state, [], "state.json"))
         monkeypatch.setattr("gpd.core.context._load_raw_project_contract_payload", lambda cwd: None)
 
         loaded, load_info = _load_project_contract(tmp_path)

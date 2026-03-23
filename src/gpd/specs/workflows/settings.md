@@ -1,5 +1,5 @@
 <purpose>
-Interactive configuration of GPD workflow agents (research, plan_checker, verifier), research profile selection, runtime-specific tier model overrides, review cadence, git branching, and runtime-permission sync guidance. Updates `.gpd/config.json` with user preferences including model profile, optional `model_overrides`, workflow toggles, execution cadence, and branching strategy.
+Interactive configuration of GPD workflow agents (research, plan_checker, verifier), research profile selection, runtime-specific tier model overrides, `execution.review_cadence`, git branching, and runtime-permission sync guidance. Updates `.gpd/config.json` with user preferences including model profile, optional `model_overrides`, workflow toggles, execution cadence, and branching strategy.
 </purpose>
 
 <required_reading>
@@ -39,6 +39,7 @@ Parse current values (default to `true` / first option if not present):
 - `execution.review_cadence` -- execution review density: `"dense"`, `"adaptive"` (default), `"sparse"`
 - `execution.max_unattended_minutes_per_plan` -- wall-clock budget before a bounded continuation should be created
 - `execution.checkpoint_after_n_tasks` -- task budget before a bounded continuation should be created
+- `planning.commit_docs` -- whether planning artifacts are committed to git (default: `true`)
 - `parallelization` -- execute wave plans in parallel (default: `true`)
 - `model_profile` -- which agent model profile to use (default: `review`)
 - `git.branching_strategy` -- branching approach (default: `"none"`)
@@ -147,6 +148,15 @@ ask_user([
     ]
   },
   {
+    question: "Should planning artifacts be committed to git?",
+    header: "Planning Commit Docs",
+    multiSelect: false,
+    options: [
+      { label: "Commit planning docs", description: "Set planning.commit_docs=true so planning artifacts are committed normally." },
+      { label: "Keep planning docs local-only", description: "Set planning.commit_docs=false so planning artifacts stay uncommitted." }
+    ]
+  },
+  {
     question: "Execute plans within a wave in parallel?",
     header: "Parallel",
     multiSelect: false,
@@ -160,9 +170,9 @@ ask_user([
     header: "Branching",
     multiSelect: false,
     options: [
-      { label: "None (Recommended)", description: "Commit directly to current branch" },
-      { label: "Per Phase", description: "Create branch for each phase (gpd/phase-{N}-{name})" },
-      { label: "Per Milestone", description: "Create branch for entire milestone (gpd/{version}-{name})" }
+      { label: "none (Recommended)", description: "Commit directly to current branch" },
+      { label: "per-phase", description: "Create branch for each phase (gpd/phase-{N}-{name})" },
+      { label: "per-milestone", description: "Create branch for entire milestone (gpd/{version}-{name})" }
     ]
   }
 ])
@@ -216,6 +226,9 @@ Merge new settings into existing config.json:
       "tier-3": "runtime-native model string"
     }
   }, // include only non-empty tier values; omit or clear <active_runtime> when using runtime defaults
+  "planning": {
+    "commit_docs": true/false
+  },
   "workflow": {
     "research": true/false,
     "plan_checker": true/false,
@@ -224,10 +237,15 @@ Merge new settings into existing config.json:
   "execution": {
     "review_cadence": "dense" | "adaptive" | "sparse",
     "max_unattended_minutes_per_plan": 45,
-    "checkpoint_after_n_tasks": 3
+    "max_unattended_minutes_per_wave": 90,
+    "checkpoint_after_n_tasks": 3,
+    "checkpoint_after_first_load_bearing_result": true/false,
+    "checkpoint_before_downstream_dependent_tasks": true/false
   },
   "git": {
-    "branching_strategy": "none" | "per-phase" | "per-milestone"
+    "branching_strategy": "none" | "per-phase" | "per-milestone",
+    "phase_branch_template": "gpd/phase-{phase}-{slug}",
+    "milestone_branch_template": "gpd/{milestone}-{slug}"
   }
 }
 ```
@@ -265,8 +283,9 @@ Display:
 | Plan Checker         | {On/Off} |
 | Execution Verifier   | {On/Off} |
 | Review Cadence       | {Dense/Adaptive/Sparse} |
+| Planning Commit Docs | {On/Off} |
 | Parallelization      | {On/Off} |
-| Git Branching        | {None/Per Phase/Per Milestone} |
+| Git Branching        | {none/per-phase/per-milestone} |
 | Runtime Permissions  | {aligned / changed / manual follow-up required} |
 
 These settings apply to future /gpd:plan-phase and /gpd:execute-phase runs.

@@ -1,5 +1,5 @@
 <purpose>
-Check convention consistency across all completed phases. Detects sign errors, notation drift, metric signature mismatches, and convention lock violations. Critical for catching errors that propagate silently across phases — a wrong sign convention in Phase 2 invalidates everything built on it.
+Check convention consistency across all completed phases with a scan-only audit. Detects sign errors, notation drift, metric signature mismatches, and convention lock violations. Critical for catching errors that propagate silently across phases — a wrong sign convention in Phase 2 invalidates everything built on it.
 </purpose>
 
 <required_reading>
@@ -315,7 +315,7 @@ file_read affected phase SUMMARY.md files.
 
 ```
 Recommended actions:
-1. /gpd:regression-check {affected_phases} -- re-verify affected phases
+1. /gpd:regression-check {affected_phases} -- re-scan affected phases
 2. /gpd:debug -- investigate specific discrepancies
 3. Re-execute affected plans with corrected conventions
 ```

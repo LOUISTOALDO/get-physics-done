@@ -245,6 +245,9 @@ def test_settings_workflow_documents_runtime_native_model_override_guidance() ->
     assert "the exact model string the active runtime accepts" in workflow
     assert "Preserve any provider prefixes" in workflow
     assert "slash-delimited ids" in workflow
+    assert "execution.review_cadence" in workflow
+    assert "planning.commit_docs" in workflow
+    assert "git.branching_strategy" in workflow
 
 
 def test_branching_strategy_docs_use_canonical_config_literals() -> None:
@@ -255,6 +258,8 @@ def test_branching_strategy_docs_use_canonical_config_literals() -> None:
 
     assert '"branching_strategy": "none" | "per-phase" | "per-milestone"' in settings
     assert 'Git branching approach: `"none"`, `"per-phase"`, or `"per-milestone"`' in planning
+    assert '| `per-phase`     | At `execute-phase` start' in planning
+    assert '| `per-milestone` | At first `execute-phase` of milestone' in planning
     assert '**"per-phase" or "per-milestone":** Use pre-computed `branch_name` from init:' in execute_phase
     assert '**For "per-phase" strategy:**' in complete_milestone
     assert '**For "per-milestone" strategy:**' in complete_milestone
@@ -262,6 +267,31 @@ def test_branching_strategy_docs_use_canonical_config_literals() -> None:
     assert 'if [ "$BRANCHING_STRATEGY" = "per-milestone" ]; then' in complete_milestone
     assert '"branching_strategy": "none" | "phase" | "milestone"' not in settings
     assert 'Git branching approach: `"none"`, `"phase"`, or `"milestone"`' not in planning
+    assert '| `phase`     | At `execute-phase` start' not in planning
+    assert '| `milestone` | At first `execute-phase` of milestone' not in planning
+
+
+def test_help_and_settings_surface_current_commit_docs_and_review_cadence_shapes() -> None:
+    settings = _read("src/gpd/specs/workflows/settings.md")
+    help_command = _read("src/gpd/commands/help.md")
+    help_workflow = _read("src/gpd/specs/workflows/help.md")
+
+    for content in (settings, help_command, help_workflow):
+        assert "execution.review_cadence" in content
+        assert "planning.commit_docs" in content
+
+
+def test_execute_phase_docs_use_review_cadence_not_removed_verify_between_waves_knob() -> None:
+    execute_command = _read("src/gpd/commands/execute-phase.md")
+    execute_workflow = _read("src/gpd/specs/workflows/execute-phase.md")
+
+    assert "execution.review_cadence" in execute_command
+    assert "dense" in execute_command
+    assert "adaptive" in execute_command
+    assert "sparse" in execute_command
+    assert "workflow.verify_between_waves" not in execute_command
+    assert "review_cadence" in execute_workflow
+    assert "verify_between_waves" not in execute_workflow
 
 
 def test_health_check_count_matches_skill_documentation() -> None:

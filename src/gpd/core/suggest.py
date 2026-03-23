@@ -187,6 +187,30 @@ def _load_config(cwd: Path) -> dict[str, object]:
     }
 
 
+_LOCAL_CLI_INIT_COMMANDS: dict[str, str] = {
+    "check-todos": "todos",
+    "execute-phase": "execute-phase",
+    "map-research": "map-research",
+    "milestone-op": "milestone-op",
+    "new-milestone": "new-milestone",
+    "new-project": "new-project",
+    "phase-op": "phase-op",
+    "plan-phase": "plan-phase",
+    "quick": "quick",
+    "resume": "resume",
+    "resume-work": "resume",
+    "verify-work": "verify-work",
+}
+
+
+def _format_local_cli_command(action: str) -> str:
+    """Format the best available local CLI equivalent for a workflow action."""
+    init_action = _LOCAL_CLI_INIT_COMMANDS.get(action)
+    if init_action is not None:
+        return f"gpd init {init_action}"
+    return f"gpd {action}"
+
+
 def _format_command(action: str, *, cwd: Path | None = None) -> str:
     """Format a GPD command name."""
     try:
@@ -198,10 +222,10 @@ def _format_command(action: str, *, cwd: Path | None = None) -> str:
 
         runtime = detect_active_runtime_with_gpd_install(cwd=cwd)
         if runtime == RUNTIME_UNKNOWN:
-            return f"gpd {action}"
+            return _format_local_cli_command(action)
         return get_adapter(runtime).format_command(action)
     except Exception:
-        return f"gpd {action}"
+        return _format_local_cli_command(action)
 
 
 def _scan_phases(cwd: Path) -> list[_PhaseAnalysis]:

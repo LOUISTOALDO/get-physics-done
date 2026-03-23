@@ -24,6 +24,20 @@ from gpd.core.state import default_state_dict, generate_state_markdown
 runner = CliRunner()
 _RUNTIME_DESCRIPTORS = iter_runtime_descriptors()
 
+
+@pytest.fixture()
+def codex_command_prefix(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Force the integration preflight surface to resolve the Codex runtime."""
+    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: "codex")
+    return get_adapter("codex").command_prefix
+
+
+@pytest.fixture()
+def claude_code_command_prefix(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Force the integration preflight surface to resolve the Claude Code runtime."""
+    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: "claude-code")
+    return get_adapter("claude-code").command_prefix
+
 def _runtime_env_prefixes() -> tuple[str, ...]:
     prefixes: set[str] = set()
     for descriptor in _RUNTIME_DESCRIPTORS:
@@ -416,15 +430,43 @@ class TestInitIncludeParsing:
 
 
 class TestCommandContextSurface:
-    def test_validate_command_context_reports_runtime_slash_command_surface(self) -> None:
+    def test_validate_command_context_reports_runtime_command_surface(self, codex_command_prefix: str) -> None:
+        result = _invoke("--raw", "validate", "command-context", "gpd:settings")
+        payload = json.loads(result.output)
+
+        assert payload["command"] == "gpd:settings"
+        assert payload["validated_surface"] == "public_runtime_dollar_command"
+        assert payload["local_cli_equivalence_guaranteed"] is False
+        assert f"public `{codex_command_prefix}*` runtime command surface" in payload["dispatch_note"]
+        assert "same-name local `gpd` subcommand" in payload["dispatch_note"]
+
+    def test_validate_command_context_reports_slash_runtime_surface(
+        self, claude_code_command_prefix: str
+    ) -> None:
         result = _invoke("--raw", "validate", "command-context", "gpd:settings")
         payload = json.loads(result.output)
 
         assert payload["command"] == "gpd:settings"
         assert payload["validated_surface"] == "public_runtime_slash_command"
         assert payload["local_cli_equivalence_guaranteed"] is False
-        assert "public `/gpd:*` runtime slash-command surface" in payload["dispatch_note"]
+        assert f"public `{claude_code_command_prefix}*` runtime command surface" in payload["dispatch_note"]
         assert "same-name local `gpd` subcommand" in payload["dispatch_note"]
+
+    def test_validate_command_context_falls_back_when_runtime_resolution_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _raise_runtime_error(cwd=None) -> str:
+            raise RuntimeError("runtime resolution failed")
+
+        monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", _raise_runtime_error)
+
+        result = _invoke("--raw", "validate", "command-context", "gpd:settings")
+        payload = json.loads(result.output)
+
+        assert payload["command"] == "gpd:settings"
+        assert payload["validated_surface"] == "public_runtime_command_surface"
+        assert payload["local_cli_equivalence_guaranteed"] is False
+        assert "the active runtime command surface" in payload["dispatch_note"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════

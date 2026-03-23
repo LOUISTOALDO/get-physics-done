@@ -429,6 +429,7 @@ def test_commands_are_workflow_backed_or_explicitly_exempt() -> None:
             assert "@{GPD_INSTALL_DIR}/workflows/health.md" not in command_text
         elif command_stem == "suggest-next":
             assert "gpd --raw suggest" in command_text
+            assert "Local CLI fallback: `gpd --raw suggest`" in command_text
             assert "@{GPD_INSTALL_DIR}/workflows/suggest-next.md" not in command_text
 
 
@@ -611,7 +612,10 @@ def test_new_project_recommended_autonomy_matches_balanced_default() -> None:
 
     assert workflow_text.count('"autonomy": "balanced"') >= 2
     assert "How would you like to write `.gpd/config.json`?" in workflow_text
-    assert "`autonomy=balanced`, `research_mode=balanced`, `parallelization=true`, `commit_docs=true`" in workflow_text
+    assert (
+        "`autonomy=balanced`, `research_mode=balanced`, `parallelization=true`, "
+        "`planning.commit_docs=true`, `execution.review_cadence=adaptive`"
+    ) in workflow_text
     assert (
         "Config: Balanced autonomy | Adaptive review cadence | Balanced research mode | Parallel | All agents | Review profile"
         in workflow_text
@@ -994,6 +998,7 @@ def test_stage4_templates_and_workflows_surface_contract_results_and_verdict_led
     assert "status: passed` is strict" in verification_template
     assert "absence of a verdict is itself a gap" in verification_template
     assert "Reload `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` immediately before writing the YAML" in verification_template
+    assert "verification-side `suggested_contract_checks`" in verification_template
     assert "uncertainty_markers:" in verification_template
     assert "weakest_anchors: [anchor-1]" in verification_template
     assert "disconfirming_observations: [observation-1]" in verification_template
@@ -1018,6 +1023,10 @@ def test_stage4_templates_and_workflows_surface_contract_results_and_verdict_led
     assert "comparison_verdicts:" in research_verification
     assert "subject_role: decisive" in research_verification
     assert "comparison_kind: benchmark" in research_verification
+    assert "comparison_kind: [benchmark | prior_work | experiment | cross_method | baseline | other | \"\"]" in research_verification
+    assert "comparison_kind: benchmark | prior_work | experiment | cross_method | baseline | other" in research_verification
+    assert 'comparison_kind: "benchmark | prior_work | experiment | cross_method | baseline | other"' in research_verification
+    assert "verification-side `suggested_contract_checks` entries are part of the same canonical schema surface" in research_verification
     assert "suggested_contract_checks:" in research_verification
     assert "uncertainty_markers:" in research_verification
     assert "weakest_anchors: [anchor-1]" in research_verification
@@ -1142,6 +1151,8 @@ def test_verification_prompts_keep_suggested_contract_check_bindings_schema_tigh
     assert "test-benchmark" in verifier_agent
     assert "omit both keys instead of leaving one blank" in verification_template
     assert "omit both keys instead of leaving one blank" in research_verification
+    assert "verification-side `suggested_contract_checks`" in verification_template
+    assert "verification-side `suggested_contract_checks` entries are part of the same canonical schema surface" in research_verification
     assert "omit both keys instead of leaving one blank" in verify_workflow
     assert "omit both keys instead of leaving one blank" in verifier_agent
     assert "gap_subject_kind" in verifier_agent

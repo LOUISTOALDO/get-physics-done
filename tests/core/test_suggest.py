@@ -156,7 +156,7 @@ def test_no_project_uses_workspace_runtime_install_for_command_formatting(tmp_pa
 
 
 def test_no_project_with_runtime_dir_but_no_install_uses_plain_gpd_command(tmp_path: Path) -> None:
-    """Runtime-native commands should not be advertised without a concrete runtime install."""
+    """Workflow bootstrap suggestions should fall back to the local init CLI when no runtime is installed."""
     workspace_runtime, elsewhere_runtime = _runtime_pair_with_distinct_commands("new-project")
 
     workspace = tmp_path / "workspace"
@@ -174,7 +174,7 @@ def test_no_project_with_runtime_dir_but_no_install_uses_plain_gpd_command(tmp_p
         result = suggest_next(workspace)
 
     assert result.top_action is not None
-    assert result.top_action.command == "gpd new-project"
+    assert result.top_action.command == "gpd init new-project"
 
 
 # ─── Empty Project ─────────────────────────────────────────────────────────────
@@ -208,6 +208,7 @@ def test_paused_work_highest_priority(tmp_path: Path) -> None:
     result = suggest_next(root)
     assert result.top_action is not None
     assert result.top_action.action == "resume"
+    assert result.top_action.command == "gpd init resume"
     assert result.top_action.priority == 1
     assert "2026-01-15" in result.top_action.reason
 
@@ -260,6 +261,7 @@ def test_in_progress_phase_suggests_execute(tmp_path: Path) -> None:
     actions = [s.action for s in result.suggestions]
     assert "execute-phase" in actions
     exec_rec = next(s for s in result.suggestions if s.action == "execute-phase")
+    assert exec_rec.command == "gpd init execute-phase 01"
     assert "2 incomplete plan(s)" in exec_rec.reason
     assert exec_rec.phase == "01"
 
@@ -284,6 +286,7 @@ def test_researched_phase_suggests_plan(tmp_path: Path) -> None:
     actions = [s.action for s in result.suggestions]
     assert "plan-phase" in actions
     plan_rec = next(s for s in result.suggestions if s.action == "plan-phase")
+    assert plan_rec.command == "gpd init plan-phase 02"
     assert plan_rec.phase == "02"
 
 
@@ -330,7 +333,7 @@ def test_unverified_results_suggest_verification(tmp_path: Path) -> None:
     result = suggest_next(root)
     verify_results = next((s for s in result.suggestions if s.action == "verify-results"), None)
     assert verify_results is not None
-    assert verify_results.command == "gpd verify-work 01"
+    assert verify_results.command == "gpd init verify-work 01"
     assert verify_results.phase == "01"
     assert result.context.unverified_results == 1
 

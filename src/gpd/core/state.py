@@ -236,6 +236,7 @@ class StateLoadResult(BaseModel):
     integrity_mode: str = "standard"
     integrity_status: str = "healthy"
     integrity_issues: list[str] = Field(default_factory=list)
+    state_source: str | None = None
 
 
 class StateGetResult(BaseModel):
@@ -259,6 +260,7 @@ class StateValidateResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     integrity_mode: str = "standard"
     integrity_status: str = "healthy"
+    state_source: str | None = None
 
 
 class StateUpdateResult(BaseModel):
@@ -1013,29 +1015,38 @@ def _normalize_state_schema_with_backup_project_contract(
     recovered_root_from_backup = False
     recovered_project_contract_from_backup = False
 
-    if not isinstance(raw, dict) and isinstance(backup_raw, dict):
-        backup_normalized, _backup_issues = _normalize_state_schema(
+    backup_normalized: dict | None = None
+    backup_issues: list[str] = []
+    if isinstance(backup_raw, dict):
+        backup_normalized, backup_issues = _normalize_state_schema(
             backup_raw,
             allow_project_contract_salvage=allow_project_contract_salvage,
             retain_blocking_project_contract_errors=retain_blocking_project_contract_errors,
         )
+    primary_has_non_contract_issues = any("project_contract" not in issue for issue in integrity_issues)
+
+    if not isinstance(raw, dict) and backup_normalized is not None and not backup_issues:
         normalized = backup_normalized
+        integrity_issues = []
         recovered_root_from_backup = True
         recovered_project_contract_from_backup = backup_normalized.get("project_contract") is not None
         logger.warning("Recovered state.json from state.json.bak after primary state.json required normalization")
-
-    if (
+    elif isinstance(raw, dict) and primary_has_non_contract_issues and backup_normalized is not None and not backup_issues:
+        normalized = backup_normalized
+        integrity_issues = []
+        recovered_root_from_backup = True
+        recovered_project_contract_from_backup = backup_normalized.get("project_contract") is not None
+        logger.warning("Recovered state.json from state.json.bak after primary state.json required normalization")
+        integrity_issues.append(
+            "state.json root was recovered from state.json.bak after primary state.json required normalization"
+        )
+    elif (
         isinstance(raw, dict)
         and raw.get("project_contract") is not None
         and normalized.get("project_contract") is None
-        and isinstance(backup_raw, dict)
-        and backup_raw.get("project_contract") is not None
+        and backup_normalized is not None
+        and backup_normalized.get("project_contract") is not None
     ):
-        backup_normalized, _backup_issues = _normalize_state_schema(
-            backup_raw,
-            allow_project_contract_salvage=allow_project_contract_salvage,
-            retain_blocking_project_contract_errors=retain_blocking_project_contract_errors,
-        )
         backup_contract = backup_normalized.get("project_contract")
         if backup_contract is not None:
             normalized["project_contract"] = copy.deepcopy(backup_contract)
@@ -1969,15 +1980,19 @@ def _load_state_json_with_integrity_issues(
     cwd: Path,
     *,
     integrity_mode: str = "standard",
-) -> tuple[dict | None, list[str]]:
-    """Load state.json and return the normalized state plus load-time integrity issues."""
+    persist_recovery: bool = True,
+    recover_intent: bool = True,
+) -> tuple[dict | None, list[str], str | None]:
+    """Load state.json and return the normalized state, integrity issues, and source."""
     json_path = _state_json_path(cwd)
     bak_path = json_path.parent / STATE_JSON_BACKUP_FILENAME
 
     with _state_lock(cwd):
-        _recover_intent_locked(cwd)
+        if recover_intent:
+            _recover_intent_locked(cwd)
         # Read paths must not silently default malformed singleton contract sections.
         allow_project_contract_salvage = False
+        parse_issue: str | None = None
 
         try:
             raw = json_path.read_text(encoding="utf-8")
@@ -1992,20 +2007,30 @@ def _load_state_json_with_integrity_issues(
                 bak_parsed = None
             if isinstance(bak_parsed, dict):
                 backup_parsed = bak_parsed
-            normalized, integrity_issues, _recovered_root_from_backup, _recovered_contract_from_backup = (
+            normalized, integrity_issues, recovered_root_from_backup, recovered_contract_from_backup = (
                 _normalize_state_schema_with_backup_project_contract(
-                parsed,
-                backup_parsed,
-                allow_project_contract_salvage=allow_project_contract_salvage,
-                retain_blocking_project_contract_errors=False,
+                    parsed,
+                    backup_parsed,
+                    allow_project_contract_salvage=allow_project_contract_salvage,
+                    retain_blocking_project_contract_errors=False,
                 )
             )
             normalized, contract_integrity_issues = _drop_invalid_project_contract(normalized)
             integrity_issues.extend(contract_integrity_issues)
+            state_source = "state.json.bak" if recovered_root_from_backup else "state.json"
+            if recovered_root_from_backup:
+                integrity_issues.append(
+                    "state.json root was recovered from state.json.bak after primary state.json required normalization"
+                )
+            if recovered_contract_from_backup:
+                integrity_issues.append(
+                    "state.json project_contract was recovered from state.json.bak after primary state.json required blocking normalization"
+                )
             if integrity_mode == "review" and integrity_issues:
                 logger.warning("state.json failed review-mode integrity checks: %s", "; ".join(integrity_issues))
-                return None, integrity_issues
-            return normalized, integrity_issues
+            if persist_recovery and state_source != "state.json":
+                atomic_write(json_path, json.dumps(normalized, indent=2) + "\n")
+            return normalized, integrity_issues, state_source
         except FileNotFoundError:
             restored, integrity_issues = _load_state_json_from_backup(
                 bak_path,
@@ -2013,14 +2038,36 @@ def _load_state_json_with_integrity_issues(
                 allow_project_contract_salvage=allow_project_contract_salvage,
             )
             if restored is not None:
-                atomic_write(json_path, json.dumps(restored, indent=2) + "\n")
-                return restored, integrity_issues
-        except (TypeError, json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+                integrity_issues.append(
+                    "state.json root was recovered from state.json.bak after primary state.json was missing"
+                )
+                if persist_recovery:
+                    atomic_write(json_path, json.dumps(restored, indent=2) + "\n")
+                return restored, integrity_issues, "state.json.bak"
+        except TypeError as e:
+            if os.environ.get(ENV_GPD_DEBUG):
+                logger.debug("state.json structural error: %s", e)
+            restored, integrity_issues = _load_state_json_from_backup(
+                bak_path,
+                integrity_mode=integrity_mode,
+                allow_project_contract_salvage=allow_project_contract_salvage,
+            )
+            if restored is not None:
+                integrity_issues.append(
+                    "state.json root was recovered from state.json.bak after primary state.json was unavailable or unreadable"
+                )
+                if persist_recovery:
+                    atomic_write(json_path, json.dumps(restored, indent=2) + "\n")
+                return restored, integrity_issues, "state.json.bak"
+            if os.environ.get(ENV_GPD_DEBUG):
+                logger.debug("state.json.bak restore failed after structural error")
+            if integrity_mode == "review":
+                logger.warning("state.json structural error blocks review-mode loading: %s", e)
+                return None, [], None
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
             if os.environ.get(ENV_GPD_DEBUG):
                 logger.debug("state.json parse error: %s", e)
-            if integrity_mode == "review":
-                logger.warning("state.json parse error blocks review-mode loading: %s", e)
-                return None, []
+            parse_issue = f"state.json parse error: {e}"
             # Try backup
             restored, integrity_issues = _load_state_json_from_backup(
                 bak_path,
@@ -2028,23 +2075,52 @@ def _load_state_json_with_integrity_issues(
                 allow_project_contract_salvage=allow_project_contract_salvage,
             )
             if restored is not None:
-                atomic_write(json_path, json.dumps(restored, indent=2) + "\n")
-                return restored, integrity_issues
+                integrity_issues.insert(0, parse_issue)
+                integrity_issues.append(
+                    "state.json root was recovered from state.json.bak after primary state.json was unavailable or unreadable"
+                )
+                if persist_recovery:
+                    atomic_write(json_path, json.dumps(restored, indent=2) + "\n")
+                return restored, integrity_issues, "state.json.bak"
             if os.environ.get(ENV_GPD_DEBUG):
                 logger.debug("state.json.bak restore failed")
+            if integrity_mode == "review":
+                logger.warning("state.json parse error blocks review-mode loading: %s", e)
+                return None, [], None
 
         # Fall back to STATE.md
         md_path = _state_md_path(cwd)
         try:
             if integrity_mode == "review":
                 logger.warning("STATE.md fallback is disabled in review integrity mode")
-                return None, []
+                return None, [], None
             content = md_path.read_text(encoding="utf-8")
-            return sync_state_json_core(cwd, content), []
+            state_from_md = _build_state_from_markdown(cwd, content)
+            integrity_issues = ["state.json root was recovered from STATE.md after primary state.json was unavailable or unreadable"]
+            if parse_issue is not None:
+                integrity_issues.insert(0, parse_issue)
+            if persist_recovery:
+                atomic_write(json_path, json.dumps(state_from_md, indent=2) + "\n")
+            return state_from_md, integrity_issues, "STATE.md"
         except (FileNotFoundError, OSError, UnicodeDecodeError):
             if os.environ.get(ENV_GPD_DEBUG):
                 logger.debug("STATE.md fallback failed")
-            return None, []
+            return None, [], None
+
+
+def peek_state_json(
+    cwd: Path,
+    integrity_mode: str = "standard",
+    *,
+    recover_intent: bool = True,
+) -> tuple[dict | None, list[str], str | None]:
+    """Load state without persisting recovery writes."""
+    return _load_state_json_with_integrity_issues(
+        cwd,
+        integrity_mode=integrity_mode,
+        persist_recovery=False,
+        recover_intent=recover_intent,
+    )
 
 
 def _drop_invalid_project_contract(state_obj: dict) -> tuple[dict, list[str]]:
@@ -2056,6 +2132,33 @@ def _drop_invalid_project_contract(state_obj: dict) -> tuple[dict, list[str]]:
     return cleaned_state, [
         'schema normalization: dropped "project_contract" because contract integrity checks failed'
     ]
+
+
+def _restore_recoverable_project_contract(
+    state_obj: dict,
+    raw_project_contract: object,
+) -> tuple[dict, list[str]]:
+    """Restore recoverable project_contract drift while leaving blocking drift dropped."""
+
+    if not isinstance(raw_project_contract, dict):
+        return state_obj, []
+    if state_obj.get("project_contract") is not None:
+        return state_obj, []
+
+    list_shape_drift_errors = _collect_list_shape_drift_errors(raw_project_contract)
+    normalized_contract, schema_findings = salvage_project_contract(raw_project_contract)
+    schema_findings = list(dict.fromkeys([*schema_findings, *list_shape_drift_errors]))
+    schema_warnings, schema_errors = _split_project_contract_schema_findings(
+        schema_findings,
+        allow_singleton_defaults=False,
+    )
+    if schema_errors or normalized_contract is None:
+        return state_obj, []
+
+    restored_state = dict(state_obj)
+    restored_state["project_contract"] = normalized_contract.model_dump(mode="python")
+    integrity_issues = [_integrity_issue_from_contract_error(issue) for issue in schema_warnings]
+    return restored_state, integrity_issues
 
 
 def _load_state_json_from_backup(
@@ -2093,7 +2196,13 @@ def load_state_json(cwd: Path, integrity_mode: str = "standard") -> dict | None:
 
     Returns the state dict, or None if no state exists.
     """
-    state_obj, _integrity_issues = _load_state_json_with_integrity_issues(cwd, integrity_mode=integrity_mode)
+    state_obj, integrity_issues, _state_source = _load_state_json_with_integrity_issues(
+        cwd,
+        integrity_mode=integrity_mode,
+        persist_recovery=True,
+    )
+    if integrity_mode == "review" and integrity_issues:
+        return None
     return state_obj
 
 
@@ -2132,7 +2241,11 @@ def save_state_markdown(cwd: Path, md_content: str) -> dict:
 @instrument_gpd_function("state.load")
 def state_load(cwd: Path, integrity_mode: str = "standard") -> StateLoadResult:
     """Load full state with config and file-existence metadata."""
-    state_obj, load_integrity_issues = _load_state_json_with_integrity_issues(cwd, integrity_mode=integrity_mode)
+    state_obj, load_integrity_issues, state_source = _load_state_json_with_integrity_issues(
+        cwd,
+        integrity_mode=integrity_mode,
+        persist_recovery=True,
+    )
     validation = state_validate(cwd, integrity_mode=integrity_mode)
     integrity_issues: list[str] = []
     for issue in [*load_integrity_issues, *validation.issues]:
@@ -2155,6 +2268,7 @@ def state_load(cwd: Path, integrity_mode: str = "standard") -> StateLoadResult:
         integrity_mode=integrity_mode,
         integrity_status=validation.integrity_status,
         integrity_issues=integrity_issues,
+        state_source=state_source,
     )
 
 
@@ -2710,7 +2824,7 @@ def state_record_session(
 @instrument_gpd_function("state.snapshot")
 def state_snapshot(cwd: Path) -> StateSnapshotResult:
     """Fast snapshot of state for progress/routing commands."""
-    state_obj = load_state_json(cwd)
+    state_obj, _issues, _state_source = peek_state_json(cwd, recover_intent=False)
     if state_obj is None:
         return StateSnapshotResult(error="STATE.md not found")
 
@@ -2739,69 +2853,35 @@ def state_snapshot(cwd: Path) -> StateSnapshotResult:
 
 
 @instrument_gpd_function("state.validate")
-def state_validate(cwd: Path, integrity_mode: str = "standard") -> StateValidateResult:
+def state_validate(
+    cwd: Path,
+    integrity_mode: str = "standard",
+    *,
+    recover_intent: bool = True,
+) -> StateValidateResult:
     """Validate state consistency between state.json and STATE.md."""
     from gpd.core.contract_validation import validate_project_contract
 
-    json_path = _state_json_path(cwd)
     md_path = _state_md_path(cwd)
-    bak_path = json_path.parent / STATE_JSON_BACKUP_FILENAME
     issues: list[str] = []
     warnings: list[str] = []
 
-    # Load state.json
-    state_json = None
-    try:
-        raw_state_json = json.loads(json_path.read_text(encoding="utf-8"))
-        raw_root_issue = None
-        if not isinstance(raw_state_json, dict):
-            raw_root_issue = f"state.json root must be an object, got {type(raw_state_json).__name__}; validating normalized fallback"
-            issues.append(raw_root_issue)
-        try:
-            raw_state_json_backup = json.loads(bak_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
-            raw_state_json_backup = None
-        state_json, normalization_issues, recovered_root_from_backup, recovered_project_contract_from_backup = (
-            _normalize_state_schema_with_backup_project_contract(
-            raw_state_json,
-            raw_state_json_backup if isinstance(raw_state_json_backup, dict) else None,
-            allow_project_contract_salvage=False,
-            retain_blocking_project_contract_errors=False,
-            )
-        )
-        if normalization_issues:
+    state_json, normalization_issues, state_source = peek_state_json(
+        cwd,
+        integrity_mode=integrity_mode,
+        recover_intent=recover_intent,
+    )
+    if normalization_issues:
+        parse_issues = [issue for issue in normalization_issues if issue.startswith("state.json parse error:")]
+        other_issues = [issue for issue in normalization_issues if not issue.startswith("state.json parse error:")]
+        if parse_issues:
+            parse_target = warnings if integrity_mode == "standard" and state_source == "state.json.bak" else issues
+            parse_target.extend(parse_issues)
+        if other_issues:
             target = issues if integrity_mode == "review" else warnings
-            target.extend(normalization_issues)
-        if recovered_root_from_backup and raw_root_issue is not None:
-            if raw_root_issue in issues:
-                issues.remove(raw_root_issue)
-            target = issues if integrity_mode == "review" else warnings
-            target.append("state.json root was recovered from state.json.bak after primary state.json required normalization")
-        if recovered_project_contract_from_backup:
-            target = issues if integrity_mode == "review" else warnings
-            target.append(
-                "state.json project_contract was recovered from state.json.bak after primary state.json required blocking normalization"
-            )
-        if isinstance(raw_state_json, dict):
-            raw_version = raw_state_json.get("_version")
-            if raw_version not in (None, 1):
-                target = issues if integrity_mode == "review" else warnings
-                target.append(f"state.json version drift: expected 1, found {raw_version}")
-    except FileNotFoundError:
-        backup_state_json, backup_issues = _load_state_json_from_backup(
-            bak_path,
-            integrity_mode=integrity_mode,
-            allow_project_contract_salvage=False,
-        )
-        if backup_state_json is not None:
-            state_json = backup_state_json
-            target = issues if integrity_mode == "review" else warnings
-            target.extend(backup_issues)
-            target.append("state.json root was recovered from state.json.bak after primary state.json was missing")
-        else:
-            issues.append("state.json not found")
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
-        issues.append(f"state.json parse error: {e}")
+            target.extend(other_issues)
+    elif state_json is None:
+        issues.append("state.json not found")
 
     # Load and parse STATE.md
     state_md = None
@@ -2821,6 +2901,7 @@ def state_validate(cwd: Path, integrity_mode: str = "standard") -> StateValidate
             warnings=warnings,
             integrity_mode=integrity_mode,
             integrity_status=_integrity_status_from(issues, warnings, integrity_mode),
+            state_source=state_source,
         )
 
     if isinstance(state_json, dict) and state_json.get("project_contract") is not None:
@@ -2968,6 +3049,7 @@ def state_validate(cwd: Path, integrity_mode: str = "standard") -> StateValidate
         warnings=warnings,
         integrity_mode=integrity_mode,
         integrity_status=integrity_status,
+        state_source=state_source,
     )
 
 

@@ -83,16 +83,6 @@ Extract from init JSON: `project_exists`, `roadmap_exists`, `state_exists`, `pha
 
 **File contents (from --include):** `state_content`, `roadmap_content`, `project_content`, `config_content`. These are null if files don't exist.
 
-Run centralized context preflight before continuing:
-
-```bash
-CONTEXT=$(gpd --raw validate command-context progress "$ARGUMENTS")
-if [ $? -ne 0 ]; then
-  echo "$CONTEXT"
-  exit 1
-fi
-```
-
 If missing STATE.md: suggest `/gpd:new-project`.
 
 **If ROADMAP.md missing but PROJECT.md exists:**
@@ -118,6 +108,16 @@ All file contents are already loaded via `--include` in init_context step:
 - `active_reference_context` / `reference_artifacts_content` — readable anchor context to explain the next-step recommendation
 
 No additional file reads needed.
+
+Run centralized context preflight before continuing:
+
+```bash
+CONTEXT=$(gpd --raw validate command-context progress "$ARGUMENTS")
+if [ $? -ne 0 ]; then
+  echo "$CONTEXT"
+  exit 1
+fi
+```
 </step>
 
 <step name="analyze_roadmap">
@@ -153,7 +153,7 @@ Use this instead of manually reading/parsing ROADMAP.md.
 **Parse current position from init context and roadmap analysis:**
 
 - Use `current_phase` and `next_phase` from roadmap analyze
-- Use phase-level `has_context` and `has_literature` flags from analyze
+- Use phase-level `has_context` and `has_research` flags from analyze
 - Note `paused_at` if work was paused (from init context)
 - Count pending items: use `init todos` or `list-todos`
 - Check for active debug sessions: `ls .gpd/debug/*.md 2>/dev/null | grep -v resolved | wc -l`

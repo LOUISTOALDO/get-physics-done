@@ -20,6 +20,7 @@ from gpd.core.state import (
     load_state_json,
     parse_state_md,
     parse_state_to_json,
+    peek_state_json,
     save_state_json,
     save_state_markdown,
     state_extract_field,
@@ -28,6 +29,7 @@ from gpd.core.state import (
     state_record_session,
     state_replace_field,
     state_set_project_contract,
+    state_snapshot,
     state_validate,
     validate_state_transition,
 )
@@ -65,6 +67,23 @@ def _write_backup_only_state(
     state_for_backup = backup_state or primary_state
     layout.state_json_backup.write_text(json.dumps(state_for_backup, indent=2) + "\n", encoding="utf-8")
     layout.state_json.unlink()
+    return layout
+
+
+def _write_intent_recovery_state(
+    tmp_path: Path,
+    *,
+    stale_state: dict[str, object],
+    recovered_state: dict[str, object],
+) -> ProjectLayout:
+    """Create a stale state pair plus an intent marker pointing at recovered temp files."""
+    save_state_json(tmp_path, stale_state)
+    layout = ProjectLayout(tmp_path)
+    json_tmp = layout.gpd / ".state-json-tmp"
+    md_tmp = layout.gpd / ".state-md-tmp"
+    json_tmp.write_text(json.dumps(recovered_state, indent=2) + "\n", encoding="utf-8")
+    md_tmp.write_text(generate_state_markdown(recovered_state), encoding="utf-8")
+    layout.state_intent.write_text(f"{json_tmp}\n{md_tmp}\n", encoding="utf-8")
     return layout
 
 # ─── default_state_dict ──────────────────────────────────────────────────────
@@ -1067,6 +1086,67 @@ def test_state_validate_rejects_state_markdown_missing_canonical_section(tmp_pat
 
     assert result.valid is False
     assert any('STATE.md missing "## Current Position" section' in issue for issue in result.issues)
+
+
+def test_peek_state_json_uses_backup_when_primary_dict_is_schema_corrupt(tmp_path: Path) -> None:
+    save_state_json(tmp_path, default_state_dict())
+    layout = ProjectLayout(tmp_path)
+    primary_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    primary_state["position"] = []
+    layout.state_json.write_text(json.dumps(primary_state, indent=2) + "\n", encoding="utf-8")
+
+    backup_state = default_state_dict()
+    backup_state["position"]["current_phase"] = "09"
+    backup_state["position"]["status"] = "Executing"
+    layout.state_json_backup.write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
+
+    loaded, issues, state_source = peek_state_json(tmp_path)
+
+    assert loaded is not None
+    assert loaded["position"]["current_phase"] == "09"
+    assert loaded["position"]["status"] == "Executing"
+    assert state_source == "state.json.bak"
+    assert any("recovered from state.json.bak" in issue for issue in issues)
+
+
+def test_state_validate_uses_backup_when_primary_dict_is_schema_corrupt(tmp_path: Path) -> None:
+    save_state_json(tmp_path, default_state_dict())
+    layout = ProjectLayout(tmp_path)
+    primary_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    primary_state["position"] = []
+    layout.state_json.write_text(json.dumps(primary_state, indent=2) + "\n", encoding="utf-8")
+
+    backup_state = default_state_dict()
+    backup_state["position"]["status"] = "Executing"
+    layout.state_json_backup.write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
+    layout.state_md.write_text(generate_state_markdown(backup_state), encoding="utf-8")
+
+    result = state_validate(tmp_path)
+
+    assert result.valid is True
+    assert result.integrity_status == "warning"
+    assert result.state_source == "state.json.bak"
+    assert any("state.json root was recovered from state.json.bak" in warning for warning in result.warnings)
+
+
+def test_state_snapshot_does_not_consume_intent_marker(tmp_path: Path) -> None:
+    stale_state = default_state_dict()
+    stale_state["position"]["current_phase"] = "01"
+
+    recovered_state = default_state_dict()
+    recovered_state["position"]["current_phase"] = "05"
+    recovered_state["position"]["status"] = "Executing"
+
+    layout = _write_intent_recovery_state(tmp_path, stale_state=stale_state, recovered_state=recovered_state)
+    before_state = layout.state_json.read_text(encoding="utf-8")
+    before_intent = layout.state_intent.read_text(encoding="utf-8")
+
+    snapshot = state_snapshot(tmp_path)
+
+    assert snapshot.current_phase == "01"
+    assert layout.state_json.read_text(encoding="utf-8") == before_state
+    assert layout.state_intent.exists()
+    assert layout.state_intent.read_text(encoding="utf-8") == before_intent
 
 
 def test_load_state_json_review_blocks_on_schema_normalization(tmp_path):

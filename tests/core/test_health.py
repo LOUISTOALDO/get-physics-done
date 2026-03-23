@@ -31,7 +31,7 @@ from gpd.core.health import (
     run_doctor,
     run_health,
 )
-from gpd.core.state import default_state_dict, save_state_json
+from gpd.core.state import default_state_dict, generate_state_markdown, save_state_json
 from gpd.core.storage_paths import ProjectStorageLayout
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "stage0"
@@ -226,7 +226,7 @@ class TestCheckConventionLock:
     def test_convention_lock_non_dict_warns(self, tmp_path: Path):
         """A truthy non-dict convention_lock must not raise AttributeError."""
         fake_state = {"convention_lock": "not-a-dict"}
-        with patch("gpd.core.health.load_state_json", return_value=fake_state):
+        with patch("gpd.core.health._peek_normalized_state_for_health", return_value=(fake_state, "state.json")):
             result = check_convention_lock(tmp_path)
         assert result.status == CheckStatus.WARN
         assert any("not a dict" in w for w in result.warnings)
@@ -234,7 +234,7 @@ class TestCheckConventionLock:
     def test_empty_dict_falls_through_to_counting_loop(self, tmp_path: Path):
         """An empty dict {} is a valid convention_lock; should report counts, not 'No convention_lock'."""
         fake_state = {"convention_lock": {}}
-        with patch("gpd.core.health.load_state_json", return_value=fake_state):
+        with patch("gpd.core.health._peek_normalized_state_for_health", return_value=(fake_state, "state.json")):
             result = check_convention_lock(tmp_path)
         assert "No convention_lock in state.json" not in result.warnings
         assert "set" in result.details
@@ -458,7 +458,7 @@ class TestCheckStateValidity:
 
         result = check_state_validity(tmp_path)
 
-        assert result.status == CheckStatus.FAIL
+        assert result.status == CheckStatus.WARN
         assert layout.state_json.read_text(encoding="utf-8") == corrupt_state
         assert layout.state_json_backup.read_text(encoding="utf-8") == backup_before
 
@@ -476,6 +476,53 @@ class TestRunHealth:
     def test_fix_mode(self, tmp_path: Path):
         report = run_health(tmp_path, fix=True)
         assert isinstance(report.fixes_applied, list)
+
+    def test_fixless_mode_does_not_rewrite_corrupt_state(self, tmp_path: Path) -> None:
+        cwd = _bootstrap_health_project(tmp_path)
+        layout = ProjectLayout(cwd)
+
+        save_state_json(cwd, default_state_dict())
+        primary_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
+        primary_state["position"] = []
+        layout.state_json.write_text(json.dumps(primary_state, indent=2) + "\n", encoding="utf-8")
+
+        backup_state = default_state_dict()
+        backup_state["position"]["current_phase"] = "12"
+        backup_state["position"]["status"] = "Executing"
+        layout.state_json_backup.write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
+
+        before = layout.state_json.read_text(encoding="utf-8")
+        report = run_health(cwd, fix=False)
+        after = layout.state_json.read_text(encoding="utf-8")
+        state_check = next(check for check in report.checks if check.label == "State Validity")
+
+        assert before == after
+        assert report.fixes_applied == []
+        assert state_check.details["state_source"] == "state.json.bak"
+
+    def test_read_only_health_does_not_consume_intent_marker(self, tmp_path: Path) -> None:
+        cwd = _bootstrap_health_project(tmp_path)
+        layout = ProjectLayout(cwd)
+
+        stale_state = default_state_dict()
+        stale_state["position"]["current_phase"] = "01"
+        recovered_state = default_state_dict()
+        recovered_state["position"]["current_phase"] = "05"
+        recovered_state["position"]["status"] = "Executing"
+        _write_intent_recovery_state(cwd, stale_state=stale_state, recovered_state=recovered_state)
+
+        before_state = layout.state_json.read_text(encoding="utf-8")
+        before_md = layout.state_md.read_text(encoding="utf-8")
+        before_intent = layout.state_intent.read_text(encoding="utf-8")
+
+        report = run_health(cwd, fix=False)
+        state_check = next(check for check in report.checks if check.label == "State Validity")
+
+        assert layout.state_json.read_text(encoding="utf-8") == before_state
+        assert layout.state_md.read_text(encoding="utf-8") == before_md
+        assert layout.state_intent.exists()
+        assert layout.state_intent.read_text(encoding="utf-8") == before_intent
+        assert state_check.details["state_source"] == "state.json"
 
     def test_fix_mode_restores_backup_state_and_refreshes_report_details(self, tmp_path: Path) -> None:
         cwd = _bootstrap_health_project(tmp_path)
@@ -500,9 +547,54 @@ class TestRunHealth:
         assert layout.state_json.exists()
         assert state_check.details["has_json"] is True
         assert state_check.details["has_md"] is True
+        assert state_check.details["state_source"] == "state.json"
         assert not any("state.json not found" in issue for issue in state_check.issues)
         assert report.fixes_applied
-        assert any("state.json" in fix.lower() for fix in report.fixes_applied)
+        assert report.fixes_applied == ["Restored state.json from state.json.bak"]
+
+    def test_fix_mode_regenerates_state_from_state_md_and_refreshes_report_details(self, tmp_path: Path) -> None:
+        cwd = _bootstrap_health_project(tmp_path)
+        layout = ProjectLayout(cwd)
+
+        state = default_state_dict()
+        state["position"]["status"] = "Executing"
+        state["position"]["current_phase"] = "12"
+        markdown = generate_state_markdown(state)
+        layout.state_md.write_text(markdown, encoding="utf-8")
+
+        layout.state_json.write_text("", encoding="utf-8")
+        if layout.state_json_backup.exists():
+            layout.state_json_backup.unlink()
+
+        report = run_health(cwd, fix=True)
+        state_check = next(check for check in report.checks if check.label == "State Validity")
+
+        assert layout.state_json.exists()
+        assert state_check.details["state_source"] == "state.json"
+        assert report.fixes_applied == ["Regenerated state.json from STATE.md"]
+
+    def test_fix_mode_restores_state_pair_coherently(self, tmp_path: Path) -> None:
+        cwd = _bootstrap_health_project(tmp_path)
+        layout = ProjectLayout(cwd)
+
+        backup_state = default_state_dict()
+        backup_state["position"]["status"] = "Executing"
+        backup_state["position"]["current_phase"] = "12"
+        backup_state["open_questions"] = ["Recovered from backup"]
+        save_state_json(cwd, backup_state)
+        backup_payload = json.loads(layout.state_json_backup.read_text(encoding="utf-8"))
+
+        layout.state_json.unlink()
+        layout.state_md.write_text("# State\nThis markdown is stale.\n", encoding="utf-8")
+
+        report = run_health(cwd, fix=True)
+
+        restored_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
+        restored_md = layout.state_md.read_text(encoding="utf-8")
+
+        assert restored_state == backup_payload
+        assert "Recovered from backup" in restored_md
+        assert "Restored state.json from state.json.bak" in report.fixes_applied
 
     def test_fix_mode_removes_stale_checkpoint_tags(self, tmp_path: Path):
         def _run(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -786,6 +878,21 @@ def _bootstrap_health_project(tmp_path: Path) -> Path:
     (planning / "STATE.md").write_text("# State\n", encoding="utf-8")
     (planning / "PROJECT.md").write_text("# Project\n", encoding="utf-8")
     return tmp_path
+
+
+def _write_intent_recovery_state(
+    cwd: Path,
+    *,
+    stale_state: dict[str, object],
+    recovered_state: dict[str, object],
+) -> None:
+    save_state_json(cwd, stale_state)
+    layout = ProjectLayout(cwd)
+    json_tmp = layout.gpd / ".state-json-tmp"
+    md_tmp = layout.gpd / ".state-md-tmp"
+    json_tmp.write_text(json.dumps(recovered_state, indent=2) + "\n", encoding="utf-8")
+    md_tmp.write_text(generate_state_markdown(recovered_state), encoding="utf-8")
+    layout.state_intent.write_text(f"{json_tmp}\n{md_tmp}\n", encoding="utf-8")
 
 
 def _init_git_repo(tmp_path: Path) -> Path:

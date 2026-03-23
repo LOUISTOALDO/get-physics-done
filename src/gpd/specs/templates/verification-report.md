@@ -45,10 +45,11 @@ Not all verification sections apply to every project. Select based on physics do
 
 ## File Template
 
-Use `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` as the schema source of truth for `plan_contract_ref`, `contract_results`, and `comparison_verdicts`.
+Use `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` as the schema source of truth for `plan_contract_ref`, `contract_results`, `comparison_verdicts`, and verification-side `suggested_contract_checks`.
 For exploratory or partial phases, keep the report honest without inventing certainty: leave affected contract targets at `partial` when decisive work remains open, and use explicit `comparison_verdicts` entries such as `inconclusive` or `tension` when a decisive comparison was attempted but not resolved.
 If a decisive benchmark / cross-method check remains `partial`, `not_attempted`, or still lacks its decisive verdict, add structured `suggested_contract_checks` entries before final validation.
 The same structured suggestion is required when a benchmark-style reference anchors the subject or a reference with `required_actions` including `compare` is still incomplete.
+Those `suggested_contract_checks` entries belong to the same canonical schema surface as the rest of the verification ledger, not freeform prose.
 Every declared claim, deliverable, acceptance test, reference, and forbidden proxy ID from the source PLAN contract must appear in the matching `contract_results` section. Use explicit negative or incomplete statuses instead of omitting IDs.
 Keep `uncertainty_markers` explicit in the `contract_results` ledger, and use non-empty placeholder anchors in `weakest_anchors` and `disconfirming_observations` so unresolved uncertainty is visible before final validation.
 Reload `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` immediately before writing the YAML and apply it literally rather than paraphrasing from memory.

@@ -8,6 +8,7 @@ Template for `.gpd/phases/XX-name/{phase}-VERIFICATION.md` -- persistent researc
 
 A conversational walkthrough of research results, checking derivation logic, physical intuition, edge cases, and overall soundness.
 Use `@{GPD_INSTALL_DIR}/templates/verification-report.md` for the canonical verification frontmatter contract. This template adds the researcher-session body scaffold (`Current Check`, conversational logs, and diagnosis flow) on top of that same verification ledger.
+The verification-side `suggested_contract_checks` entries are part of the same canonical schema surface, so the body scaffold must stay aligned with the frontmatter contract rather than inventing a parallel checklist format.
 The contract-backed frontmatter example below keeps `uncertainty_markers` explicit and non-empty so the strict contract-results validator sees unresolved anchors before the report is written.
 
 ---
@@ -90,7 +91,7 @@ deliverable_id: [deliverable-id or ""]
 acceptance_test_id: [acceptance-test-id or ""]
 reference_ids: [reference-id, ...]
 forbidden_proxy_id: [forbidden-proxy-id or ""]
-comparison_kind: [benchmark | prior_work | experiment | cross_method | baseline | ""]
+comparison_kind: [benchmark | prior_work | experiment | cross_method | baseline | other | ""]
 comparison_reference_id: [reference-id or ""]
 expected: |
 [what the researcher should confirm or evaluate]
@@ -119,7 +120,7 @@ deliverable_id: [deliverable-id or ""]
 acceptance_test_id: [acceptance-test-id or ""]
 reference_ids: [reference-id, ...]
 forbidden_proxy_id: [forbidden-proxy-id or ""]
-comparison_kind: [benchmark | prior_work | experiment | cross_method | baseline | ""]
+comparison_kind: [benchmark | prior_work | experiment | cross_method | baseline | other | ""]
 comparison_reference_id: [reference-id or ""]
 expected: [what should hold - physical reasoning, derivation step, or result property]
 suggested_contract_checks:
@@ -171,7 +172,7 @@ The frontmatter `comparison_verdicts` ledger is authoritative; this section is a
   subject_id: "contract-id"
   subject_role: decisive | supporting | supplemental | other
   reference_id: "reference-id"
-  comparison_kind: benchmark | prior_work | experiment | cross_method | baseline
+  comparison_kind: benchmark | prior_work | experiment | cross_method | baseline | other
   verdict: pass | tension | fail | inconclusive
   metric: ""
   threshold: ""
@@ -202,7 +203,7 @@ Only `subject_role: decisive` closes a required decisive comparison; the other r
   acceptance_test_id: "acceptance-test-id"
   reference_ids: ["reference-id"]
   forbidden_proxy_id: "forbidden-proxy-id"
-  comparison_kind: "benchmark | prior_work | experiment | cross_method | baseline"
+  comparison_kind: "benchmark | prior_work | experiment | cross_method | baseline | other"
   comparison_reference_id: "reference-id"
   status: failed
   reason: "Researcher reported: [verbatim response]"

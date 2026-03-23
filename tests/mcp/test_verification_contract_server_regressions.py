@@ -167,6 +167,19 @@ def _ambiguous_request_template_contract() -> dict[str, object]:
     return contract
 
 
+def _binding_inconsistency_contract() -> dict[str, object]:
+    contract = _ambiguous_request_template_contract()
+    contract["forbidden_proxies"].append(
+        {
+            "id": "fp-benchmark",
+            "subject": "claim-benchmark",
+            "proxy": "proxy-benchmark",
+            "reason": "Benchmark proxy must not stand in for direct evidence",
+        }
+    )
+    return contract
+
+
 def _assert_contract_tools_reject(contract: dict[str, object], expected_error: str) -> None:
     from gpd.mcp.servers.verification_server import run_contract_check, suggest_contract_checks
 
@@ -184,6 +197,86 @@ def _assert_contract_tools_reject(contract: dict[str, object], expected_error: s
     expected = {"error": f"Invalid contract payload: {expected_error}", "schema_version": 1}
     assert run_result == expected
     assert suggest_result == expected
+
+
+@pytest.mark.parametrize(
+    ("check_key", "request_payload"),
+    [
+        (
+            "contract.benchmark_reproduction",
+            {
+                "binding": {
+                    "claim_ids": ["claim-benchmark"],
+                    "deliverable_ids": ["deliv-small-k"],
+                    "acceptance_test_ids": ["test-limit-small-k"],
+                    "reference_ids": ["ref-benchmark"],
+                },
+                "metadata": {"source_reference_id": "ref-benchmark"},
+                "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+            },
+        ),
+        (
+            "contract.direct_proxy_consistency",
+            {
+                "binding": {
+                    "claim_ids": ["claim-benchmark"],
+                    "deliverable_ids": ["deliv-small-k"],
+                    "acceptance_test_ids": ["test-limit-small-k"],
+                    "forbidden_proxy_ids": ["fp-benchmark"],
+                },
+                "observed": {"direct_available": True, "proxy_available": False},
+            },
+        ),
+        (
+            "contract.fit_family_mismatch",
+            {
+                "binding": {
+                    "claim_ids": ["claim-benchmark"],
+                    "deliverable_ids": ["deliv-small-k"],
+                    "acceptance_test_ids": ["test-limit-small-k"],
+                },
+                "metadata": {
+                    "declared_family": "power_law",
+                    "allowed_families": ["power_law", "spline"],
+                    "forbidden_families": ["polynomial"],
+                },
+                "observed": {"selected_family": "power_law", "competing_family_checked": True},
+            },
+        ),
+        (
+            "contract.estimator_family_mismatch",
+            {
+                "binding": {
+                    "claim_ids": ["claim-benchmark"],
+                    "deliverable_ids": ["deliv-small-k"],
+                    "acceptance_test_ids": ["test-limit-small-k"],
+                },
+                "metadata": {
+                    "declared_family": "bootstrap",
+                    "allowed_families": ["bootstrap", "jackknife"],
+                    "forbidden_families": [],
+                },
+                "observed": {"selected_family": "bootstrap", "bias_checked": True, "calibration_checked": True},
+            },
+        ),
+    ],
+)
+def test_run_contract_check_blocks_decisive_pass_for_inconsistent_binding_contexts(
+    check_key: str,
+    request_payload: dict[str, object],
+) -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check
+
+    result = run_contract_check(
+        {
+            "check_key": check_key,
+            "contract": _binding_inconsistency_contract(),
+            **request_payload,
+        }
+    )
+
+    assert result["status"] == "insufficient_evidence"
+    assert any("binding contexts disagree on claim targets" in issue for issue in result["automated_issues"])
 
 
 @pytest.mark.parametrize(
@@ -244,21 +337,16 @@ def test_contract_tools_reject_coercive_contract_scalars() -> None:
 
 
 @pytest.mark.parametrize(
-    ("path", "value", "expected_error"),
+    ("path", "value"),
     [
-        ("claims.0.references", "ref-benchmark", "claims.0.references must be a list, not str"),
-        ("references.0.aliases", "benchmark-paper", "references.0.aliases must be a list, not str"),
-        (
-            "references.0.required_actions",
-            "read",
-            "references.0.required_actions must be a list, not str",
-        ),
+        ("claims.0.references", "ref-benchmark"),
+        ("references.0.aliases", "benchmark-paper"),
+        ("references.0.required_actions", "read"),
     ],
 )
-def test_contract_tools_reject_nested_list_shape_drift(
+def test_contract_tools_accept_recoverable_scalar_to_list_contract_drift(
     path: str,
     value: object,
-    expected_error: str,
 ) -> None:
     contract = _load_project_contract_fixture()
 
@@ -271,7 +359,23 @@ def test_contract_tools_reject_nested_list_shape_drift(
     else:  # pragma: no cover - defensive guard for future test edits
         raise AssertionError(f"Unhandled path: {path}")
 
-    _assert_contract_tools_reject(contract, expected_error)
+    from gpd.mcp.servers.verification_server import run_contract_check, suggest_contract_checks
+
+    request = {
+        "check_key": "contract.benchmark_reproduction",
+        "contract": contract,
+        "binding": {"claim_ids": ["claim-benchmark"]},
+        "metadata": {"source_reference_id": "ref-benchmark"},
+        "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+    }
+
+    run_result = run_contract_check(request)
+    suggest_result = suggest_contract_checks(contract)
+
+    assert run_result["status"] == "pass"
+    assert suggest_result["suggested_count"] > 0
+    assert "error" not in run_result
+    assert "error" not in suggest_result
 
 
 def test_suggest_contract_checks_derives_request_templates_from_contract() -> None:
@@ -426,6 +530,22 @@ def test_run_contract_check_direct_proxy_consistency_marks_missing_direct_anchor
     assert result["automated_issues"] == []
 
 
+def test_run_contract_check_direct_proxy_consistency_passes_on_direct_evidence_alone() -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check
+
+    result = run_contract_check(
+        {
+            "check_key": "contract.direct_proxy_consistency",
+            "observed": {"direct_available": True},
+        }
+    )
+
+    assert result["status"] == "pass"
+    assert result["evidence_directness"] == "direct"
+    assert result["missing_inputs"] == []
+    assert result["automated_issues"] == []
+
+
 def test_run_contract_check_direct_proxy_consistency_requires_consistency_comparison_when_both_sources_exist() -> None:
     from gpd.mcp.servers.verification_server import run_contract_check
 
@@ -478,7 +598,7 @@ def test_suggest_contract_checks_leaves_ambiguous_metadata_placeholders_unresolv
     assert estimator["metadata"]["declared_family"] is None
 
 
-def test_run_contract_check_keyword_fallback_does_not_raise_warning_while_required_inputs_are_missing() -> None:
+def test_run_contract_check_keyword_fallback_reaches_warning_when_prose_evidence_is_present() -> None:
     from gpd.mcp.servers.verification_server import run_contract_check
 
     limit = run_contract_check(
@@ -497,7 +617,8 @@ def test_run_contract_check_keyword_fallback_does_not_raise_warning_while_requir
     assert limit["status"] == "insufficient_evidence"
     assert "metadata.regime_label" in limit["missing_inputs"]
     assert "metadata.expected_behavior" in limit["missing_inputs"]
-    assert benchmark["status"] == "insufficient_evidence"
+    assert benchmark["status"] == "warning"
+    assert benchmark["evidence_directness"] == "mixed"
     assert "metadata.source_reference_id" in benchmark["missing_inputs"]
     assert "observed.metric_value" in benchmark["missing_inputs"]
 
@@ -635,6 +756,42 @@ def test_contract_tools_reject_blank_or_malformed_contract_list_members_at_mcp_b
         == expected
     )
     assert _call_verification_tool("suggest_contract_checks", {"contract": contract}) == expected
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_error"),
+    [
+        (
+            lambda contract: contract["claims"][0].__setitem__("references", "   "),
+            "claims.0.references must not be blank",
+        ),
+        (
+            lambda contract: contract["scope"].__setitem__("in_scope", "   "),
+            "scope.in_scope must not be blank",
+        ),
+    ],
+)
+def test_contract_tools_reject_blank_scalar_to_list_contract_drift(
+    mutator,
+    expected_error: str,
+) -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check, suggest_contract_checks
+
+    contract = _load_project_contract_fixture()
+    mutator(contract)
+
+    expected = {"error": f"Invalid contract payload: {expected_error}", "schema_version": 1}
+
+    request = {
+        "check_key": "contract.benchmark_reproduction",
+        "contract": contract,
+        "binding": {"claim_ids": ["claim-benchmark"]},
+        "metadata": {"source_reference_id": "ref-benchmark"},
+        "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+    }
+
+    assert run_contract_check(request) == expected
+    assert suggest_contract_checks(contract) == expected
 
 
 @pytest.mark.parametrize("payload", ["not-a-dict", ["claim-benchmark"], 3])

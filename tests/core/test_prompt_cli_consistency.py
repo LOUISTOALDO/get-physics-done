@@ -139,7 +139,36 @@ def test_suggest_next_prompt_uses_real_cli_subcommand() -> None:
     suggest_prompt = (REPO_ROOT / "src/gpd/commands/suggest-next.md").read_text(encoding="utf-8")
 
     assert "Uses `gpd --raw suggest`" in suggest_prompt
+    assert "Local CLI fallback: `gpd --raw suggest`" in suggest_prompt
     assert "gpd suggest-next to scan" not in suggest_prompt
+
+
+def test_progress_prompt_runs_preflight_after_init_context() -> None:
+    command = (REPO_ROOT / "src/gpd/commands/progress.md").read_text(encoding="utf-8")
+    workflow = (REPO_ROOT / "src/gpd/specs/workflows/progress.md").read_text(encoding="utf-8")
+
+    for content in (command, workflow):
+        assert "INIT=$(gpd init progress --include state,roadmap,project,config)" in content
+        assert "CONTEXT=$(gpd --raw validate command-context progress \"$ARGUMENTS\")" in content
+        assert content.index("INIT=$(gpd init progress --include state,roadmap,project,config)") < content.index(
+            "CONTEXT=$(gpd --raw validate command-context progress \"$ARGUMENTS\")"
+        )
+
+
+def test_progress_prompt_requires_project_not_roadmap() -> None:
+    command = (REPO_ROOT / "src/gpd/commands/progress.md").read_text(encoding="utf-8")
+
+    assert 'files: [".gpd/PROJECT.md"]' in command
+    assert 'files: [".gpd/ROADMAP.md"]' not in command
+
+
+def test_new_milestone_prompt_mentions_planning_commit_docs() -> None:
+    command = (REPO_ROOT / "src/gpd/commands/new-milestone.md").read_text(encoding="utf-8")
+    workflow = (REPO_ROOT / "src/gpd/specs/workflows/new-milestone.md").read_text(encoding="utf-8")
+
+    for content in (command, workflow):
+        assert "planning.commit_docs" in content
+        assert "/gpd:discuss-phase [N]" in content or "/gpd:discuss-phase 1" in content
 
 
 def test_doc_sources_place_global_raw_before_subcommands() -> None:
@@ -238,6 +267,24 @@ def test_help_prompt_workflow_modes_match_current_settings_vocabulary() -> None:
         assert "Balanced (Recommended)" in content
         assert "YOLO" in content
         assert "/gpd:settings" in content
+        assert "/gpd:discuss-phase" in content
+        assert "execution.review_cadence" in content
+        assert "planning.commit_docs" in content
+        assert "git.branching_strategy" in content
+
+
+def test_new_project_prompt_surfaces_discuss_phase_before_planning() -> None:
+    command = (REPO_ROOT / "src/gpd/commands/new-project.md").read_text(encoding="utf-8")
+    workflow = (REPO_ROOT / "src/gpd/specs/workflows/new-project.md").read_text(encoding="utf-8")
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    for content in (command, workflow, readme):
+        assert "/gpd:discuss-phase 1" in content
+
+    assert "Discuss phase 1 now?" in command
+    assert "Discuss phase 1 now?" in workflow
+    assert "Plan phase 1 now?" not in command
+    assert "Plan phase 1 now?" not in workflow
 
 
 def test_execute_phase_failure_recovery_counts_only_top_level_verification_statuses() -> None:

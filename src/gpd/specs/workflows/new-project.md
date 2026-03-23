@@ -477,7 +477,9 @@ None yet.
     "review_cadence": "adaptive"
   },
   "parallelization": true,
-  "commit_docs": true,
+  "planning": {
+    "commit_docs": true
+  },
   "model_profile": "review",
   "workflow": {
     "research": true,
@@ -532,17 +534,17 @@ were skipped. Use /gpd:settings to adjust workflow preferences.
 Use ask_user:
 
 - header: "Next Step"
-- question: "Plan phase 1 now?"
+- question: "Discuss phase 1 now?"
 - options:
-  - "Plan phase 1" — Run /gpd:plan-phase 1
+  - "Discuss phase 1" — Run /gpd:discuss-phase 1
   - "Review artifacts first" — I want to check the generated files
   - "Done for now" — I'll continue later
 
-**If "Plan phase 1":** Tell the user to run `/gpd:plan-phase 1` (and suggest `/clear` first for a fresh context window).
+**If "Discuss phase 1":** Tell the user to run `/gpd:discuss-phase 1` (and suggest `/clear` first for a fresh context window).
 
 **If "Review artifacts first":** List the files and let the user inspect them. Suggest edits if needed, then re-offer planning.
 
-**If "Done for now":** Exit. Remind them to use `/gpd:resume-work` or `/gpd:plan-phase 1` when ready.
+**If "Done for now":** Exit. Remind them to use `/gpd:resume-work` or `/gpd:discuss-phase 1` when ready.
 
 ---
 
@@ -824,7 +826,7 @@ printf '%s\n' "$PROJECT_CONTRACT_JSON" | gpd state set-project-contract -
 
 Do not write `/tmp` intermediates for the approved contract. Prefer piping the exact approved JSON directly to `gpd ... -`. Only write a file if the user explicitly wants a durable saved copy, and if so place it under the project, not an OS temp directory.
 
-If `.gpd/config.json` does not exist yet, run Step 5 now before generating or committing `PROJECT.md`. This keeps the opening focused on the physics question while still letting `commit_docs` and other durable workflow settings apply before the first project-artifact commit. After Step 5 completes, return here and continue.
+If `.gpd/config.json` does not exist yet, run Step 5 now before generating or committing `PROJECT.md`. This keeps the opening focused on the physics question while still letting `planning.commit_docs` and other durable workflow settings apply before the first project-artifact commit. After Step 5 completes, return here and continue.
 
 Then synthesize all context into `.gpd/PROJECT.md` using the template from `templates/project.md`.
 
@@ -1012,10 +1014,10 @@ Run this step after scope approval and before the first project-artifact commit 
 Use ask_user:
 
 - header: "Workflow Setup"
-- question: "How would you like to write `.gpd/config.json`? Recommended defaults set `autonomy=balanced`, `research_mode=balanced`, `parallelization=true`, `commit_docs=true`, `model_profile=review`, and enable `workflow.research`, `workflow.plan_checker`, and `workflow.verifier`. After writing config, also sync runtime permissions so yolo behaves correctly in the active runtime."
+- question: "How would you like to write `.gpd/config.json`? Recommended defaults set `autonomy=balanced`, `research_mode=balanced`, `parallelization=true`, `planning.commit_docs=true`, `execution.review_cadence=adaptive`, `model_profile=review`, and enable `workflow.research`, `workflow.plan_checker`, and `workflow.verifier`. After writing config, also sync runtime permissions so yolo behaves correctly in the active runtime."
 - options:
   - "Use recommended defaults (Recommended)" — write those exact values now. Saves 3-5 minutes.
-  - "Customize settings" — choose `autonomy`, `research_mode`, `parallelization`, `commit_docs`, workflow agents, and `model_profile` individually
+  - "Customize settings" — choose `autonomy`, `research_mode`, `parallelization`, `planning.commit_docs`, `execution.review_cadence`, workflow agents, and `model_profile` individually
 
 **If "Use recommended defaults":** Skip all 8 config questions below. Create config.json directly with:
 
@@ -1024,7 +1026,12 @@ Use ask_user:
   "autonomy": "balanced",
   "research_mode": "balanced",
   "parallelization": true,
-  "commit_docs": true,
+  "planning": {
+    "commit_docs": true
+  },
+  "execution": {
+    "review_cadence": "adaptive"
+  },
   "model_profile": "review",
   "workflow": {
     "research": true,
@@ -1086,8 +1093,8 @@ questions: [
     question: "Commit planning docs to git?",
     multiSelect: false,
     options: [
-      { label: "Yes (Recommended)", description: "Planning docs tracked in version control" },
-      { label: "No", description: "Keep .gpd/ local-only (add to .gitignore)" }
+      { label: "Yes (Recommended)", description: "Set planning.commit_docs=true so planning docs are tracked in version control" },
+      { label: "No", description: "Set planning.commit_docs=false and keep .gpd/ local-only (add to .gitignore)" }
     ]
   }
 ]
@@ -1156,7 +1163,9 @@ Create `.gpd/config.json` with all settings:
   "autonomy": "supervised|balanced|yolo",
   "research_mode": "explore|balanced|exploit|adaptive",
   "parallelization": true|false,
-  "commit_docs": true|false,
+  "planning": {
+    "commit_docs": true|false
+  },
   "model_profile": "deep-theory|numerical|exploratory|review|paper-writing",
   "workflow": {
     "research": true|false,
@@ -1166,12 +1175,12 @@ Create `.gpd/config.json` with all settings:
 }
 ```
 
-**If commit_docs = No:**
+**If planning.commit_docs = No:**
 
-- Set `commit_docs: false` in config.json
+- Set `planning.commit_docs: false` in config.json
 - Add `.gpd/` to `.gitignore` (create if needed)
 
-**If commit_docs = Yes:**
+**If planning.commit_docs = Yes:**
 
 - No additional gitignore entries needed
 

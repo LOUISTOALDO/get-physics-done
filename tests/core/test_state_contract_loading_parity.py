@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from gpd.core.constants import STATE_JSON_BACKUP_FILENAME, ProjectLayout
-from gpd.core.context import init_progress
-from gpd.core.state import default_state_dict, load_state_json, save_state_json, state_load
+from gpd.core.context import _load_project_contract, init_progress
+from gpd.core.state import default_state_dict, generate_state_markdown, load_state_json, save_state_json, state_load
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "stage0"
 
@@ -42,6 +42,35 @@ def test_load_state_json_uses_backup_when_primary_root_is_not_an_object(tmp_path
     assert json.loads(layout.state_json.read_text(encoding="utf-8"))["position"]["current_phase"] == "09"
 
 
+def test_state_and_context_use_backup_when_primary_root_is_dict_but_schema_corrupt(
+    tmp_path: Path,
+) -> None:
+    _setup_project(tmp_path)
+    save_state_json(tmp_path, default_state_dict())
+
+    layout = ProjectLayout(tmp_path)
+    primary_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    primary_state["position"] = []
+    layout.state_json.write_text(json.dumps(primary_state, indent=2) + "\n", encoding="utf-8")
+
+    backup_state = default_state_dict()
+    backup_state["position"]["current_phase"] = "09"
+    backup_state["position"]["status"] = "Executing"
+    backup_contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    backup_contract["scope"]["question"] = "Recovered from schema-corrupt backup state"
+    backup_state["project_contract"] = backup_contract
+    layout.state_json_backup.write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
+
+    ctx = init_progress(tmp_path)
+    loaded = state_load(tmp_path)
+
+    assert loaded.state["position"]["current_phase"] == "09"
+    assert loaded.state["position"]["status"] == "Executing"
+    assert loaded.state["project_contract"]["scope"]["question"] == "Recovered from schema-corrupt backup state"
+    assert ctx["project_contract"]["scope"]["question"] == "Recovered from schema-corrupt backup state"
+    assert ctx["project_contract_load_info"]["source_path"].endswith(STATE_JSON_BACKUP_FILENAME)
+
+
 def test_state_and_context_restore_backup_project_contract_when_primary_needs_blocking_normalization(
     tmp_path: Path,
 ) -> None:
@@ -61,8 +90,8 @@ def test_state_and_context_restore_backup_project_contract_when_primary_needs_bl
     backup_state["project_contract"] = backup_contract
     layout.state_json_backup.write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
 
-    loaded = state_load(tmp_path)
     ctx = init_progress(tmp_path)
+    loaded = state_load(tmp_path)
 
     assert loaded.state["project_contract"] is not None
     assert loaded.state["project_contract"]["scope"]["question"] == "Recovered from backup contract"
@@ -132,6 +161,37 @@ def test_state_and_context_restore_backup_project_contract_when_primary_state_is
     )
 
 
+def test_project_contract_loader_recovers_intent_backed_state_and_persists_it(tmp_path: Path) -> None:
+    _setup_project(tmp_path)
+    save_state_json(tmp_path, default_state_dict())
+
+    layout = ProjectLayout(tmp_path)
+    stale_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    stale_contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    stale_contract["scope"]["question"] = "Stale contract"
+    stale_state["project_contract"] = stale_contract
+    layout.state_json.write_text(json.dumps(stale_state, indent=2) + "\n", encoding="utf-8")
+
+    recovered_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    recovered_contract = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    recovered_contract["scope"]["question"] = "Recovered from intent-backed write"
+    recovered_state["project_contract"] = recovered_contract
+    json_tmp = layout.gpd / ".state-json-tmp"
+    md_tmp = layout.gpd / ".state-md-tmp"
+    json_tmp.write_text(json.dumps(recovered_state, indent=2) + "\n", encoding="utf-8")
+    md_tmp.write_text(generate_state_markdown(recovered_state), encoding="utf-8")
+    layout.state_intent.write_text(f"{json_tmp}\n{md_tmp}\n", encoding="utf-8")
+
+    contract, load_info = _load_project_contract(tmp_path)
+
+    assert contract is not None
+    assert contract.model_dump(mode="json")["scope"]["question"] == "Recovered from intent-backed write"
+    assert load_info["status"].startswith("loaded")
+    assert load_info["source_path"].endswith("state.json")
+    assert not layout.state_intent.exists()
+    assert json.loads(layout.state_json.read_text(encoding="utf-8"))["project_contract"]["scope"]["question"] == "Recovered from intent-backed write"
+
+
 def test_state_and_context_drop_integrity_invalid_backup_project_contract(tmp_path: Path) -> None:
     _setup_project(tmp_path)
     save_state_json(tmp_path, default_state_dict())
@@ -165,8 +225,8 @@ def test_state_and_context_hide_project_contract_when_raw_singleton_section_is_i
     raw_state["project_contract"] = contract
     layout.state_json.write_text(json.dumps(raw_state, indent=2) + "\n", encoding="utf-8")
 
-    loaded = state_load(tmp_path)
     ctx = init_progress(tmp_path)
+    loaded = state_load(tmp_path)
 
     assert loaded.state["project_contract"] is None
     assert ctx["project_contract"] is None

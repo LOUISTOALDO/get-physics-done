@@ -578,8 +578,15 @@ def test_public_readme_command_table_matches_command_inventory_and_regression_ch
     assert set(readme_rows) == inventory
     assert (
         readme_rows["regression-check"]
-        == "Scan completed phase summaries and verifications for convention conflicts and verification-state regressions"
+        == "Scan-only audit for convention conflicts and verification-state regressions in completed phase summaries and verifications"
     )
+
+
+def test_public_readme_typical_new_project_loop_includes_discuss_phase_before_planning() -> None:
+    readme = (_repo_root() / "README.md").read_text(encoding="utf-8")
+
+    assert "/gpd:new-project -> /gpd:discuss-phase 1 -> /gpd:plan-phase 1 -> /gpd:execute-phase 1 -> /gpd:verify-work 1" in readme
+    assert "/gpd:new-project -> /gpd:plan-phase 1 -> /gpd:execute-phase 1 -> /gpd:verify-work 1" not in readme
 
 
 def test_help_reference_surfaces_clarify_runtime_slash_commands_vs_local_cli() -> None:
@@ -607,6 +614,7 @@ def test_help_reference_surfaces_keep_regression_check_wording_aligned_with_impl
     help_workflow = (repo_root / "src/gpd/specs/workflows/help.md").read_text(encoding="utf-8")
 
     for content in (help_command, help_workflow):
+        assert "Scan-only" in content
         assert "SUMMARY" in content
         assert "frontmatter" in content
         assert "convention conflicts" in content
@@ -615,6 +623,7 @@ def test_help_reference_surfaces_keep_regression_check_wording_aligned_with_impl
         assert "re-runs dimensional analysis" not in content
         assert "re-runs limiting cases" not in content
         assert "re-runs numerical checks" not in content
+        assert "re-verify" not in content
 
 
 def test_help_reference_surfaces_match_command_inventory() -> None:

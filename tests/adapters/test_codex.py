@@ -170,6 +170,24 @@ class TestConvertToCodexSkill:
 
 
 class TestInstall:
+    def test_help_skill_does_not_describe_codex_commands_as_slash_commands(
+        self,
+        adapter: CodexAdapter,
+        tmp_path: Path,
+    ) -> None:
+        gpd_root = Path(__file__).resolve().parents[2] / "src" / "gpd"
+        target = tmp_path / ".codex"
+        target.mkdir()
+        skills = tmp_path / "skills"
+        skills.mkdir()
+
+        adapter.install(gpd_root, target, skills_dir=skills)
+
+        content = (skills / "gpd-help" / "SKILL.md").read_text(encoding="utf-8")
+        assert "slash-command" not in content
+        assert "canonical in-runtime command names" in content
+        assert "$gpd-" in content
+
     def test_local_install_uses_repo_scoped_skills_dir_by_default(
         self,
         adapter: CodexAdapter,

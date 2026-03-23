@@ -53,7 +53,7 @@ If you are starting from existing work, run `map-research` first to map the form
 
 Typical new-project workflow:
 
-`new-project -> plan-phase 1 -> execute-phase 1 -> verify-work 1`
+`/gpd:new-project -> /gpd:discuss-phase 1 -> /gpd:plan-phase 1 -> /gpd:execute-phase 1 -> /gpd:verify-work 1`
 
 <details>
 <summary><strong>Install options</strong></summary>
@@ -217,7 +217,7 @@ These commands run inside your installed AI runtime after GPD has been installed
 | `respond-to-referees` | Structure referee responses and revise the manuscript |
 | `arxiv-submission` | Validate and package the manuscript for arXiv |
 
-Typical research loop: `/gpd:new-project -> /gpd:plan-phase -> /gpd:execute-phase -> /gpd:verify-work -> repeat -> /gpd:complete-milestone`
+Typical research loop: `/gpd:new-project -> /gpd:discuss-phase 1 -> /gpd:plan-phase 1 -> /gpd:execute-phase 1 -> /gpd:verify-work -> repeat -> /gpd:complete-milestone`
 
 Typical publication loop: `/gpd:write-paper -> /gpd:peer-review -> /gpd:respond-to-referees -> /gpd:arxiv-submission`
 
@@ -339,7 +339,7 @@ The full command reference below uses Claude Code / Gemini CLI syntax. Codex use
 | `/gpd:numerical-convergence` | Systematic convergence testing for numerical physics computations |
 | `/gpd:compare-experiment` | Systematically compare theoretical predictions with experimental or observational data |
 | `/gpd:validate-conventions [phase]` | Validate convention consistency across all phases |
-| `/gpd:regression-check [phase]` | Scan completed phase summaries and verifications for convention conflicts and verification-state regressions |
+| `/gpd:regression-check [phase]` | Scan-only audit for convention conflicts and verification-state regressions in completed phase summaries and verifications |
 
 #### Quantitative Analysis
 

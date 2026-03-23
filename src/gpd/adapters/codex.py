@@ -120,6 +120,7 @@ _CODEX_ASK_USER_PLATFORM_NOTE_RE = re.compile(
     r"^\s*>\s+\*\*Platform note:\*\* If `ask_user` is not available,[^\n]*\n(?:\s*\n)?",
     re.IGNORECASE | re.MULTILINE,
 )
+_CODEX_HELP_WORDING_RE = re.compile(r"\bslash-command\b")
 
 
 # ─── Directory helpers ──────────────────────────────────────────────────────
@@ -341,6 +342,11 @@ def _convert_to_codex_skill(content: str, skill_name: str) -> str:
 
     new_frontmatter = "\n".join(new_lines).strip()
     return render_markdown_frontmatter(preamble, new_frontmatter, separator or "\n", body)
+
+
+def _rewrite_codex_help_wording(content: str) -> str:
+    """Remove slash-command wording from the installed Codex help surface."""
+    return _CODEX_HELP_WORDING_RE.sub("command", content)
 
 
 def _toml_string(value: str) -> str:
@@ -1209,6 +1215,8 @@ def _render_commands_as_skills(
             content = _rewrite_codex_gpd_cli_invocations(content, launcher)
             content = _normalize_codex_questioning(content)
             content = _inject_codex_command_runtime_note(content, launcher)
+            if skill_name == "gpd-help":
+                content = _rewrite_codex_help_wording(content)
 
             (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
 

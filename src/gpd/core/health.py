@@ -44,10 +44,9 @@ from gpd.core.errors import GPDError, ValidationError
 from gpd.core.frontmatter import FrontmatterParseError, extract_frontmatter, validate_frontmatter
 from gpd.core.observability import gpd_span
 from gpd.core.state import (
-    _normalize_state_schema_with_backup_project_contract,
-    load_state_json,
+    peek_state_json,
+    save_state_json,
     state_validate,
-    sync_state_json,
 )
 from gpd.core.storage_paths import ProjectStorageLayout
 from gpd.core.utils import (
@@ -191,33 +190,17 @@ def check_storage_paths(cwd: Path) -> HealthCheck:
     return HealthCheck(status=status, label="Storage-Path Policy", details=details, warnings=warnings)
 
 
-def _peek_normalized_state_for_health(cwd: Path) -> dict[str, object] | None:
+def _peek_normalized_state_for_health(cwd: Path) -> tuple[dict[str, object] | None, str | None]:
     """Load normalized state for inspection without mutating on-disk files."""
-    layout = ProjectLayout(cwd)
+    state_obj, _integrity_issues, state_source = peek_state_json(cwd, recover_intent=False)
+    if not isinstance(state_obj, dict):
+        return None, state_source
 
-    def _read_state_object(path: Path) -> dict[str, object] | None:
-        try:
-            parsed = json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
-            return None
-        return parsed if isinstance(parsed, dict) else None
-
-    raw_state = _read_state_object(layout.state_json)
-    backup_state = _read_state_object(layout.state_json_backup)
-    if raw_state is None and backup_state is None:
-        return None
-
-    normalized, _integrity_issues, _recovered_root, _recovered_contract = _normalize_state_schema_with_backup_project_contract(
-        raw_state,
-        backup_state,
-        allow_project_contract_salvage=False,
-        retain_blocking_project_contract_errors=False,
-    )
-    project_contract = normalized.get("project_contract")
+    project_contract = state_obj.get("project_contract")
     if project_contract is not None and contract_from_data(project_contract) is None:
-        normalized = dict(normalized)
-        normalized["project_contract"] = None
-    return normalized
+        state_obj = dict(state_obj)
+        state_obj["project_contract"] = None
+    return state_obj, state_source
 
 
 def check_state_validity(cwd: Path) -> HealthCheck:
@@ -225,11 +208,11 @@ def check_state_validity(cwd: Path) -> HealthCheck:
 
     Delegates core validation to :func:`state_validate` and wraps the result.
     """
-    result = state_validate(cwd)
+    result = state_validate(cwd, recover_intent=False)
     issues = list(result.issues)
     warnings = list(result.warnings)
 
-    state_obj = _peek_normalized_state_for_health(cwd)
+    state_obj, state_source = _peek_normalized_state_for_health(cwd)
     if isinstance(state_obj, dict) and state_obj.get("project_contract") is not None:
         approval_validation = validate_project_contract(state_obj["project_contract"], mode="approved")
         if not approval_validation.valid:
@@ -251,7 +234,12 @@ def check_state_validity(cwd: Path) -> HealthCheck:
     except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, KeyError, TypeError):
         pass
 
-    details: dict[str, object] = {"has_json": layout.state_json.exists(), "has_md": layout.state_md.exists()}
+    details: dict[str, object] = {
+        "has_json": layout.state_json.exists(),
+        "has_md": layout.state_md.exists(),
+    }
+    if state_source is not None:
+        details["state_source"] = state_source
     status = CheckStatus.FAIL if issues else (CheckStatus.WARN if warnings else CheckStatus.OK)
     return HealthCheck(status=status, label="State Validity", details=details, issues=issues, warnings=warnings)
 
@@ -382,7 +370,7 @@ def check_orphans(cwd: Path) -> HealthCheck:
 def check_convention_lock(cwd: Path) -> HealthCheck:
     """Check convention lock completeness."""
     warnings: list[str] = []
-    state_obj = load_state_json(cwd)
+    state_obj, _state_source = _peek_normalized_state_for_health(cwd)
 
     if state_obj is None:
         return HealthCheck(status=CheckStatus.WARN, label="Convention Lock", warnings=["state.json not found"])
@@ -699,34 +687,22 @@ def _apply_fixes(
     # Fix 1: Restore state.json through the state loader if missing.
     # The loader prefers a valid state.json.bak before falling back to STATE.md.
     state_check = next((c for c in checks if c.label == "State Validity"), None)
-    if state_check and state_check.details.get("has_md") and not state_check.details.get("has_json"):
-        restored = load_state_json(cwd)
-        if restored is not None:
-            if layout.state_json_backup.exists():
-                fixes.append("Restored state.json from state.json.bak")
-            else:
-                fixes.append("Regenerated state.json from STATE.md")
-            state_check.issues = [i for i in state_check.issues if "state.json not found" not in i]
-            state_check.status = CheckStatus.WARN if state_check.warnings else CheckStatus.OK
-            refreshed_labels.add("State Validity")
-            structure_check = next((c for c in checks if c.label == "Project Structure"), None)
-            if structure_check is not None:
-                structure_check.details["state.json"] = "present"
-        else:
-            md_path = layout.state_md
-            content = safe_read_file(md_path)
-            if content is not None:
-                try:
-                    sync_state_json(cwd, content)
+    if state_check and state_check.status != CheckStatus.OK:
+        restored_state, _restored_issues, state_source = peek_state_json(cwd)
+        if restored_state is not None and state_source in {"state.json.bak", "STATE.md"}:
+            try:
+                save_state_json(cwd, restored_state)
+                if state_source == "state.json.bak":
+                    fixes.append("Restored state.json from state.json.bak")
+                else:
                     fixes.append("Regenerated state.json from STATE.md")
-                    state_check.issues = [i for i in state_check.issues if "state.json not found" not in i]
-                    state_check.status = CheckStatus.WARN if state_check.warnings else CheckStatus.OK
-                    refreshed_labels.add("State Validity")
-                    structure_check = next((c for c in checks if c.label == "Project Structure"), None)
-                    if structure_check is not None:
-                        structure_check.details["state.json"] = "present"
-                except Exception as e:
-                    fixes.append(f"Failed to regenerate state.json: {e}")
+                state_check.details["state_source"] = state_source
+                refreshed_labels.update({"State Validity", "Convention Lock"})
+                structure_check = next((c for c in checks if c.label == "Project Structure"), None)
+                if structure_check is not None:
+                    structure_check.details["state.json"] = "present"
+            except OSError as e:
+                fixes.append(f"Failed to restore state.json: {e}")
 
     # Fix 2: Create config.json if missing or malformed
     config_check = next((c for c in checks if c.label == "Config"), None)

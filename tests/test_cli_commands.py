@@ -20,12 +20,27 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from gpd.adapters import get_adapter
 from gpd.adapters.runtime_catalog import list_runtime_names
 from gpd.cli import app
 from gpd.core.state import default_state_dict, generate_state_markdown
 
 runner = CliRunner()
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "stage0"
+
+
+@pytest.fixture()
+def codex_command_prefix(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Force the CLI preflight helpers to resolve the Codex runtime."""
+    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: "codex")
+    return get_adapter("codex").command_prefix
+
+
+@pytest.fixture()
+def claude_code_command_prefix(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Force the CLI preflight helpers to resolve the Claude Code runtime."""
+    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: "claude-code")
+    return get_adapter("claude-code").command_prefix
 
 
 @pytest.fixture()
@@ -825,7 +840,7 @@ class TestReviewValidationCommands:
         assert "revision verification evidence" in payload["review_contract"]["required_evidence"]
 
     def test_command_context_project_required_fails_without_project(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_command_prefix: str
     ) -> None:
         empty_dir = tmp_path / "empty-context"
         empty_dir.mkdir()
@@ -844,11 +859,11 @@ class TestReviewValidationCommands:
         assert payload["passed"] is False
         assert payload["guidance"] == (
             "This command requires an initialized GPD project. "
-            "Use `/gpd:new-project` in the runtime surface or `gpd init new-project` in the local CLI."
+            f"Use `{codex_command_prefix}new-project` in the runtime surface or `gpd init new-project` in the local CLI."
         )
 
     def test_command_context_projectless_passes_without_project(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_command_prefix: str
     ) -> None:
         monkeypatch.chdir(tmp_path)
 
@@ -863,8 +878,28 @@ class TestReviewValidationCommands:
         assert payload["command"] == "gpd:map-research"
         assert payload["context_mode"] == "projectless"
         assert payload["passed"] is True
+        assert f"public `{codex_command_prefix}*` runtime command surface" in payload["dispatch_note"]
 
-    def test_command_context_surfaces_runtime_slash_command_dispatch_note(self) -> None:
+    def test_command_context_surfaces_runtime_command_dispatch_note(self, codex_command_prefix: str) -> None:
+        result = runner.invoke(
+            app,
+            ["--raw", "validate", "command-context", "gpd:settings"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["command"] == "gpd:settings"
+        assert payload["validated_surface"] == "public_runtime_dollar_command"
+        assert payload["local_cli_equivalence_guaranteed"] is False
+        assert f"public `{codex_command_prefix}*` runtime command surface" in payload["dispatch_note"]
+        assert "same-name local `gpd` subcommand" in payload["dispatch_note"]
+
+    def test_command_context_surfaces_slash_runtime_dispatch_note(
+        self, claude_code_command_prefix: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: "claude-code")
+
         result = runner.invoke(
             app,
             ["--raw", "validate", "command-context", "gpd:settings"],
@@ -876,7 +911,29 @@ class TestReviewValidationCommands:
         assert payload["command"] == "gpd:settings"
         assert payload["validated_surface"] == "public_runtime_slash_command"
         assert payload["local_cli_equivalence_guaranteed"] is False
-        assert "public `/gpd:*` runtime slash-command surface" in payload["dispatch_note"]
+        assert f"public `{claude_code_command_prefix}*` runtime command surface" in payload["dispatch_note"]
+        assert "same-name local `gpd` subcommand" in payload["dispatch_note"]
+
+    def test_command_context_falls_back_when_runtime_resolution_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _raise_runtime_error(cwd=None) -> str:
+            raise RuntimeError("runtime resolution failed")
+
+        monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", _raise_runtime_error)
+
+        result = runner.invoke(
+            app,
+            ["--raw", "validate", "command-context", "gpd:settings"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["command"] == "gpd:settings"
+        assert payload["validated_surface"] == "public_runtime_command_surface"
+        assert payload["local_cli_equivalence_guaranteed"] is False
+        assert "the active runtime command surface" in payload["dispatch_note"]
         assert "same-name local `gpd` subcommand" in payload["dispatch_note"]
 
     def test_command_context_slides_passes_without_project(
@@ -899,7 +956,7 @@ class TestReviewValidationCommands:
         assert payload["passed"] is True
 
     def test_command_context_project_aware_requires_explicit_inputs_without_project(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_command_prefix: str
     ) -> None:
         empty_dir = tmp_path / "empty-context"
         empty_dir.mkdir()
@@ -919,10 +976,10 @@ class TestReviewValidationCommands:
         assert payload["explicit_inputs"] == ["phase number or standalone topic"]
         assert payload["guidance"] == (
             "Either provide phase number or standalone topic explicitly, or initialize a project with "
-            "`/gpd:new-project` in the runtime surface or `gpd init new-project` in the local CLI."
+            f"`{codex_command_prefix}new-project` in the runtime surface or `gpd init new-project` in the local CLI."
         )
 
-    def test_review_preflight_propagates_runtime_surface_metadata(self) -> None:
+    def test_review_preflight_propagates_runtime_surface_metadata(self, codex_command_prefix: str) -> None:
         result = runner.invoke(
             app,
             ["--raw", "validate", "review-preflight", "peer-review"],
@@ -931,11 +988,31 @@ class TestReviewValidationCommands:
 
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
-        assert payload["validated_surface"] == "public_runtime_slash_command"
+        assert payload["validated_surface"] == "public_runtime_dollar_command"
         assert payload["local_cli_equivalence_guaranteed"] is False
-        assert "public `/gpd:*` runtime slash-command surface" in payload["dispatch_note"]
+        assert f"public `{codex_command_prefix}*` runtime command surface" in payload["dispatch_note"]
         checks = {check["name"]: check for check in payload["checks"]}
         assert "same-name local `gpd` subcommand" in checks["command_context"]["detail"]
+
+    def test_review_preflight_falls_back_when_runtime_resolution_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _raise_runtime_error(cwd=None) -> str:
+            raise RuntimeError("runtime resolution failed")
+
+        monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", _raise_runtime_error)
+
+        result = runner.invoke(
+            app,
+            ["--raw", "validate", "review-preflight", "peer-review"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["validated_surface"] == "public_runtime_command_surface"
+        assert payload["local_cli_equivalence_guaranteed"] is False
+        assert "the active runtime command surface" in payload["dispatch_note"]
 
     def test_command_context_project_aware_accepts_explicit_inputs_without_project(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -974,7 +1051,7 @@ class TestReviewValidationCommands:
         assert payload["passed"] is False
 
     def test_command_context_explain_requires_explicit_inputs_without_project(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_command_prefix: str
     ) -> None:
         empty_dir = tmp_path / "empty-context"
         empty_dir.mkdir()
@@ -994,11 +1071,11 @@ class TestReviewValidationCommands:
         assert payload["explicit_inputs"] == ["concept, result, method, notation, or paper"]
         assert payload["guidance"] == (
             "Either provide concept, result, method, notation, or paper explicitly, or initialize a project with "
-            "`/gpd:new-project` in the runtime surface or `gpd init new-project` in the local CLI."
+            f"`{codex_command_prefix}new-project` in the runtime surface or `gpd init new-project` in the local CLI."
         )
 
     def test_command_context_compare_results_requires_explicit_inputs_without_project(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_command_prefix: str
     ) -> None:
         empty_dir = tmp_path / "empty-context"
         empty_dir.mkdir()
@@ -1018,7 +1095,7 @@ class TestReviewValidationCommands:
         assert payload["explicit_inputs"] == ["phase, artifact, or comparison target"]
         assert payload["guidance"] == (
             "Either provide phase, artifact, or comparison target explicitly, or initialize a project with "
-            "`/gpd:new-project` in the runtime surface or `gpd init new-project` in the local CLI."
+            f"`{codex_command_prefix}new-project` in the runtime surface or `gpd init new-project` in the local CLI."
         )
 
     def test_review_preflight_write_paper_strict(self) -> None:

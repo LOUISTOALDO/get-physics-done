@@ -71,6 +71,57 @@ def test_run_contract_check_accepts_semantically_equivalent_check_key_and_check_
     assert _call_verification_tool("run_contract_check", {"request": request_payload}) == expected
 
 
+def test_run_contract_check_accepts_typed_nested_request_objects() -> None:
+    from gpd.contracts import ResearchContract
+    from gpd.mcp.servers.verification_server import (
+        ContractBindingRequest,
+        ContractMetadataRequest,
+        ContractObservedRequest,
+        RunContractCheckRequest,
+        run_contract_check,
+    )
+
+    request = RunContractCheckRequest(
+        check_key="contract.benchmark_reproduction",
+        contract=ResearchContract.model_validate(_load_project_contract_fixture()),
+        binding=ContractBindingRequest(claim_ids=["claim-benchmark"]),
+        metadata=ContractMetadataRequest(source_reference_id="ref-benchmark"),
+        observed=ContractObservedRequest(metric_value=0.01, threshold_value=0.02),
+    )
+
+    result = run_contract_check(request)
+
+    assert result["status"] == "pass"
+    assert result["binding"]["claim_ids"] == ["claim-benchmark"]
+    assert result["metrics"]["source_reference_id"] == "ref-benchmark"
+
+
+def test_run_contract_check_accepts_nested_base_model_binding_aliases_in_any_order() -> None:
+    from gpd.mcp.servers.verification_server import (
+        ContractBindingRequest,
+        ContractMetadataRequest,
+        ContractObservedRequest,
+        RunContractCheckRequest,
+        run_contract_check,
+    )
+
+    request = RunContractCheckRequest(
+        check_key="contract.benchmark_reproduction",
+        binding=ContractBindingRequest(
+            claim_id=["claim-a", "claim-b"],
+            claim_ids=["claim-b", "claim-a"],
+        ),
+        metadata=ContractMetadataRequest(source_reference_id="ref-benchmark"),
+        observed=ContractObservedRequest(metric_value=0.01, threshold_value=0.02),
+    )
+
+    result = run_contract_check(request)
+
+    assert result["status"] == "pass"
+    assert result["binding"]["claim_id"] == ["claim-a", "claim-b"]
+    assert result["binding"]["claim_ids"] == ["claim-b", "claim-a"]
+
+
 def test_suggest_contract_checks_normalizes_whitespace_padded_active_checks() -> None:
     from gpd.mcp.servers.verification_server import suggest_contract_checks
 
@@ -123,6 +174,27 @@ def test_run_contract_check_surfaces_cross_field_request_consistency_errors(
 
     assert run_contract_check(request_payload) == expected_error
     assert _call_verification_tool("run_contract_check", {"request": request_payload}) == expected_error
+
+
+def test_contract_tools_reject_blank_scalar_to_list_drift() -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check, suggest_contract_checks
+
+    contract = _load_project_contract_fixture()
+    contract["claims"][0]["references"] = "   "
+
+    expected = {"error": "Invalid contract payload: claims.0.references must not be blank", "schema_version": 1}
+
+    request = {
+        "check_key": "contract.benchmark_reproduction",
+        "contract": contract,
+        "metadata": {"source_reference_id": "ref-benchmark"},
+        "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+    }
+
+    assert run_contract_check(request) == expected
+    assert suggest_contract_checks(contract) == expected
+    assert _call_verification_tool("run_contract_check", {"request": request}) == expected
+    assert _call_verification_tool("suggest_contract_checks", {"contract": contract}) == expected
 
 
 @pytest.mark.parametrize(

@@ -131,6 +131,7 @@ Keep Accumulated Context section from previous milestone.
 ## 6. Cleanup and Commit
 
 Delete MILESTONE-CONTEXT.md if exists (consumed).
+Honor `planning.commit_docs` from init internally when deciding whether milestone artifacts are committed.
 
 ```bash
 PRE_CHECK=$(gpd pre-commit-check --files .gpd/PROJECT.md .gpd/STATE.md 2>&1) || true

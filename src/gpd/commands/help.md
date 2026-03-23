@@ -45,14 +45,15 @@ These `/gpd:*` entries are canonical in-runtime slash-command names exposed insi
 ## Quick Start
 
 1. `/gpd:new-project` — Initialize research project
-2. `/gpd:plan-phase <N>` — Plan a research phase
-3. `/gpd:execute-phase <N>` — Execute phase plans
-4. `/gpd:verify-work [phase]` — Verify research results
-5. `/gpd:progress` — Check status and get next action
-6. `/gpd:complete-milestone` — Archive completed milestone
-7. `/gpd:help --all` — Full command reference
+2. `/gpd:discuss-phase <N>` — Clarify the phase before planning
+3. `/gpd:plan-phase <N>` — Plan a research phase
+4. `/gpd:execute-phase <N>` — Execute phase plans
+5. `/gpd:verify-work [phase]` — Verify research results
+6. `/gpd:progress` — Check status and get next action
+7. `/gpd:complete-milestone` — Archive completed milestone
+8. `/gpd:help --all` — Full command reference
 
-**Workflow:** new-project → plan-phase → execute-phase → verify-work → repeat → complete-milestone
+**Workflow:** new-project → discuss-phase → plan-phase → execute-phase → verify-work → repeat → complete-milestone
 **Publication:** write-paper → peer-review → respond-to-referees → arxiv-submission
 
 Run `/gpd:help --all` for all 61 commands.
@@ -79,13 +80,14 @@ This reference lists canonical in-runtime slash-command names in `/gpd:*` form.
 ## Quick Start
 
 1. `/gpd:new-project` - Initialize research project (includes literature survey, objectives, roadmap)
-2. `/gpd:plan-phase 1` - Create detailed plan for first phase
-3. `/gpd:execute-phase 1` - Execute the phase
+2. `/gpd:discuss-phase 1` - Clarify the first phase before planning
+3. `/gpd:plan-phase 1` - Create detailed plan for first phase
+4. `/gpd:execute-phase 1` - Execute the phase
 
 ## Core Workflow
 
 ```
-/gpd:new-project -> /gpd:plan-phase -> /gpd:execute-phase -> repeat
+/gpd:new-project -> /gpd:discuss-phase -> /gpd:plan-phase -> /gpd:execute-phase -> repeat
 ```
 
 ### Project Initialization
@@ -103,7 +105,7 @@ One command takes you from research idea to ready-for-investigation:
 Creates all `.gpd/` artifacts:
 
 - `PROJECT.md` — research question, theoretical framework, key parameters
-- `config.json` — workflow settings (`autonomy`, `research_mode`, agent toggles)
+- `config.json` — workflow settings (`autonomy`, `research_mode`, `execution.review_cadence`, `planning.commit_docs`, agent toggles)
 - `research/` — literature survey (if selected)
 - `REQUIREMENTS.md` — scoped research requirements with REQ-IDs
 - `ROADMAP.md` — phases mapped to requirements
@@ -307,6 +309,7 @@ Start a new research milestone through unified flow.
 - Optional literature survey (spawns 4 parallel scout agents)
 - Objectives definition with scoping
 - Roadmap creation with phase breakdown
+- Uses `planning.commit_docs` from init to decide whether milestone artifacts are committed immediately
 
 Mirrors `/gpd:new-project` flow for continuation projects (existing PROJECT.md).
 
@@ -344,6 +347,7 @@ Suggest the most impactful next action based on current project state.
 
 - Scans phases, plans, verification status, blockers, and todos
 - Produces a prioritized action list
+- Local CLI fallback: `gpd --raw suggest`
 - Fastest way to answer "what should I do next?" without reading through progress reports
 
 Usage: `/gpd:suggest-next`
@@ -472,7 +476,7 @@ Usage: `/gpd:validate-conventions`
 Usage: `/gpd:validate-conventions 3`
 
 **`/gpd:regression-check [phase]`**
-Scan completed phase artifacts for regressions in already-recorded verification state.
+Scan-only audit for regressions in already-recorded verification state.
 
 - Detects convention conflicts where the same symbol is redefined with different values across completed SUMMARY artifacts
 - Scans `SUMMARY.md` and `VERIFICATION.md` frontmatter rather than re-running numerical or physics verification
@@ -718,13 +722,15 @@ Usage: `/gpd:plan-milestone-gaps`
 ### Configuration
 
 **`/gpd:settings`**
-Configure workflow toggles, model profile, and runtime-specific tier model overrides interactively.
+Configure workflow toggles, model profile, `execution.review_cadence`, and runtime-specific tier model overrides interactively.
 
 - Toggle plan researcher, plan checker, and execution verifier agents
-- Configure inter-wave verification gates (auto/always/never)
+- Configure inter-wave verification gates (`execution.review_cadence`: `dense`, `adaptive`, or `sparse`)
 - Toggle parallel execution of wave plans
 - Select model profile (deep-theory/numerical/exploratory/review/paper-writing)
 - Optionally pin concrete runtime model strings for `tier-1`, `tier-2`, and `tier-3`
+- Configure whether planning artifacts are committed (`planning.commit_docs`)
+- Configure git branching strategy (`git.branching_strategy`: `none`, `per-phase`, or `per-milestone`)
 - Updates `.gpd/config.json`
 
 Usage: `/gpd:settings`
@@ -874,7 +880,7 @@ Configure how planning artifacts are managed in `.gpd/config.json`:
 - `true`: Planning artifacts committed to git (standard workflow)
 - `false`: Planning artifacts kept local-only, not committed
 
-When `commit_docs: false`:
+When `planning.commit_docs: false`:
 
 - Add `.gpd/` to your `.gitignore`
 - Useful for collaborative projects, shared repos, or keeping planning private
@@ -884,6 +890,9 @@ Example config:
 
 ```json
 {
+  "execution": {
+    "review_cadence": "adaptive"
+  },
   "planning": {
     "commit_docs": false
   }
@@ -896,6 +905,8 @@ Example config:
 
 ```
 /gpd:new-project        # Unified flow: questioning -> survey -> objectives -> roadmap
+/clear
+/gpd:discuss-phase 1    # Gather context and clarify approach
 /clear
 /gpd:plan-phase 1       # Create plans for first phase
 /clear

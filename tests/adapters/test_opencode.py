@@ -281,6 +281,22 @@ class TestConfigureOpenCodePermissions:
         assert any("get-physics-done" in key for key in config["permission"]["external_directory"])
 
 class TestInstall:
+    def test_help_command_does_not_describe_opencode_commands_as_slash_commands(
+        self,
+        adapter: OpenCodeAdapter,
+        tmp_path: Path,
+    ) -> None:
+        gpd_root = Path(__file__).resolve().parents[2] / "src" / "gpd"
+        target = tmp_path / ".opencode"
+        target.mkdir()
+
+        adapter.install(gpd_root, target)
+
+        content = (target / "command" / "gpd-help.md").read_text(encoding="utf-8")
+        assert "slash-command" not in content
+        assert "canonical in-runtime command names" in content
+        assert "/gpd-" in content
+
     def test_local_install_uses_relative_gpd_paths(
         self,
         adapter: OpenCodeAdapter,

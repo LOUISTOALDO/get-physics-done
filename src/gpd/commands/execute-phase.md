@@ -71,11 +71,11 @@ Phase: $ARGUMENTS
 
 ## Inter-wave Verification Gates
 
-Between waves, the orchestrator runs lightweight verification on the just-completed wave's SUMMARY.md outputs (dimensional consistency and convention checks). This is controlled by the `workflow.verify_between_waves` config:
+Between waves, the orchestrator can run lightweight verification on the just-completed wave's SUMMARY.md outputs (dimensional consistency, convention checks, and other class-specific scans). This is controlled by `execution.review_cadence`, together with the phase classification rules in the full workflow:
 
-- `"auto"` (default) — enabled for `deep-theory` and `review` profiles, disabled for others
-- `true` — always run inter-wave gates
-- `false` — skip inter-wave gates (fastest execution)
+- `"dense"` — always run the bounded inter-wave review gates
+- `"adaptive"` (default) — run the gates when the completed wave created or challenged decisive downstream evidence, baseline selection, or fanout-critical results
+- `"sparse"` — skip routine inter-wave gates unless the wave raised a failed sanity check, anchor gap, or dependency warning
 
 Cost: ~2-5k tokens per gate. Catches sign errors and convention drift before they propagate to downstream waves.
 

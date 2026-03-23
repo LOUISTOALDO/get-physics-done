@@ -85,6 +85,8 @@ def test_verification_template_surfaces_strict_passed_and_blocked_semantics() ->
     assert "every claim, deliverable, and acceptance_test entry in `contract_results` is `passed`" in verification_template
     assert "If any contract target is `partial`, `failed`, `blocked`, `missing`, or `unresolved`, use `gaps_found`, `expert_needed`, or `human_needed` instead of `passed`." in verification_template
     assert "Reload `@{GPD_INSTALL_DIR}/templates/contract-results-schema.md` immediately before writing the YAML" in verification_template
+    assert "verification-side `suggested_contract_checks`" in verification_template
+    assert "same canonical schema surface as the rest of the verification ledger" in verification_template
     assert "uncertainty_markers:" in verification_template
     assert "weakest_anchors: [anchor-1]" in verification_template
     assert "disconfirming_observations: [observation-1]" in verification_template
@@ -94,6 +96,10 @@ def test_research_verification_template_surfaces_non_empty_uncertainty_markers()
     research_verification = (TEMPLATES_DIR / "research-verification.md").read_text(encoding="utf-8")
 
     assert "Use `@{GPD_INSTALL_DIR}/templates/verification-report.md` for the canonical verification frontmatter contract." in research_verification
+    assert "verification-side `suggested_contract_checks` entries are part of the same canonical schema surface" in research_verification
+    assert "comparison_kind: [benchmark | prior_work | experiment | cross_method | baseline | other | \"\"]" in research_verification
+    assert "comparison_kind: benchmark | prior_work | experiment | cross_method | baseline | other" in research_verification
+    assert 'comparison_kind: "benchmark | prior_work | experiment | cross_method | baseline | other"' in research_verification
     assert "uncertainty_markers:" in research_verification
     assert "weakest_anchors: [anchor-1]" in research_verification
     assert "disconfirming_observations: [observation-1]" in research_verification

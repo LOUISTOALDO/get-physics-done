@@ -57,7 +57,8 @@ from gpd.core.contract_validation import (
 from gpd.core.errors import ValidationError
 from gpd.core.protocol_bundles import render_protocol_bundle_context, select_protocol_bundles
 from gpd.core.reference_ingestion import ingest_reference_artifacts
-from gpd.core.state import load_state_json as _load_state_json
+from gpd.core.state import _load_state_json_with_integrity_issues, _normalize_state_schema_with_backup_project_contract
+from gpd.core.state import peek_state_json as _peek_state_json
 from gpd.core.utils import (
     generate_slug as _generate_slug_impl,
 )
@@ -211,65 +212,77 @@ def _load_raw_project_contract_payload(cwd: Path) -> tuple[Path, object] | None:
             return None
         if not isinstance(raw_backup, dict):
             return None
-        backup_contract = raw_backup.get("project_contract")
-        if not isinstance(backup_contract, dict):
-            return None
-        backup_list_shape_errors = _collect_list_shape_drift_errors(backup_contract)
-        backup_normalized, backup_findings = salvage_project_contract(backup_contract)
-        backup_findings = list(dict.fromkeys([*backup_findings, *backup_list_shape_errors]))
-        _backup_warnings, backup_errors = _split_project_contract_schema_findings(
-            backup_findings,
-            allow_singleton_defaults=False,
-        )
-        if backup_errors or backup_normalized is None:
-            return None
         logger.warning(
             "Using project_contract from %s because %s",
             layout.state_json_backup,
             reason,
         )
-        return layout.state_json_backup, backup_contract
+        return layout.state_json_backup, raw_backup.get("project_contract")
 
-    try:
-        raw_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
-        raw_state = None
-    else:
-        if isinstance(raw_state, dict):
-            raw_contract = raw_state.get("project_contract")
-            if raw_contract is None:
-                return layout.state_json, None
-            if not isinstance(raw_contract, dict):
-                backup_payload = _backup_project_contract(
-                    "the primary state.json project_contract was not a JSON object"
-                )
-                if backup_payload is not None:
-                    return backup_payload
-                return layout.state_json, raw_contract
+    def _read_state_payload(path: Path) -> object:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
+            return None
 
-            list_shape_drift_errors = _collect_list_shape_drift_errors(raw_contract)
-            normalized_contract, schema_findings = salvage_project_contract(raw_contract)
-            schema_findings = list(dict.fromkeys([*schema_findings, *list_shape_drift_errors]))
-            _schema_warnings, schema_errors = _split_project_contract_schema_findings(
-                schema_findings,
-                allow_singleton_defaults=False,
-            )
-            if schema_errors or normalized_contract is None:
-                backup_payload = _backup_project_contract(
-                    "the primary state.json project_contract required blocking schema normalization"
-                )
-                if backup_payload is not None:
-                    return backup_payload
-            return layout.state_json, raw_contract
+    if layout.state_intent.exists():
+        _load_state_json_with_integrity_issues(cwd, persist_recovery=True)
+
+    raw_state = _read_state_payload(layout.state_json)
+    raw_backup = _read_state_payload(layout.state_json_backup)
+    source_path = layout.state_json
+
+    if raw_state is None:
+        logger.warning(
+            "Using project_contract from %s because the primary state.json was unavailable or unreadable",
+            layout.state_json_backup,
+        )
+        backup_payload = _backup_project_contract("the primary state.json was unavailable or unreadable")
+        if backup_payload is not None:
+            return backup_payload
+        return None
+
+    if not isinstance(raw_state, dict):
         backup_payload = _backup_project_contract("the primary state.json content was not a JSON object")
         if backup_payload is not None:
             return backup_payload
         return None
 
-    backup_payload = _backup_project_contract("the primary state.json was unavailable or unreadable")
-    if backup_payload is not None:
-        return backup_payload
-    return None
+    _normalized_state, _integrity_issues, recovered_root_from_backup, _recovered_contract = (
+        _normalize_state_schema_with_backup_project_contract(
+            raw_state,
+            raw_backup if isinstance(raw_backup, dict) else None,
+            allow_project_contract_salvage=False,
+            retain_blocking_project_contract_errors=False,
+        )
+    )
+    if recovered_root_from_backup:
+        backup_payload = _backup_project_contract("the primary state.json required root-level normalization")
+        if backup_payload is not None and backup_payload[1] is not None:
+            return backup_payload
+
+    raw_contract = raw_state.get("project_contract")
+    if raw_contract is None:
+        return source_path, None
+    if not isinstance(raw_contract, dict):
+        backup_payload = _backup_project_contract("the primary state.json project_contract was not a JSON object")
+        if backup_payload is not None and backup_payload[1] is not None:
+            return backup_payload
+        return source_path, raw_contract
+
+    list_shape_drift_errors = _collect_list_shape_drift_errors(raw_contract)
+    normalized_contract, schema_findings = salvage_project_contract(raw_contract)
+    schema_findings = list(dict.fromkeys([*schema_findings, *list_shape_drift_errors]))
+    _schema_warnings, schema_errors = _split_project_contract_schema_findings(
+        schema_findings,
+        allow_singleton_defaults=False,
+    )
+    if schema_errors or normalized_contract is None:
+        backup_payload = _backup_project_contract("the primary state.json project_contract required blocking schema normalization")
+        if backup_payload is not None and backup_payload[1] is not None:
+            return backup_payload
+        return source_path, raw_contract
+    return source_path, raw_contract
 
 
 def _project_contract_source_path(cwd: Path, source_path: Path) -> str:
@@ -360,13 +373,19 @@ def _load_project_contract(cwd: Path) -> tuple[ResearchContract | None, dict[str
             warnings=schema_warnings,
         )
     else:
-        state = _load_state_json(cwd)
+        state, _state_issues, state_source = _peek_state_json(cwd)
         default_source = _project_contract_source_path(cwd, layout.state_json)
         if not isinstance(state, dict):
             return None, _project_contract_load_payload(status="missing", source_path=default_source)
 
-        source_path = layout.state_json
-        source_label = default_source
+        source_path = (
+            layout.state_json
+            if state_source in (None, "state.json")
+            else layout.state_json_backup
+            if state_source == "state.json.bak"
+            else layout.state_md
+        )
+        source_label = _project_contract_source_path(cwd, source_path)
         contract = contract_from_data(state.get("project_contract"))
         if contract is None:
             return None, _project_contract_load_payload(status="missing", source_path=source_label)
@@ -991,7 +1010,7 @@ def _build_execution_runtime_context(cwd: Path) -> dict[str, object]:
     from gpd.core.observability import get_current_execution
 
     snapshot = get_current_execution(cwd)
-    state = _load_state_json(cwd)
+    state, _state_issues, _state_source = _peek_state_json(cwd)
     position = state.get("position") if isinstance(state, dict) else {}
     session = state.get("session") if isinstance(state, dict) else {}
 

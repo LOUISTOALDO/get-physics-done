@@ -4,7 +4,7 @@ description: Check research progress, show context, and route to next action (ex
 argument-hint: "[--brief] [--full] [--reconcile]"
 context_mode: project-required
 requires:
-  files: [".gpd/ROADMAP.md"]
+  files: [".gpd/PROJECT.md"]
 allowed-tools:
   - file_read
   - shell
@@ -26,16 +26,6 @@ Provides situational awareness before continuing research work.
 </execution_context>
 
 <process>
-## Step 0: Validate Context
-
-```bash
-CONTEXT=$(gpd --raw validate command-context progress "$ARGUMENTS")
-if [ $? -ne 0 ]; then
-  echo "$CONTEXT"
-  exit 1
-fi
-```
-
 ## Mode Detection
 
 Check `$ARGUMENTS` for flags:
@@ -82,6 +72,16 @@ This means a milestone was completed and archived. Go to **Route F** (between mi
 If missing both ROADMAP.md and PROJECT.md: suggest `/gpd:new-project`.
 
 ## Step 2: Load Context
+
+**Run centralized context preflight before continuing:**
+
+```bash
+CONTEXT=$(gpd --raw validate command-context progress "$ARGUMENTS")
+if [ $? -ne 0 ]; then
+  echo "$CONTEXT"
+  exit 1
+fi
+```
 
 **Use project context from INIT:**
 
