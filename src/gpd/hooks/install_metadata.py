@@ -91,11 +91,17 @@ def _manifest_explicit_target(config_dir: Path) -> bool | None:
     return None
 
 
-def _has_generic_complete_install(config_dir: Path) -> bool:
-    """Return whether *config_dir* has runtime-agnostic GPD install markers."""
-    manifest_path = config_dir / "gpd-file-manifest.json"
-    gpd_dir = config_dir / "get-physics-done"
-    return manifest_path.is_file() and gpd_dir.is_dir()
+def _manifest_runtime(config_dir: Path) -> str | None:
+    """Return the authoritative runtime declared in *config_dir*'s manifest."""
+    manifest = load_install_manifest(config_dir)
+    runtime = manifest.get("runtime")
+    if not isinstance(runtime, str):
+        return None
+
+    normalized_runtime = runtime.strip()
+    if not normalized_runtime:
+        return None
+    return normalize_runtime_name(normalized_runtime)
 
 
 def _paths_equal(left: Path, right: Path) -> bool:
@@ -193,23 +199,20 @@ def _detect_install_scope_fallback(
 
 
 def config_dir_has_complete_install(config_dir: Path) -> bool:
-    """Return whether *config_dir* has the stable markers of a GPD install."""
-    manifest = load_install_manifest(config_dir)
-    runtime = installed_runtime(config_dir)
+    """Return whether *config_dir* is a complete install with authoritative runtime identity."""
+    runtime = _manifest_runtime(config_dir)
     if runtime is not None:
         try:
             return get_adapter(runtime).has_complete_install(config_dir)
         except KeyError:
             return False
-    if "runtime" in manifest:
-        return False
-    return _has_generic_complete_install(config_dir)
+    return False
 
 
 def installed_update_command(config_dir: Path) -> str | None:
     """Return the bootstrap update command for the install in *config_dir*."""
 
-    runtime = installed_runtime(config_dir)
+    runtime = _manifest_runtime(config_dir)
     if runtime is None:
         return None
 
