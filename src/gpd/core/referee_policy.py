@@ -91,6 +91,7 @@ _STRICT_STAGE_ARTIFACT_IDS = ("reader", "literature", "math", "physics", "intere
 _STRICT_STAGE_ARTIFACT_RE = re.compile(
     r"^STAGE-(reader|literature|math|physics|interestingness)(-R\d+)?\.json$"
 )
+_STRICT_REFEREE_DECISION_FIELDS = tuple(RefereeDecisionInput.model_fields)
 
 
 def _worse_recommendation(left: ReviewRecommendation, right: ReviewRecommendation) -> ReviewRecommendation:
@@ -151,6 +152,18 @@ def _strict_stage_artifact_errors(stage_artifacts: list[str]) -> list[str]:
     if len(round_suffixes) > 1:
         errors.append("Strict staged peer review requires all specialist stage artifacts to use the same round suffix.")
     return errors
+
+
+def _strict_referee_decision_field_errors(data: RefereeDecisionInput) -> list[str]:
+    """Return strict-mode errors for omitted referee-decision policy inputs."""
+
+    missing_fields = [field_name for field_name in _STRICT_REFEREE_DECISION_FIELDS if field_name not in data.model_fields_set]
+    if not missing_fields:
+        return []
+    return [
+        "Strict staged peer review requires explicit referee-decision fields; omitted defaults are not allowed: "
+        + ", ".join(missing_fields)
+    ]
 
 
 def _normalize_path_label(path_text: str) -> str:
@@ -218,6 +231,7 @@ def evaluate_referee_decision(
     data: RefereeDecisionInput,
     *,
     strict: bool = False,
+    require_explicit_inputs: bool = False,
     review_ledger: ReviewLedger | None = None,
     project_root: Path | None = None,
 ) -> RefereeDecisionReport:
@@ -230,6 +244,11 @@ def evaluate_referee_decision(
     consistency_errors: list[str] = []
 
     if strict:
+        if require_explicit_inputs and high_impact:
+            strict_field_errors = _strict_referee_decision_field_errors(data)
+            if strict_field_errors:
+                consistency_errors.extend(strict_field_errors)
+                allowed = _worse_recommendation(allowed, ReviewRecommendation.major_revision)
         strict_stage_errors = _strict_stage_artifact_errors(data.stage_artifacts)
         if strict_stage_errors:
             consistency_errors.extend(strict_stage_errors)

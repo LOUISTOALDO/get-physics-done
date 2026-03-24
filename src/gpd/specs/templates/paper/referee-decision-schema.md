@@ -42,12 +42,15 @@ This JSON is the machine-readable adjudication summary consumed by `gpd validate
 }
 ```
 
-Only `final_recommendation` is strictly required by the runtime model. Most other fields have defaults, but you should set them explicitly whenever they materially affect the recommendation floor, issue accounting, or strict staged-review validation.
+In loose validation, the runtime model still supplies defaults for many fields. In strict staged review, do not rely on those defaults: every policy-driving field in the example above must be written explicitly, including `final_confidence`, `stage_artifacts`, the evidence and assumption booleans, the adequacy fields, unresolved issue counts, and `blocking_issue_ids`.
+
+Strict validation treats omitted fields as a policy error even when the default value looks convenient. That prevents optimistic inheritance from silently strengthening the final recommendation.
 
 ---
 
 ## Field Rules
 
+- In strict staged review, every top-level field in the required-shape example must be set explicitly. Defaults are not a substitute for policy input.
 - `final_recommendation` must be one of: `accept`, `minor_revision`, `major_revision`, `reject`.
 - `final_confidence` must be one of: `high`, `medium`, `low`.
 - Adequacy fields (`mathematical_correctness`, `novelty`, `significance`, `venue_fit`, `literature_positioning`) must be one of: `strong`, `adequate`, `weak`, `insufficient`.

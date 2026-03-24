@@ -3672,6 +3672,44 @@ def validate_verification_contract_cmd(
     _run_frontmatter_validation(input_path, "verification")
 
 
+@validate_app.command("review-claim-index")
+def validate_review_claim_index_cmd(
+    input_path: str = typer.Argument(..., help="Path to a claim-index JSON file, or '-' for stdin"),
+) -> None:
+    """Validate a staged peer-review claim index."""
+    from gpd.mcp.paper.models import ClaimIndex
+
+    payload = _load_json_document(input_path)
+    try:
+        claim_index = ClaimIndex.model_validate(payload)
+    except PydanticValidationError as exc:
+        _raise_pydantic_schema_error(
+            label="review-claim-index",
+            exc=exc,
+            schema_reference="references/publication/peer-review-panel.md",
+        )
+    _output(claim_index)
+
+
+@validate_app.command("review-stage-report")
+def validate_review_stage_report_cmd(
+    input_path: str = typer.Argument(..., help="Path to a stage-review JSON file, or '-' for stdin"),
+) -> None:
+    """Validate a staged peer-review report."""
+    from gpd.mcp.paper.models import StageReviewReport
+
+    payload = _load_json_document(input_path)
+    try:
+        stage_report = StageReviewReport.model_validate(payload)
+    except PydanticValidationError as exc:
+        _raise_pydantic_schema_error(
+            label="review-stage-report",
+            exc=exc,
+            schema_reference="references/publication/peer-review-panel.md",
+        )
+    _output(stage_report)
+
+
 @validate_app.command("review-ledger")
 def validate_review_ledger_cmd(
     input_path: str = typer.Argument(..., help="Path to a review-ledger JSON file, or '-' for stdin"),
@@ -3737,6 +3775,7 @@ def validate_referee_decision(
     report = evaluate_referee_decision(
         decision,
         strict=strict,
+        require_explicit_inputs=strict,
         review_ledger=review_ledger,
         project_root=_get_cwd(),
     )
