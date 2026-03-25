@@ -3005,13 +3005,14 @@ def _reject_legacy_paper_config_location(config_file: Path) -> None:
     from gpd.core.storage_paths import ProjectStorageLayout
 
     legacy_config_root = ProjectStorageLayout(_get_cwd()).internal_root / "paper"
+    planning_dir_name = legacy_config_root.parent.name
     resolved_config = config_file.resolve(strict=False)
     try:
         resolved_config.relative_to(legacy_config_root)
     except ValueError:
         return
     raise GPDError(
-        "Paper configs under `GPD/paper/` are no longer supported. "
+        f"Paper configs under `{planning_dir_name}/paper/` are no longer supported. "
         "Move the config to `paper/`, `manuscript/`, or `draft/`."
     )
 

@@ -962,6 +962,34 @@ def test_paper_build_rejects_explicit_legacy_planning_config_path(tmp_path: Path
     assert "no longer supported" in payload["error"]
 
 
+def test_paper_build_rejects_explicit_legacy_hidden_planning_config_path(tmp_path: Path, capsys) -> None:
+    planning_paper_dir = tmp_path / ".gpd" / "paper"
+    planning_paper_dir.mkdir(parents=True)
+    (tmp_path / ".gpd" / "state.json").write_text("{}\n", encoding="utf-8")
+    (planning_paper_dir / "PAPER-CONFIG.json").write_text(
+        json.dumps(
+            {
+                "title": "planning-lowercase",
+                "authors": [{"name": "A. Researcher"}],
+                "abstract": "Abstract.",
+                "sections": [{"title": "Intro", "content": "Hello."}],
+                "figures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        cli_module.app(args=["--raw", "--cwd", str(tmp_path), "paper-build", ".gpd/paper/PAPER-CONFIG.json"])
+    except SystemExit as exc:
+        assert exc.code == 1
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.err)
+    assert ".gpd/paper" in payload["error"]
+    assert "no longer supported" in payload["error"]
+
+
 def test_paper_build_prefers_config_dir_bibliography_before_output_and_references(tmp_path: Path) -> None:
     paper_dir = tmp_path / "paper"
     paper_dir.mkdir()

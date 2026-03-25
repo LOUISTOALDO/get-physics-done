@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from gpd.core.constants import ProjectLayout
+from gpd.core.constants import LEGACY_PLANNING_DIR_NAME, PLANNING_DIR_NAME, ProjectLayout
 
 
 @pytest.mark.parametrize(
@@ -60,7 +60,7 @@ def test_project_layout_is_plan_file(filename: str, expected: bool, tmp_path: Pa
     ("filename", "expected"),
     [
         ("01-SUMMARY.md", True),
-        ("SUMMARY.md", False),
+        ("SUMMARY.md", True),
         ("01-PLAN.md", False),
         ("random.txt", False),
     ],
@@ -73,7 +73,7 @@ def test_project_layout_is_summary_file(filename: str, expected: bool, tmp_path:
     ("filename", "expected"),
     [
         ("01-VERIFICATION.md", True),
-        ("VERIFICATION.md", False),
+        ("VERIFICATION.md", True),
         ("01-PLAN.md", False),
     ],
 )
@@ -97,7 +97,7 @@ def test_project_layout_strip_plan_suffix(filename: str, expected: str, tmp_path
     ("filename", "expected"),
     [
         ("01-SUMMARY.md", "01"),
-        ("SUMMARY.md", "SUMMARY.md"),
+        ("SUMMARY.md", ""),
         ("random.txt", "random.txt"),
     ],
 )
@@ -121,3 +121,18 @@ def test_project_layout_phase_artifact_paths(
 
     assert path.name == expected_name
     assert path.parent == tmp_path / "GPD" / "phases" / "01-setup"
+
+
+def test_project_layout_uses_legacy_project_dir_when_canonical_missing(tmp_path: Path) -> None:
+    legacy = tmp_path / LEGACY_PLANNING_DIR_NAME
+    legacy.mkdir()
+    (legacy / "state.json").write_text("{}\n", encoding="utf-8")
+
+    assert ProjectLayout(tmp_path).gpd == legacy
+
+
+def test_project_layout_ignores_non_project_hidden_gpd_dirs(tmp_path: Path) -> None:
+    legacy = tmp_path / LEGACY_PLANNING_DIR_NAME
+    (legacy / "venv" / "bin").mkdir(parents=True)
+
+    assert ProjectLayout(tmp_path).gpd == tmp_path / PLANNING_DIR_NAME

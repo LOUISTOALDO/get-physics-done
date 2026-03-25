@@ -30,6 +30,7 @@ __all__ = [
     "ENV_PATTERNS_ROOT",
     "HOME_DATA_DIR_NAME",
     "LITERATURE_DIR_NAME",
+    "LEGACY_PLANNING_DIR_NAME",
     "MILESTONES_DIR_NAME",
     "MILESTONES_FILENAME",
     "MIN_PYTHON_MAJOR",
@@ -88,6 +89,9 @@ __all__ = [
 
 PLANNING_DIR_NAME = "GPD"
 """Top-level GPD metadata directory inside a project root."""
+
+LEGACY_PLANNING_DIR_NAME = ".gpd"
+"""Legacy hidden planning directory still accepted for existing projects."""
 
 STATE_JSON_FILENAME = "state.json"
 """Machine-readable authoritative state file."""
@@ -331,6 +335,22 @@ REQUIRED_RETURN_FIELDS: tuple[str, ...] = ("status", "files_written", "issues", 
 # ─── Project Layout ─────────────────────────────────────────────────────────
 
 
+def _looks_like_legacy_project_dir(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    markers = (
+        STATE_JSON_FILENAME,
+        STATE_MD_FILENAME,
+        ROADMAP_FILENAME,
+        PROJECT_FILENAME,
+        CONFIG_FILENAME,
+        CONVENTIONS_FILENAME,
+        CHECKPOINTS_FILENAME,
+        PHASES_DIR_NAME,
+    )
+    return any((path / marker).exists() for marker in markers)
+
+
 class ProjectLayout:
     """Configurable project directory structure.
 
@@ -353,7 +373,12 @@ class ProjectLayout:
 
     def __init__(self, root: Path, gpd_dir: str = PLANNING_DIR_NAME) -> None:
         self.root = root
-        self.gpd = root / gpd_dir
+        canonical = root / gpd_dir
+        if gpd_dir == PLANNING_DIR_NAME and not canonical.exists():
+            legacy = root / LEGACY_PLANNING_DIR_NAME
+            self.gpd = legacy if _looks_like_legacy_project_dir(legacy) else canonical
+            return
+        self.gpd = canonical
 
     # ── Top-level GPD files ───────────────────────────────────────────────
 
@@ -508,11 +533,11 @@ class ProjectLayout:
 
     def is_summary_file(self, filename: str) -> bool:
         """Check if a filename matches the summary naming convention."""
-        return filename.endswith(SUMMARY_SUFFIX)
+        return filename.endswith(SUMMARY_SUFFIX) or filename == STANDALONE_SUMMARY
 
     def is_verification_file(self, filename: str) -> bool:
         """Check if a filename matches the verification naming convention."""
-        return filename.endswith(VERIFICATION_SUFFIX)
+        return filename.endswith(VERIFICATION_SUFFIX) or filename == STANDALONE_VERIFICATION
 
     def strip_plan_suffix(self, filename: str) -> str:
         """Remove plan suffix from filename to get the plan ID."""
@@ -526,4 +551,6 @@ class ProjectLayout:
         """Remove summary suffix from filename to get the plan ID."""
         if filename.endswith(SUMMARY_SUFFIX):
             return filename[: -len(SUMMARY_SUFFIX)]
+        if filename == STANDALONE_SUMMARY:
+            return ""
         return filename
