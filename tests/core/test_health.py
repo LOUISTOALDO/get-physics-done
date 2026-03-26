@@ -140,7 +140,7 @@ class TestCheckStoragePaths:
         assert any("GPD/phases/01-setup/results/out.json" in warning for warning in result.warnings)
         assert any("GPD/tmp/final.csv" in warning for warning in result.warnings)
 
-    def test_repo_gitignore_keeps_checkpoint_outputs_under_gpd_only(self, tmp_path: Path) -> None:
+    def test_repo_gitignore_does_not_hide_checkpoint_outputs_under_gpd(self, tmp_path: Path) -> None:
         repo = _init_git_repo(tmp_path)
 
         result = subprocess.run(
@@ -155,11 +155,12 @@ class TestCheckStoragePaths:
             cwd=repo,
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
         )
 
-        assert "GPD/CHECKPOINTS.md" in result.stdout
-        assert "GPD/phase-checkpoints/01-test-phase.md" in result.stdout
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert result.stderr == ""
 
     def test_git_status_reports_dirty_tracked_checkpoint_artifacts(self, tmp_path: Path) -> None:
         repo = _init_git_repo(tmp_path)
