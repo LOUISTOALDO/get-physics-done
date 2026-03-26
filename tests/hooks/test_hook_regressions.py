@@ -39,22 +39,29 @@ def test_notify_update_skips_non_dict_or_invalid_cache_files(tmp_path: Path, cac
         _check_and_notify_update()
 
 
-def test_check_update_passes_cache_file_via_sys_argv(tmp_path: Path) -> None:
+def test_check_update_reexecs_current_script_with_cache_file_arg(tmp_path: Path) -> None:
     from gpd.hooks.check_update import main
     from gpd.hooks.runtime_detect import UpdateCacheCandidate
 
     cache_path = tmp_path / "test-cache.json"
+    hook_path = tmp_path / "hooks" / "check_update.py"
+    hook_path.parent.mkdir(parents=True)
+    hook_path.write_text("# hook\n", encoding="utf-8")
 
     with patch(
         "gpd.hooks.runtime_detect.get_update_cache_candidates",
         return_value=[UpdateCacheCandidate(path=cache_path)],
-    ), patch("gpd.hooks.check_update.subprocess.Popen") as mock_popen:
+    ), patch("gpd.hooks.check_update.subprocess.Popen") as mock_popen, patch(
+        "gpd.hooks.check_update.__file__",
+        str(hook_path),
+    ):
         mock_popen.return_value = MagicMock()
         main()
 
     args = mock_popen.call_args[0][0]
 
-    assert "sys.argv[1]" in args[2]
+    assert args[1] == str(hook_path)
+    assert args[2] == "--cache-file"
     assert args[3] == str(cache_path)
 
 
@@ -174,17 +181,27 @@ def test_notify_latest_update_cache_uses_shared_cache_constants_for_self_owned_i
     tmp_path: Path,
 ) -> None:
     from gpd.hooks import notify
+    from gpd.hooks.install_context import SelfOwnedInstallContext
 
     self_config_dir = tmp_path / "runtime"
-    cache_dir = self_config_dir / "sentinel-cache"
-    cache_dir.mkdir(parents=True)
-    cache_file = cache_dir / "sentinel-update.json"
+    self_install = SelfOwnedInstallContext(config_dir=self_config_dir, runtime="codex", install_scope="local")
+    cache_file = self_install.cache_file
+    cache_file.parent.mkdir(parents=True)
     cache_file.write_text(json.dumps({"update_available": True, "checked": 10}), encoding="utf-8")
+    (self_config_dir / "gpd-file-manifest.json").write_text(
+        json.dumps(
+            {
+                "install_scope": "local",
+                "runtime": "codex",
+                "explicit_target": True,
+                "install_target_dir": str(self_config_dir),
+            }
+        ),
+        encoding="utf-8",
+    )
 
     with (
-        patch.object(notify, "_self_config_dir", return_value=self_config_dir),
-        patch.object(notify, "CACHE_DIR_NAME", "sentinel-cache"),
-        patch.object(notify, "UPDATE_CACHE_FILENAME", "sentinel-update.json"),
+        patch("gpd.hooks.install_context.detect_self_owned_install", return_value=self_install),
         patch("gpd.hooks.runtime_detect.detect_active_runtime_with_gpd_install", return_value="unknown"),
         patch("gpd.hooks.runtime_detect.get_update_cache_candidates", return_value=[]),
     ):
@@ -193,6 +210,44 @@ def test_notify_latest_update_cache_uses_shared_cache_constants_for_self_owned_i
     assert cache == {"update_available": True, "checked": 10}
     assert candidate is not None
     assert candidate.path == cache_file
+
+
+def test_notify_and_statusline_share_self_owned_update_cache_selection(
+    tmp_path: Path,
+) -> None:
+    from gpd.hooks import notify, statusline
+    from gpd.hooks.install_context import SelfOwnedInstallContext
+
+    self_config_dir = tmp_path / "runtime"
+    self_config_dir.mkdir(parents=True)
+    self_install = SelfOwnedInstallContext(config_dir=self_config_dir, runtime="codex", install_scope="local")
+    cache_file = self_install.cache_file
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_text(json.dumps({"update_available": True, "checked": 10}), encoding="utf-8")
+    (self_config_dir / "gpd-file-manifest.json").write_text(
+        json.dumps(
+            {
+                "install_scope": "local",
+                "runtime": "codex",
+                "explicit_target": True,
+                "install_target_dir": str(self_config_dir),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with (
+        patch("gpd.hooks.install_context.detect_self_owned_install", return_value=self_install),
+        patch("gpd.hooks.runtime_detect.detect_active_runtime_with_gpd_install", return_value="unknown"),
+        patch("gpd.hooks.runtime_detect.get_update_cache_candidates", return_value=[]),
+    ):
+        notify_cache, notify_candidate = notify._latest_update_cache(str(tmp_path))
+        status_cache, status_candidate = statusline._latest_update_cache(str(tmp_path))
+
+    assert notify_cache == status_cache == {"update_available": True, "checked": 10}
+    assert notify_candidate is not None
+    assert status_candidate is not None
+    assert notify_candidate.path == status_candidate.path == cache_file
 
 
 def test_installed_update_command_uses_manifest_runtime_metadata_for_custom_targets(tmp_path: Path) -> None:

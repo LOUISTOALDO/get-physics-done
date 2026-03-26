@@ -180,6 +180,13 @@ def _assert_contract_schema_sections_closed(contract_schema: dict[str, object]) 
         "proof_obligation",
         "other",
     ]
+    for field_name in ("regime", "units"):
+        field_schema = observables["properties"][field_name]
+        assert len(field_schema["anyOf"]) == 2
+        string_branch = _schema_anyof_string(field_schema)
+        assert string_branch["minLength"] == 1
+        assert string_branch["pattern"] == r"\S"
+        assert any(branch.get("type") == "null" for branch in field_schema["anyOf"] if isinstance(branch, dict))
 
     deliverables = contract_schema["properties"]["deliverables"]["items"]
     _assert_closed_object(deliverables, label="contract.deliverables[]")

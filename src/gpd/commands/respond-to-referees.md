@@ -81,7 +81,7 @@ ls GPD/review/REVIEW-LEDGER*.json GPD/review/REFEREE-DECISION*.json 2>/dev/null
 
 <process>
 Execute the respond-to-referees workflow from @{GPD_INSTALL_DIR}/workflows/respond-to-referees.md end-to-end.
-If staged peer-review artifacts exist under `GPD/review/`, absorb them as structured decision context while keeping `REFEREE-REPORT*.md` as the canonical issue-ID source.
+If staged peer-review artifacts exist under `GPD/review/`, absorb them as structured decision context while keeping `GPD/REFEREE-REPORT{round_suffix}.md` as the canonical issue-ID source.
 Preserve all validation gates (report parsing, triage confirmation, compilation check, consistency verification, bounded revision loop).
 </process>
 

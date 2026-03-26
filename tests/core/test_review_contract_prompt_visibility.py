@@ -58,6 +58,19 @@ def test_respond_to_referees_review_contract_uses_round_suffixed_output_paths() 
     assert "GPD/AUTHOR-RESPONSE{round_suffix}.md" in _read_command("respond-to-referees")
 
 
+def test_write_paper_review_contract_uses_round_suffixed_referee_outputs() -> None:
+    contract = registry.get_command("write-paper").review_contract
+
+    assert contract is not None
+    assert contract.required_outputs == [
+        "paper/main.tex",
+        "GPD/REFEREE-REPORT{round_suffix}.md",
+        "GPD/REFEREE-REPORT{round_suffix}.tex",
+    ]
+    assert "GPD/REFEREE-REPORT{round_suffix}.md" in _read_command("write-paper")
+    assert "GPD/REFEREE-REPORT{round_suffix}.tex" in _read_command("write-paper")
+
+
 def test_summary_template_surfaces_plan_contract_ref_rule_for_contract_ledgers() -> None:
     summary_template = (TEMPLATES_DIR / "summary.md").read_text(encoding="utf-8")
 
@@ -112,7 +125,7 @@ def test_research_verification_template_surfaces_non_empty_uncertainty_markers()
 def test_write_paper_prompt_discovers_plan_scoped_phase_summaries() -> None:
     source = _read_command("write-paper")
 
-    assert "ls GPD/phases/*/*-SUMMARY.md 2>/dev/null" in source
+    assert "ls GPD/phases/*/*SUMMARY.md 2>/dev/null" in source
 
 
 def test_write_paper_prompt_loads_figure_tracker_schema_before_updating_tracker() -> None:

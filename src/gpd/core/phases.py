@@ -14,6 +14,7 @@ import re
 import shutil
 from collections import deque
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -486,6 +487,57 @@ def _strip_suffix(name: str, suffix: str) -> str:
 def _sorted_phases(dirs: list[str]) -> list[str]:
     """Sort phase directory names by numeric segments."""
     return sorted(dirs, key=_phase_sort_key)
+
+
+@dataclass(frozen=True, slots=True)
+class _MilestoneCompletionSnapshot:
+    """Internal milestone-level completion summary shared across workflows."""
+
+    phase_numbers: tuple[str, ...]
+    phase_count: int
+    completed_phases: int
+    total_plans: int
+    all_phases_complete: bool
+
+
+def _milestone_completion_snapshot(cwd: Path) -> _MilestoneCompletionSnapshot:
+    """Return roadmap-plus-disk milestone completion state."""
+
+    roadmap = roadmap_analyze(cwd)
+    roadmap_phase_map = {phase_normalize(phase.number): phase for phase in roadmap.phases}
+    disk_phase_numbers = {
+        phase_normalize(match.group(1))
+        for phase_dir in _list_phase_dirs(cwd)
+        if (match := re.match(r"^(\d+(?:\.\d+)*)", phase_dir))
+    }
+
+    phase_numbers = tuple(sorted(set(roadmap_phase_map) | disk_phase_numbers, key=_phase_sort_key))
+    completed_phases = 0
+    total_plans = 0
+
+    for phase_number in phase_numbers:
+        roadmap_phase = roadmap_phase_map.get(phase_number)
+        phase_info = find_phase(cwd, phase_number)
+
+        if roadmap_phase is not None:
+            total_plans += roadmap_phase.plan_count
+        elif phase_info is not None:
+            total_plans += len(phase_info.plans)
+
+        if phase_info is None:
+            continue
+
+        if is_phase_complete(len(phase_info.plans), matching_phase_artifact_count(phase_info.plans, phase_info.summaries)):
+            completed_phases += 1
+
+    phase_count = len(phase_numbers)
+    return _MilestoneCompletionSnapshot(
+        phase_numbers=phase_numbers,
+        phase_count=phase_count,
+        completed_phases=completed_phases,
+        total_plans=total_plans,
+        all_phases_complete=phase_count > 0 and completed_phases == phase_count,
+    )
 
 
 def _planning_path(cwd: Path) -> Path:
@@ -1980,36 +2032,15 @@ def milestone_complete(cwd: Path, version: str, *, name: str | None = None) -> M
         # Gather stats from the union of roadmap phases and on-disk phase dirs so
         # milestone completion cannot ignore either unscaffolded roadmap entries
         # or real phase work that exists only on disk.
-        phase_count = 0
-        completed_phase_count = 0
-        total_plans = 0
         total_tasks = 0
         accomplishments: list[str] = []
 
-        roadmap = roadmap_analyze(cwd)
-        roadmap_phase_map = {phase_normalize(phase.number): phase for phase in roadmap.phases}
-        disk_phase_numbers = {
-            phase_normalize(match.group(1))
-            for phase_dir in _list_phase_dirs(cwd)
-            if (match := re.match(r"^(\d+(?:\.\d+)*)", phase_dir))
-        }
-        all_phase_numbers = sorted(set(roadmap_phase_map) | disk_phase_numbers, key=_phase_sort_key)
-        phase_count = len(all_phase_numbers)
+        completion_snapshot = _milestone_completion_snapshot(cwd)
 
-        for phase_number in all_phase_numbers:
-            roadmap_phase = roadmap_phase_map.get(phase_number)
+        for phase_number in completion_snapshot.phase_numbers:
             phase_info = find_phase(cwd, phase_number)
-
-            if roadmap_phase is not None:
-                total_plans += roadmap_phase.plan_count
-            elif phase_info is not None:
-                total_plans += len(phase_info.plans)
-
             if phase_info is None:
                 continue
-
-            if is_phase_complete(len(phase_info.plans), matching_phase_artifact_count(phase_info.plans, phase_info.summaries)):
-                completed_phase_count += 1
 
             phase_dir = phases_dir / Path(phase_info.directory).name
             for summary_name in phase_info.summaries:
@@ -2037,8 +2068,11 @@ def milestone_complete(cwd: Path, version: str, *, name: str | None = None) -> M
                 total_tasks += len(task_matches)
 
         # Guard: all phases must be complete
-        if phase_count > 0 and completed_phase_count < phase_count:
-            raise MilestoneIncompleteError(phase_count - completed_phase_count, phase_count)
+        if completion_snapshot.phase_count > 0 and not completion_snapshot.all_phases_complete:
+            raise MilestoneIncompleteError(
+                completion_snapshot.phase_count - completion_snapshot.completed_phases,
+                completion_snapshot.phase_count,
+            )
 
         with file_lock(roadmap_path):
             if roadmap_path.exists():
@@ -2062,7 +2096,7 @@ def milestone_complete(cwd: Path, version: str, *, name: str | None = None) -> M
             acc_list = "\n".join(f"- {a}" for a in accomplishments) if accomplishments else "- (none recorded)"
             milestone_entry = (
                 f"## {version} {milestone_name} (Shipped: {today})\n\n"
-                f"**Phases completed:** {phase_count} phases, {total_plans} plans, {total_tasks} tasks\n\n"
+                f"**Phases completed:** {completion_snapshot.phase_count} phases, {completion_snapshot.total_plans} plans, {total_tasks} tasks\n\n"
                 f"**Key accomplishments:**\n{acc_list}\n\n---\n\n"
             )
 
@@ -2092,8 +2126,8 @@ def milestone_complete(cwd: Path, version: str, *, name: str | None = None) -> M
             version=version,
             name=milestone_name,
             date=today,
-            phases=phase_count,
-            plans=total_plans,
+            phases=completion_snapshot.phase_count,
+            plans=completion_snapshot.total_plans,
             tasks=total_tasks,
             accomplishments=accomplishments,
             archived=ArchiveStatus(

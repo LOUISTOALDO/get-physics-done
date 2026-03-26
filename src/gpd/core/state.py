@@ -1765,8 +1765,8 @@ def _recover_intent_locked(cwd: Path) -> None:
 
     if json_tmp_exists and md_tmp_exists and json_valid and md_valid and not conflict_with_current:
         # Both temp files ready and valid — complete the interrupted write
-        os.rename(json_tmp, json_path)
-        os.rename(md_tmp, md_path)
+        json_tmp.replace(json_path)
+        md_tmp.replace(md_path)
     else:
         if conflict_with_current:
             logger.warning("Ignoring stale state write intent because current state files are newer than temp files")
@@ -1801,12 +1801,24 @@ def _build_state_from_markdown(cwd: Path, md_content: str, *, recover_intent: bo
         _recover_intent_locked(cwd)
 
     existing = None
+    primary_unreadable = False
     try:
         existing = json.loads(json_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        pass
+        primary_unreadable = True
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
         logger.warning("state.json is unreadable during markdown merge; ignoring existing JSON state: %s", e)
+        primary_unreadable = True
+
+    if existing is not None and not isinstance(existing, dict):
+        logger.warning(
+            "state.json root is not an object during markdown merge; treating existing JSON state as unreadable: %s",
+            type(existing).__name__,
+        )
+        existing = None
+        primary_unreadable = True
+
+    if primary_unreadable:
         try:
             backup_existing = json.loads(backup_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
@@ -1890,8 +1902,8 @@ def _write_state_pair_locked(cwd: Path, *, state_obj: dict, md_content: str) -> 
         atomic_write(md_tmp, md_content)
 
         intent_file.write_text(f"{json_tmp}\n{md_tmp}\n", encoding="utf-8")
-        os.rename(json_tmp, json_path)
-        os.rename(md_tmp, md_path)
+        json_tmp.replace(json_path)
+        md_tmp.replace(md_path)
         try:
             intent_file.unlink(missing_ok=True)
         except OSError:
@@ -1990,6 +2002,7 @@ def _load_state_json_with_integrity_issues(
         # Read paths must not silently default malformed singleton contract sections.
         allow_project_contract_salvage = False
         parse_issue: str | None = None
+        primary_unreadable = False
 
         try:
             raw = json_path.read_text(encoding="utf-8")
@@ -2041,6 +2054,7 @@ def _load_state_json_with_integrity_issues(
                     atomic_write(json_path, json.dumps(restored, indent=2) + "\n")
                 return restored, integrity_issues, "state.json.bak"
         except TypeError as e:
+            primary_unreadable = True
             if os.environ.get(ENV_GPD_DEBUG):
                 logger.debug("state.json structural error: %s", e)
             structural_issue = f"state.json structural error: {e}"
@@ -2062,6 +2076,7 @@ def _load_state_json_with_integrity_issues(
                 logger.warning("state.json structural error blocks review-mode loading: %s", e)
                 return None, [structural_issue], None
         except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+            primary_unreadable = True
             if os.environ.get(ENV_GPD_DEBUG):
                 logger.debug("state.json parse error: %s", e)
             parse_issue = f"state.json parse error: {e}"
@@ -2096,7 +2111,7 @@ def _load_state_json_with_integrity_issues(
             integrity_issues = ["state.json root was recovered from STATE.md after primary state.json was unavailable or unreadable"]
             if parse_issue is not None:
                 integrity_issues.insert(0, parse_issue)
-            if persist_recovery:
+            if persist_recovery and not primary_unreadable:
                 atomic_write(json_path, json.dumps(state_from_md, indent=2) + "\n")
             return state_from_md, integrity_issues, "STATE.md"
         except (FileNotFoundError, OSError, UnicodeDecodeError):
@@ -2129,33 +2144,6 @@ def _drop_invalid_project_contract(state_obj: dict) -> tuple[dict, list[str]]:
     return cleaned_state, [
         'schema normalization: dropped "project_contract" because contract integrity checks failed'
     ]
-
-
-def _restore_recoverable_project_contract(
-    state_obj: dict,
-    raw_project_contract: object,
-) -> tuple[dict, list[str]]:
-    """Restore recoverable project_contract drift while leaving blocking drift dropped."""
-
-    if not isinstance(raw_project_contract, dict):
-        return state_obj, []
-    if state_obj.get("project_contract") is not None:
-        return state_obj, []
-
-    list_shape_drift_errors = _collect_list_shape_drift_errors(raw_project_contract)
-    normalized_contract, schema_findings = salvage_project_contract(raw_project_contract)
-    schema_findings = list(dict.fromkeys([*schema_findings, *list_shape_drift_errors]))
-    schema_warnings, schema_errors = _split_project_contract_schema_findings(
-        schema_findings,
-        allow_singleton_defaults=False,
-    )
-    if schema_errors or normalized_contract is None:
-        return state_obj, []
-
-    restored_state = dict(state_obj)
-    restored_state["project_contract"] = normalized_contract.model_dump(mode="python")
-    integrity_issues = [_integrity_issue_from_contract_error(issue) for issue in schema_warnings]
-    return restored_state, integrity_issues
 
 
 def _load_state_json_from_backup(
@@ -2212,21 +2200,54 @@ def save_state_json_locked(cwd: Path, state_obj: dict) -> None:
     _write_state_pair_locked(cwd, state_obj=normalized, md_content=generate_state_markdown(normalized))
 
 
+def _preserved_project_contract_for_markdown_save(cwd: Path) -> dict[str, object] | None:
+    """Return the canonical project contract to carry through a markdown save.
+
+    Primary ``state.json`` remains authoritative when it is readable. The backup
+    is consulted only when the primary file is unavailable or unreadable, so a
+    stale backup cannot override an explicit primary drop/block.
+    """
+
+    layout = ProjectLayout(cwd)
+    primary_unreadable = False
+
+    try:
+        existing = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
+        existing = None
+        primary_unreadable = True
+    else:
+        if not isinstance(existing, dict):
+            existing = None
+            primary_unreadable = True
+
+    if isinstance(existing, dict):
+        project_contract = existing.get("project_contract")
+        contract = contract_from_data(project_contract)
+        return contract.model_dump(mode="python") if contract is not None else None
+
+    if not primary_unreadable:
+        return None
+
+    try:
+        backup = json.loads(layout.state_json_backup.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return None
+    if not isinstance(backup, dict):
+        return None
+
+    project_contract = backup.get("project_contract")
+    contract = contract_from_data(project_contract)
+    return contract.model_dump(mode="python") if contract is not None else None
+
+
 def save_state_markdown_locked(cwd: Path, md_content: str) -> dict:
     """Atomically write markdown-derived state while holding the canonical state lock."""
     _recover_intent_locked(cwd)
     merged = _build_state_from_markdown(cwd, md_content)
-    json_path = _state_json_path(cwd)
-    preserved_contract: object | None = None
-    try:
-        existing = json.loads(json_path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
-        existing = None
-    if isinstance(existing, dict):
-        project_contract = existing.get("project_contract")
-        contract = contract_from_data(project_contract)
-        if contract is not None and merged.get("project_contract") is None:
-            preserved_contract = contract.model_dump(mode="python")
+    preserved_contract = None
+    if merged.get("project_contract") is None:
+        preserved_contract = _preserved_project_contract_for_markdown_save(cwd)
     if preserved_contract is not None:
         merged = copy.deepcopy(merged)
         merged["project_contract"] = preserved_contract
@@ -2332,10 +2353,11 @@ def state_update(cwd: Path, field: str, value: str) -> StateUpdateResult:
         )
 
     md_path = _state_md_path(cwd)
-    if not md_path.exists():
-        return StateUpdateResult(updated=False, reason="STATE.md not found")
 
     with _state_lock(cwd):
+        _recover_intent_locked(cwd)
+        if not md_path.exists():
+            return StateUpdateResult(updated=False, reason="STATE.md not found")
         content = md_path.read_text(encoding="utf-8")
         field_norm = field.replace("_", " ")
 
@@ -2362,13 +2384,14 @@ def state_update(cwd: Path, field: str, value: str) -> StateUpdateResult:
 def state_patch(cwd: Path, patches: dict[str, str]) -> StatePatchResult:
     """Batch-update multiple **Field:** values in STATE.md."""
     md_path = _state_md_path(cwd)
-    if not md_path.exists():
-        raise StateError(
-            f"STATE.md not found at {md_path}. "
-            "Run 'gpd init' to create the project state file before patching."
-        )
 
     with _state_lock(cwd):
+        _recover_intent_locked(cwd)
+        if not md_path.exists():
+            raise StateError(
+                f"STATE.md not found at {md_path}. "
+                "Run 'gpd init' to create the project state file before patching."
+            )
         content = md_path.read_text(encoding="utf-8")
         updated: list[str] = []
         failed: list[str] = []
@@ -2501,10 +2524,11 @@ def state_set_project_contract(cwd: Path, contract_data: dict[str, object] | Res
 def state_advance_plan(cwd: Path) -> AdvancePlanResult:
     """Advance to the next plan, or mark phase complete if on last plan."""
     md_path = _state_md_path(cwd)
-    if not md_path.exists():
-        return AdvancePlanResult(advanced=False, error="STATE.md not found")
 
     with _state_lock(cwd):
+        _recover_intent_locked(cwd)
+        if not md_path.exists():
+            return AdvancePlanResult(advanced=False, error="STATE.md not found")
         content = md_path.read_text(encoding="utf-8")
         current_plan_raw = state_extract_field(content, "Current Plan")
         total_plans_raw = state_extract_field(content, "Total Plans in Phase")
@@ -2563,13 +2587,14 @@ def state_record_metric(
 ) -> RecordMetricResult:
     """Record a performance metric in STATE.md."""
     md_path = _state_md_path(cwd)
-    if not md_path.exists():
-        return RecordMetricResult(recorded=False, error="STATE.md not found")
 
     if not phase or not plan or not duration:
         return RecordMetricResult(recorded=False, error="phase, plan, and duration required")
 
     with _state_lock(cwd):
+        _recover_intent_locked(cwd)
+        if not md_path.exists():
+            return RecordMetricResult(recorded=False, error="STATE.md not found")
         content = md_path.read_text(encoding="utf-8")
 
         pattern = re.compile(
@@ -2599,10 +2624,11 @@ def state_record_metric(
 def state_update_progress(cwd: Path) -> UpdateProgressResult:
     """Recalculate progress from plan/summary counts across all phases."""
     md_path = _state_md_path(cwd)
-    if not md_path.exists():
-        return UpdateProgressResult(updated=False, error="STATE.md not found")
 
     with _state_lock(cwd):
+        _recover_intent_locked(cwd)
+        if not md_path.exists():
+            return UpdateProgressResult(updated=False, error="STATE.md not found")
         content = md_path.read_text(encoding="utf-8")
 
         phases_dir = ProjectLayout(cwd).phases_dir
@@ -2650,8 +2676,6 @@ def state_add_decision(
 ) -> AddDecisionResult:
     """Add a decision to STATE.md."""
     md_path = _state_md_path(cwd)
-    if not md_path.exists():
-        return AddDecisionResult(added=False, error="STATE.md not found")
     if not summary:
         return AddDecisionResult(added=False, error="summary required")
 
@@ -2660,6 +2684,9 @@ def state_add_decision(
     entry = f"- [Phase {phase or '?'}]: {summary_clean}{rat_str}"
 
     with _state_lock(cwd):
+        _recover_intent_locked(cwd)
+        if not md_path.exists():
+            return AddDecisionResult(added=False, error="STATE.md not found")
         content = md_path.read_text(encoding="utf-8")
         pattern = re.compile(
             r"(###?\s*Decisions\s*\n)([\s\S]*?)(?=\n###?|\n##[^#]|$)",
@@ -2683,8 +2710,6 @@ def state_add_decision(
 def state_add_blocker(cwd: Path, text: str) -> AddBlockerResult:
     """Add a blocker to STATE.md."""
     md_path = _state_md_path(cwd)
-    if not md_path.exists():
-        return AddBlockerResult(added=False, error="STATE.md not found")
     if not text:
         return AddBlockerResult(added=False, error="text required")
 
@@ -2692,6 +2717,9 @@ def state_add_blocker(cwd: Path, text: str) -> AddBlockerResult:
     entry = f"- {text_clean}"
 
     with _state_lock(cwd):
+        _recover_intent_locked(cwd)
+        if not md_path.exists():
+            return AddBlockerResult(added=False, error="STATE.md not found")
         content = md_path.read_text(encoding="utf-8")
         pattern = re.compile(
             r"(###?\s*Blockers/Concerns\s*\n)([\s\S]*?)(?=\n###?|\n##[^#]|$)",
@@ -2716,8 +2744,6 @@ def state_add_blocker(cwd: Path, text: str) -> AddBlockerResult:
 def state_resolve_blocker(cwd: Path, text: str) -> ResolveBlockerResult:
     """Resolve (remove) a blocker from STATE.md."""
     md_path = _state_md_path(cwd)
-    if not md_path.exists():
-        return ResolveBlockerResult(resolved=False, error="STATE.md not found")
     if not text:
         return ResolveBlockerResult(resolved=False, error="text required")
     if len(text) < 3:
@@ -2726,6 +2752,9 @@ def state_resolve_blocker(cwd: Path, text: str) -> ResolveBlockerResult:
         )
 
     with _state_lock(cwd):
+        _recover_intent_locked(cwd)
+        if not md_path.exists():
+            return ResolveBlockerResult(resolved=False, error="STATE.md not found")
         content = md_path.read_text(encoding="utf-8")
         pattern = re.compile(
             r"(###?\s*Blockers/Concerns\s*\n)([\s\S]*?)(?=\n###?|\n##[^#]|$)",
@@ -2824,17 +2853,18 @@ def state_record_session(
 ) -> RecordSessionResult:
     """Record session info in STATE.md."""
     md_path = _state_md_path(cwd)
-    if not md_path.exists():
-        with gpd_span(
-            "session.continuity.missing_state",
-            cwd=str(cwd),
-            stopped_at=stopped_at or "",
-            resume_file=resume_file or EM_DASH,
-        ):
-            pass
-        return RecordSessionResult(recorded=False, error="STATE.md not found")
 
     with _state_lock(cwd):
+        _recover_intent_locked(cwd)
+        if not md_path.exists():
+            with gpd_span(
+                "session.continuity.missing_state",
+                cwd=str(cwd),
+                stopped_at=stopped_at or "",
+                resume_file=resume_file or EM_DASH,
+            ):
+                pass
+            return RecordSessionResult(recorded=False, error="STATE.md not found")
         content = md_path.read_text(encoding="utf-8")
         now = datetime.now(tz=UTC).isoformat()
         machine = _current_machine_identity()
@@ -2904,7 +2934,7 @@ def state_record_session(
 @instrument_gpd_function("state.snapshot")
 def state_snapshot(cwd: Path) -> StateSnapshotResult:
     """Fast snapshot of state for progress/routing commands."""
-    state_obj, _issues, _state_source = peek_state_json(cwd, recover_intent=False)
+    state_obj, _issues, _state_source = peek_state_json(cwd, recover_intent=True)
     if state_obj is None:
         return StateSnapshotResult(error="STATE.md not found")
 
@@ -3140,11 +3170,11 @@ def state_validate(
 def state_compact(cwd: Path) -> StateCompactResult:
     """Compact STATE.md by archiving old decisions, blockers, metrics, and sessions."""
     md_path = _state_md_path(cwd)
-    if not md_path.exists():
-        return StateCompactResult(compacted=False, error="STATE.md not found")
 
     with _state_lock(cwd):
         _recover_intent_locked(cwd)
+        if not md_path.exists():
+            return StateCompactResult(compacted=False, error="STATE.md not found")
         content = md_path.read_text(encoding="utf-8")
         lines = content.split("\n")
         total_lines = len(lines)

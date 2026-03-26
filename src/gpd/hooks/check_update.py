@@ -69,12 +69,27 @@ def _debug(msg: str) -> None:
 
 def _self_config_dir() -> Path | None:
     """Return the installed runtime config dir when this hook runs from one."""
-    from gpd.hooks.install_metadata import config_dir_has_complete_install
+    from gpd.hooks.install_context import detect_self_owned_install
 
-    candidate = Path(__file__).resolve().parent.parent
-    if config_dir_has_complete_install(candidate):
-        return candidate
+    self_install = detect_self_owned_install(__file__)
+    return None if self_install is None else self_install.config_dir
+
+
+def _parse_worker_cache_file(argv: list[str]) -> Path | None:
+    """Return the cache file for worker-mode invocations."""
+    if len(argv) == 2 and argv[0] == "--cache-file" and argv[1]:
+        return Path(argv[1])
     return None
+
+
+def _background_worker_command(cache_file: Path) -> list[str]:
+    """Return the background-worker command anchored to the current hook script."""
+    return [
+        sys.executable,
+        str(Path(__file__).resolve(strict=False)),
+        "--cache-file",
+        str(cache_file),
+    ]
 
 
 def _version_files() -> list[Path]:
@@ -231,8 +246,14 @@ def _clear_inflight_marker(cache_file: Path) -> None:
         return
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Entry point: throttle-check for updates, spawn background worker if needed."""
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    worker_cache_file = _parse_worker_cache_file(raw_argv)
+    if worker_cache_file is not None:
+        _do_check(worker_cache_file)
+        return
+
     from gpd.hooks.runtime_detect import (
         ALL_RUNTIMES,
         RUNTIME_UNKNOWN,
@@ -312,12 +333,7 @@ def main() -> None:
     # Spawn background child to do the actual check
     try:
         subprocess.Popen(
-            [
-                sys.executable,
-                "-c",
-                "import sys; from gpd.hooks.check_update import _do_check; from pathlib import Path; _do_check(Path(sys.argv[1]))",
-                str(cache_file),
-            ],
+            _background_worker_command(cache_file),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

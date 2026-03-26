@@ -414,6 +414,33 @@ def test_contract_tools_reject_coercive_contract_scalars() -> None:
     assert suggest_result == expected
 
 
+@pytest.mark.parametrize("field_name", ["regime", "units"])
+def test_contract_tools_reject_blank_observable_regime_and_units(field_name: str) -> None:
+    from gpd.mcp.servers.verification_server import run_contract_check, suggest_contract_checks
+
+    contract = _load_project_contract_fixture()
+    contract["observables"][0][field_name] = " "
+
+    expected = {
+        "error": f"Invalid contract payload: observables.0.{field_name} must be a non-empty string",
+        "schema_version": 1,
+    }
+
+    run_result = run_contract_check(
+        {
+            "check_key": "contract.benchmark_reproduction",
+            "contract": contract,
+            "binding": {"claim_ids": ["claim-benchmark"]},
+            "metadata": {"source_reference_id": "ref-benchmark"},
+            "observed": {"metric_value": 0.01, "threshold_value": 0.02},
+        }
+    )
+    suggest_result = suggest_contract_checks(contract)
+
+    assert run_result == expected
+    assert suggest_result == expected
+
+
 @pytest.mark.parametrize(
     ("path", "value"),
     [

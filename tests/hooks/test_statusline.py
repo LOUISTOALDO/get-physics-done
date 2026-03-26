@@ -201,41 +201,33 @@ class TestStatusMetadata:
 def test_read_current_task_uses_shared_todo_directory_constant_for_self_owned_install(
     tmp_path: Path,
 ) -> None:
-    from gpd.hooks import statusline
+    from gpd.hooks.install_context import SelfOwnedInstallContext
 
     self_config_dir = tmp_path / "runtime"
-    sentinel_todos = self_config_dir / "sentinel-todos"
-    sentinel_todos.mkdir(parents=True)
-    todo_file = sentinel_todos / "session-agent-1.json"
+    todo_dir = self_config_dir / "todos"
+    todo_dir.mkdir(parents=True)
+    todo_file = todo_dir / "session-agent-1.json"
     todo_file.write_text(
         json.dumps(
             [
                 {
                     "status": "in_progress",
-                    "activeForm": "working from sentinel todos",
+                    "activeForm": "working from shared todos",
                 }
             ]
         ),
         encoding="utf-8",
     )
-    manifest = {
-        "runtime": "codex",
-        "install_scope": "local",
-        "explicit_target": True,
-        "install_target_dir": str(self_config_dir),
-    }
-    self_config_dir.mkdir(parents=True, exist_ok=True)
-    (self_config_dir / "gpd-file-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    self_install = SelfOwnedInstallContext(config_dir=self_config_dir, runtime="codex", install_scope="local")
 
     with (
-        patch.object(statusline, "_self_config_dir", return_value=self_config_dir),
-        patch.object(statusline, "TODOS_DIR_NAME", "sentinel-todos"),
+        patch("gpd.hooks.install_context.detect_self_owned_install", return_value=self_install),
         patch("gpd.hooks.runtime_detect.detect_active_runtime_with_gpd_install", return_value="unknown"),
         patch("gpd.hooks.runtime_detect.detect_runtime_for_gpd_use", return_value="unknown"),
         patch("gpd.hooks.runtime_detect.get_todo_candidates", return_value=[]),
         patch("gpd.hooks.runtime_detect.should_consider_todo_candidate", return_value=True),
     ):
-        assert _read_current_task("session") == "working from sentinel todos"
+        assert _read_current_task("session") == "working from shared todos"
 
 
 class TestExecutionBadge:
@@ -1023,7 +1015,7 @@ class TestCheckUpdateHook:
         runtime_unknown = "runtime-unknown"
 
         with (
-            patch("gpd.hooks.statusline._self_config_dir", return_value=None),
+            patch("gpd.hooks.install_context.detect_self_owned_install", return_value=None),
             patch("gpd.hooks.runtime_detect.RUNTIME_UNKNOWN", runtime_unknown),
             patch("gpd.hooks.runtime_detect.detect_active_runtime_with_gpd_install", return_value=runtime_unknown),
             patch("gpd.hooks.runtime_detect.detect_runtime_for_gpd_use", return_value=runtime_unknown),

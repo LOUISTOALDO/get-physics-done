@@ -21,26 +21,34 @@ import pytest
 from typer.testing import CliRunner
 
 from gpd.adapters import get_adapter
-from gpd.adapters.runtime_catalog import list_runtime_names
+from gpd.adapters.runtime_catalog import iter_runtime_descriptors, list_runtime_names
 from gpd.cli import app
 from gpd.core.state import default_state_dict, generate_state_markdown
 
 runner = CliRunner()
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "stage0"
+_RUNTIME_DESCRIPTORS = iter_runtime_descriptors()
+_PRIMARY_RAW_RUNTIME_DESCRIPTOR = _RUNTIME_DESCRIPTORS[0]
+_DOLLAR_COMMAND_DESCRIPTOR = next(descriptor for descriptor in _RUNTIME_DESCRIPTORS if descriptor.command_prefix.startswith("$"))
+_SLASH_COMMAND_DESCRIPTOR = next(
+    descriptor
+    for descriptor in _RUNTIME_DESCRIPTORS
+    if descriptor.command_prefix.startswith("/") and descriptor.runtime_name != _DOLLAR_COMMAND_DESCRIPTOR.runtime_name
+)
 
 
 @pytest.fixture()
 def codex_command_prefix(monkeypatch: pytest.MonkeyPatch) -> str:
     """Force the CLI preflight helpers to resolve the Codex runtime."""
-    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: "codex")
-    return get_adapter("codex").command_prefix
+    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: _DOLLAR_COMMAND_DESCRIPTOR.runtime_name)
+    return get_adapter(_DOLLAR_COMMAND_DESCRIPTOR.runtime_name).command_prefix
 
 
 @pytest.fixture()
 def claude_code_command_prefix(monkeypatch: pytest.MonkeyPatch) -> str:
     """Force the CLI preflight helpers to resolve the Claude Code runtime."""
-    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: "claude-code")
-    return get_adapter("claude-code").command_prefix
+    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: _SLASH_COMMAND_DESCRIPTOR.runtime_name)
+    return get_adapter(_SLASH_COMMAND_DESCRIPTOR.runtime_name).command_prefix
 
 
 @pytest.fixture()
@@ -915,7 +923,8 @@ class TestReviewValidationCommands:
         assert payload["command"] == "gpd:write-paper"
         assert payload["context_mode"] == "project-required"
         assert payload["review_contract"]["review_mode"] == "publication"
-        assert "GPD/REFEREE-REPORT.tex" in payload["review_contract"]["required_outputs"]
+        assert "GPD/REFEREE-REPORT{round_suffix}.md" in payload["review_contract"]["required_outputs"]
+        assert "GPD/REFEREE-REPORT{round_suffix}.tex" in payload["review_contract"]["required_outputs"]
         assert payload["review_contract"]["preflight_checks"] == [
             "project_state",
             "roadmap",
@@ -1096,7 +1105,7 @@ class TestReviewValidationCommands:
     def test_command_context_surfaces_slash_runtime_dispatch_note(
         self, claude_code_command_prefix: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: "claude-code")
+        monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: _SLASH_COMMAND_DESCRIPTOR.runtime_name)
 
         result = runner.invoke(
             app,
@@ -3347,7 +3356,7 @@ def test_install_command_reports_runtime_adapter_failure_during_interactive_sele
 ) -> None:
     import gpd.adapters as adapters_module
 
-    monkeypatch.setattr(adapters_module, "list_runtimes", lambda: ["codex"])
+    monkeypatch.setattr(adapters_module, "list_runtimes", lambda: [_PRIMARY_RAW_RUNTIME_DESCRIPTOR.runtime_name])
     monkeypatch.setattr(
         adapters_module,
         "get_adapter",
@@ -3385,12 +3394,12 @@ def test_raw_install_requires_location_selection_without_prompt(
 ) -> None:
     import gpd.adapters as adapters_module
 
-    monkeypatch.setattr(adapters_module, "list_runtimes", lambda: ["codex"])
+    monkeypatch.setattr(adapters_module, "list_runtimes", lambda: [_PRIMARY_RAW_RUNTIME_DESCRIPTOR.runtime_name])
     monkeypatch.setattr(adapters_module, "get_adapter", lambda runtime_name: object())
 
     result = runner.invoke(
         app,
-        ["--raw", "--cwd", str(gpd_project), "install", "codex"],
+        ["--raw", "--cwd", str(gpd_project), "install", _PRIMARY_RAW_RUNTIME_DESCRIPTOR.runtime_name],
         catch_exceptions=False,
     )
 
@@ -3442,12 +3451,12 @@ def test_raw_uninstall_requires_location_selection_without_prompt(
 ) -> None:
     import gpd.adapters as adapters_module
 
-    monkeypatch.setattr(adapters_module, "list_runtimes", lambda: ["codex"])
+    monkeypatch.setattr(adapters_module, "list_runtimes", lambda: [_PRIMARY_RAW_RUNTIME_DESCRIPTOR.runtime_name])
     monkeypatch.setattr(adapters_module, "get_adapter", lambda runtime_name: object())
 
     result = runner.invoke(
         app,
-        ["--raw", "--cwd", str(gpd_project), "uninstall", "codex"],
+        ["--raw", "--cwd", str(gpd_project), "uninstall", _PRIMARY_RAW_RUNTIME_DESCRIPTOR.runtime_name],
         catch_exceptions=False,
     )
 
@@ -3463,7 +3472,7 @@ def test_uninstall_command_reports_runtime_adapter_failure_without_traceback(
 ) -> None:
     import gpd.adapters as adapters_module
 
-    monkeypatch.setattr(adapters_module, "list_runtimes", lambda: ["codex"])
+    monkeypatch.setattr(adapters_module, "list_runtimes", lambda: [_PRIMARY_RAW_RUNTIME_DESCRIPTOR.runtime_name])
     monkeypatch.setattr(
         adapters_module,
         "get_adapter",
@@ -3472,13 +3481,24 @@ def test_uninstall_command_reports_runtime_adapter_failure_without_traceback(
 
     result = runner.invoke(
         app,
-        ["--raw", "--cwd", str(gpd_project), "uninstall", "codex", "--target-dir", str(gpd_project / ".codex")],
+        [
+            "--raw",
+            "--cwd",
+            str(gpd_project),
+            "uninstall",
+            _PRIMARY_RAW_RUNTIME_DESCRIPTOR.runtime_name,
+            "--target-dir",
+            str(gpd_project / _PRIMARY_RAW_RUNTIME_DESCRIPTOR.config_dir_name),
+        ],
         catch_exceptions=False,
     )
 
     assert result.exit_code == 1, result.output
     payload = json.loads(result.output)
-    assert payload["error"] == "Runtime adapter unavailable for 'codex' during uninstall: adapter offline"
+    assert (
+        payload["error"]
+        == f"Runtime adapter unavailable for '{_PRIMARY_RAW_RUNTIME_DESCRIPTOR.runtime_name}' during uninstall: adapter offline"
+    )
     assert "Traceback" not in result.output
 
 
@@ -3499,23 +3519,24 @@ def test_resolve_model_normalizes_runtime_aliases(monkeypatch: pytest.MonkeyPatc
 def test_target_dir_scope_detection_uses_canonical_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import gpd.cli as cli_module
 
+    descriptor = iter_runtime_descriptors()[0]
     cwd = tmp_path / "workspace"
     cwd.mkdir()
     global_dir = tmp_path / "global"
     global_dir.mkdir()
-    canonical_target = global_dir / ".codex"
+    canonical_target = global_dir / descriptor.config_dir_name
     canonical_target.mkdir()
-    tricky_target = global_dir / "nested" / ".." / ".codex"
+    tricky_target = global_dir / "nested" / ".." / descriptor.config_dir_name
 
     class _FakeAdapter:
         def resolve_target_dir(self, is_global: bool, cwd: Path | None = None) -> Path:
             del cwd
-            return canonical_target if is_global else tmp_path / "workspace" / ".codex"
+            return canonical_target if is_global else tmp_path / "workspace" / descriptor.config_dir_name
 
     monkeypatch.setattr(cli_module, "_get_cwd", lambda: cwd)
     monkeypatch.setattr(cli_module, "_get_adapter_or_error", lambda runtime_name, action: _FakeAdapter())
 
-    assert cli_module._target_dir_matches_global("codex", str(tricky_target), action="install") is True
+    assert cli_module._target_dir_matches_global(descriptor.runtime_name, str(tricky_target), action="install") is True
 
 
 class TestNoDuplicateTestMethods:

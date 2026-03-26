@@ -43,6 +43,17 @@ def _normalize_optional_str(value: object) -> object:
     return value
 
 
+def _normalize_non_empty_optional_str(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must be a non-empty string")
+        return stripped
+    return value
+
+
 def _normalize_required_str(value: object) -> object:
     if isinstance(value, str):
         stripped = value.strip()
@@ -595,7 +606,7 @@ class ContractObservable(BaseModel):
     @field_validator("regime", "units", mode="before")
     @classmethod
     def _normalize_optional_fields(cls, value: object) -> object:
-        return _normalize_optional_str(value)
+        return _normalize_non_empty_optional_str(value)
 
     @field_validator("kind", mode="before")
     @classmethod

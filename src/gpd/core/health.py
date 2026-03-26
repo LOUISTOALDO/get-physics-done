@@ -192,7 +192,7 @@ def check_storage_paths(cwd: Path) -> HealthCheck:
 
 def _peek_normalized_state_for_health(cwd: Path) -> tuple[dict[str, object] | None, str | None]:
     """Load normalized state for inspection without mutating on-disk files."""
-    state_obj, _integrity_issues, state_source = peek_state_json(cwd, recover_intent=False)
+    state_obj, _integrity_issues, state_source = peek_state_json(cwd, recover_intent=True)
     if not isinstance(state_obj, dict):
         return None, state_source
 
@@ -208,7 +208,7 @@ def check_state_validity(cwd: Path) -> HealthCheck:
 
     Delegates core validation to :func:`state_validate` and wraps the result.
     """
-    result = state_validate(cwd, recover_intent=False)
+    result = state_validate(cwd, recover_intent=True)
     issues = list(result.issues)
     warnings = list(result.warnings)
 

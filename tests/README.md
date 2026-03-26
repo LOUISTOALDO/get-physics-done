@@ -1138,13 +1138,17 @@ They explicitly preserve:
 - `src/gpd/hooks/statusline.py -> <workspace>/GPD/state.json`
   `candidate-set`
 
+- `src/gpd/hooks/statusline.py -> src/gpd/hooks/install_context.py`
+  `hard-import`
+  Shared self-owned install detection and todo/update-cache layout selection.
+
 - `src/gpd/hooks/statusline.py -> src/gpd/hooks/runtime_detect.py`
   `hard-import`
 
-- `src/gpd/hooks/statusline.py -> freshest valid update-cache candidate from runtime_detect.get_update_cache_files()`
+- `src/gpd/hooks/statusline.py -> shared self-owned install context + freshest valid update-cache candidate from runtime_detect.get_update_cache_files()`
   `candidate-set`
 
-- `src/gpd/hooks/statusline.py -> candidate todo family {local,global runtime dirs}/todos/<session>-agent-*.json`
+- `src/gpd/hooks/statusline.py -> shared self-owned todo directory + candidate todo family {local,global runtime dirs}/todos/<session>-agent-*.json`
   `candidate-set`
 
 - `src/gpd/hooks/statusline.py -> stdin payload schema {model, workspace, session_id, context_window}`
@@ -1179,6 +1183,10 @@ They explicitly preserve:
 - `src/gpd/hooks/notify.py -> src/gpd/hooks/check_update.py`
   `spawn`
 
+- `src/gpd/hooks/notify.py -> src/gpd/hooks/install_context.py`
+  `hard-import`
+  Shared self-owned install detection and update-cache layout selection.
+
 - `src/gpd/hooks/notify.py -> freshest valid update-cache candidate set`
   `candidate-set`
 
@@ -1188,6 +1196,10 @@ They explicitly preserve:
 - `src/gpd/hooks/notify.py -> src/gpd/hooks/runtime_detect.py`
   `hard-import`
   Reads cache candidates and runtime-scoped update commands through runtime-detection helpers.
+
+- `src/gpd/hooks/notify.py -> src/gpd/core/constants.py::ProjectLayout.last_observability_notification`
+  `layout-authority`
+  Duplicate notification suppression follows the shared observability layout helper instead of a hard-coded GPD path.
 
 - `src/gpd/core/context.py -> src/gpd/adapters/__init__.py`
   `authority`

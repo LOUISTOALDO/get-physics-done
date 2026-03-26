@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+COMMANDS_DIR = REPO_ROOT / "src/gpd/commands"
 WORKFLOWS_DIR = REPO_ROOT / "src/gpd/specs/workflows"
 
 
@@ -58,8 +59,8 @@ def test_summary_driven_workflows_search_canonical_summary_artifacts() -> None:
     write_paper = (WORKFLOWS_DIR / "write-paper.md").read_text(encoding="utf-8")
     plan_phase = (WORKFLOWS_DIR / "plan-phase.md").read_text(encoding="utf-8")
 
-    assert "for summary in GPD/phases/*/*SUMMARY.md; do" in complete_milestone
-    assert "cat GPD/phases/*/*SUMMARY.md" in complete_milestone
+    assert "roadmap-plus-disk union" in complete_milestone
+    assert "Standalone `PLAN.md` / `SUMMARY.md` artifacts" in complete_milestone
     assert "for SUMMARY in GPD/phases/${PHASE_DIR}/*SUMMARY.md; do" in validate_conventions
     assert "ls GPD/phases/*/*SUMMARY.md 2>/dev/null" in graph
     assert "cat GPD/phases/*/*SUMMARY.md" in write_paper
@@ -67,9 +68,53 @@ def test_summary_driven_workflows_search_canonical_summary_artifacts() -> None:
     assert 'VALIDATED=$(ls GPD/phases/*/*SUMMARY.md 2>/dev/null | xargs grep -El "approach_validated: true|comparison_verdicts:|contract_results:" 2>/dev/null | head -1)' in plan_phase
 
 
+def test_transition_workflow_surfaces_standalone_phase_artifact_support() -> None:
+    workflow_text = (WORKFLOWS_DIR / "transition.md").read_text(encoding="utf-8")
+
+    assert 'ls "${PHASE_DIR}"/PLAN.md "${PHASE_DIR}"/*-PLAN.md 2>/dev/null | sort' in workflow_text
+    assert 'ls "${PHASE_DIR}"/SUMMARY.md "${PHASE_DIR}"/*-SUMMARY.md 2>/dev/null | sort' in workflow_text
+    assert 'cat ${PHASE_DIR}/SUMMARY.md ${PHASE_DIR}/*-SUMMARY.md 2>/dev/null' in workflow_text
+    assert 'cat ${PHASE_DIR}/CONTEXT.md ${PHASE_DIR}/*-CONTEXT.md 2>/dev/null' in workflow_text
+    assert "standalone and numbered PLAN files" in workflow_text
+    assert "standalone and numbered SUMMARY files" in workflow_text
+    assert "Counting standalone `PLAN.md` / `SUMMARY.md` alongside numbered `*-PLAN.md` / `*-SUMMARY.md` artifacts" in workflow_text
+
+
+def test_progress_workflow_counts_standalone_and_numbered_phase_pairs() -> None:
+    workflow_text = (WORKFLOWS_DIR / "progress.md").read_text(encoding="utf-8")
+
+    assert "GPD/phases/[current-phase-dir]/PLAN.md" in workflow_text
+    assert "GPD/phases/[current-phase-dir]/*-PLAN.md" in workflow_text
+    assert "GPD/phases/[current-phase-dir]/SUMMARY.md" in workflow_text
+    assert "GPD/phases/[current-phase-dir]/*-SUMMARY.md" in workflow_text
+    assert 'for plan in GPD/phases/[current-phase-dir]/PLAN.md GPD/phases/[current-phase-dir]/*-PLAN.md; do' in workflow_text
+    assert 'SUMMARY="$(dirname "$plan")/SUMMARY.md"' in workflow_text
+
+
+def test_command_surfaces_list_standalone_and_numbered_phase_artifacts() -> None:
+    progress = (COMMANDS_DIR / "progress.md").read_text(encoding="utf-8")
+    regression_check = (COMMANDS_DIR / "regression-check.md").read_text(encoding="utf-8")
+    show_phase = (COMMANDS_DIR / "show-phase.md").read_text(encoding="utf-8")
+    audit = (COMMANDS_DIR / "audit-milestone.md").read_text(encoding="utf-8")
+    write_paper = (COMMANDS_DIR / "write-paper.md").read_text(encoding="utf-8")
+
+    assert "GPD/phases/[current-phase-dir]/PLAN.md" in progress
+    assert "GPD/phases/[current-phase-dir]/*-PLAN.md" in progress
+    assert "GPD/phases/[current-phase-dir]/SUMMARY.md" in progress
+    assert "GPD/phases/[current-phase-dir]/*-SUMMARY.md" in progress
+    assert "standalone `PLAN.md` and numbered `*-PLAN.md`" in show_phase
+    assert "`SUMMARY.md` / `*-SUMMARY.md` artifact" in show_phase
+    assert "find_files: GPD/phases/*/*SUMMARY.md" in audit
+    assert "completed summary frontmatter (`SUMMARY.md` and `*-SUMMARY.md`)" in regression_check
+    assert "ls GPD/phases/*/*SUMMARY.md 2>/dev/null" in write_paper
+
+
 def test_respond_to_referees_prefers_canonical_markdown_report_path() -> None:
     workflow_text = (WORKFLOWS_DIR / "respond-to-referees.md").read_text(encoding="utf-8")
 
     assert "Use `GPD/REFEREE-REPORT{round_suffix}.md` as the canonical issue-ID source" in workflow_text
-    assert "prefer canonical `GPD/REFEREE-REPORT{round_suffix}.md`" in workflow_text
-    assert "`GPD/paper/referee-report-*.md` or `paper/referee-reports/*.md`" in workflow_text
+    assert "use canonical `GPD/REFEREE-REPORT{round_suffix}.md` only" in workflow_text
+    assert "`GPD/paper/REFEREE_RESPONSE{round_suffix}.md`" in workflow_text
+    assert "`GPD/AUTHOR-RESPONSE{round_suffix}.md`" in workflow_text
+    assert "Read the completed `GPD/AUTHOR-RESPONSE{round_suffix}.md` and `GPD/paper/REFEREE_RESPONSE{round_suffix}.md`" in workflow_text
+    assert "`GPD/paper/referee-report-*.md` or `paper/referee-reports/*.md`" not in workflow_text

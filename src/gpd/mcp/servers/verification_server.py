@@ -1003,6 +1003,14 @@ def _collect_contract_schema_alignment_errors(
             if key not in value or not isinstance(child_schema, dict):
                 continue
             child_prefix = f"{path_prefix}.{key}" if path_prefix else key
+            if (
+                path_prefix.startswith("observables.")
+                and key in {"regime", "units"}
+                and isinstance(value[key], str)
+                and not value[key].strip()
+            ):
+                errors.append(f"{child_prefix} must be a non-empty string")
+                continue
             errors.extend(
                 _collect_contract_schema_alignment_errors(
                     value[key],

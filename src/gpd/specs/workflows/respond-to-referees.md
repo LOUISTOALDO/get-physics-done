@@ -146,7 +146,7 @@ Ask the user to provide referee reports via one of:
 
 1. **Paste directly** -- user pastes report text into the conversation
 2. **File path** -- user provides a path to the report file(s)
-3. **Existing file** -- prefer canonical `GPD/REFEREE-REPORT{round_suffix}.md`; if it is absent, fall back to lowercase markdown legacy locations `GPD/paper/referee-report-*.md` or `paper/referee-reports/*.md`
+3. **Existing file** -- use canonical `GPD/REFEREE-REPORT{round_suffix}.md` only
 
 **Parse each referee's comments into structured items:**
 
@@ -167,7 +167,7 @@ For each comment, extract:
 - Blocking issues and unresolved issue IDs from `REVIEW-LEDGER*.json`
 - Any finding that the paper's claim scope outruns the evidence, that physical interpretation is unsupported, or that venue fit/significance is inadequate
 
-Do not invent new `REF-*` identifiers from the JSON artifacts. Instead, use them to prioritize and calibrate the responses to the issues already surfaced in the canonical `GPD/REFEREE-REPORT{round_suffix}.md` (or a lowercase markdown legacy fallback when present).
+Do not invent new `REF-*` identifiers from the JSON artifacts. Instead, use them to prioritize and calibrate the responses to the issues already surfaced in the canonical `GPD/REFEREE-REPORT{round_suffix}.md`.
 
 Present the parsed structure for user confirmation:
 
@@ -331,7 +331,7 @@ If no Group C items: skip to draft_responses.
 
 For each new calculation:
 
-1. Create matching entries in the "New Calculations Summary" sections of `REFEREE_RESPONSE.md` and `AUTHOR-RESPONSE.md`
+1. Create matching entries in the "New Calculations Summary" sections of `GPD/paper/REFEREE_RESPONSE{round_suffix}.md` and `GPD/AUTHOR-RESPONSE{round_suffix}.md`
 2. Suggest a research phase to execute the calculation:
 
 ```
@@ -377,7 +377,7 @@ WRITER_MODEL=$(gpd resolve-model gpd-paper-writer)
 
 **For Group A (response-only) items:**
 
-Draft each response in `AUTHOR-RESPONSE.md`, then mirror the polished journal-facing wording into `REFEREE_RESPONSE.md`. For each comment:
+Draft each response in `GPD/AUTHOR-RESPONSE{round_suffix}.md`, then mirror the polished journal-facing wording into `GPD/paper/REFEREE_RESPONSE{round_suffix}.md`. For each comment:
 
 - Quote the referee's exact words
 - Write the assessment (is the referee correct, partially correct, or mistaken?)
@@ -414,10 +414,10 @@ Each revision agent receives:
 
 After each agent returns, verify the promised artifacts before trusting the handoff text:
 - Re-read the targeted `${PAPER_DIR}/{section}.tex` file and confirm the expected revision markers or substantive edits landed.
-- Re-open `AUTHOR-RESPONSE{round_suffix}.md` and `REFEREE_RESPONSE{round_suffix}.md` and confirm the affected comment block now contains the updated assessment / changes-made text.
+- Re-open `GPD/AUTHOR-RESPONSE{round_suffix}.md` and `GPD/paper/REFEREE_RESPONSE{round_suffix}.md` and confirm the affected comment block now contains the updated assessment / changes-made text.
 - If the agent claimed success but the files did not change, treat that section as failed and route it through the retry/manual options above instead of silently proceeding.
 
-Only after those checks pass, update both `AUTHOR-RESPONSE{round_suffix}.md` and `REFEREE_RESPONSE{round_suffix}.md`:
+Only after those checks pass, update both `GPD/AUTHOR-RESPONSE{round_suffix}.md` and `GPD/paper/REFEREE_RESPONSE{round_suffix}.md`:
 - Fill in "Changes made" with specific locations (section, page, equation)
 - Set status to "Response drafted"
 
@@ -469,7 +469,7 @@ Options:
 <step name="generate_response_letter">
 **Generate the response letter to the editor:**
 
-Read the completed `AUTHOR-RESPONSE{round_suffix}.md` and `REFEREE_RESPONSE{round_suffix}.md` (all comments should have status "Response drafted" or "Final").
+Read the completed `GPD/AUTHOR-RESPONSE{round_suffix}.md` and `GPD/paper/REFEREE_RESPONSE{round_suffix}.md` (all comments should have status "Response drafted" or "Final").
 
 **If any Group C items are still pending:** Warn the user before generating:
 
@@ -590,7 +590,7 @@ gpd commit \
    /gpd:plan-phase {N}
    /gpd:execute-phase {N}
 2. Return here to incorporate results:
-   /gpd:respond-to-referees (will detect existing REFEREE_RESPONSE.md / AUTHOR-RESPONSE.md)
+   /gpd:respond-to-referees (will detect existing `GPD/paper/REFEREE_RESPONSE{round_suffix}.md` / `GPD/AUTHOR-RESPONSE{round_suffix}.md`)
 
 Recommend `/gpd:peer-review` as the standalone re-review command once the revised manuscript compiles cleanly. This keeps revision rounds aligned with the referee agent's `REFEREE-REPORT-R{N}.md` protocol.
 
@@ -616,7 +616,7 @@ Recommend `/gpd:peer-review` as the standalone re-review command once the revise
 
 - [ ] Referee reports parsed and structured
 - [ ] All comments categorized (physics concern, clarity, etc.) and prioritized
-- [ ] REFEREE_RESPONSE.md and AUTHOR-RESPONSE.md created with complete point-by-point structure
+- [ ] `GPD/paper/REFEREE_RESPONSE{round_suffix}.md` and `GPD/AUTHOR-RESPONSE{round_suffix}.md` created with complete point-by-point structure
 - [ ] Comments triaged into Groups A (response-only), B (revision), C (new calculation)
 - [ ] Group C items routed to research phases (if any)
 - [ ] All Group A responses drafted

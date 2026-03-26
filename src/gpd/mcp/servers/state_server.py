@@ -20,10 +20,10 @@ from gpd.core.config import load_config
 from gpd.core.errors import GPDError
 from gpd.core.health import run_health
 from gpd.core.observability import gpd_span
+from gpd.core.phases import progress_render
 from gpd.core.state import (
     load_state_json,
     state_advance_plan,
-    state_update_progress,
     state_validate,
 )
 from gpd.core.utils import is_phase_complete
@@ -129,8 +129,8 @@ def advance_plan(project_dir: str) -> dict:
 def get_progress(project_dir: str) -> dict:
     """Get overall project progress summary.
 
-    Updates progress_percent based on completed phases and returns
-    the current state without surfacing checkpoint shelf artifacts.
+    Returns the computed progress summary without surfacing checkpoint shelf
+    artifacts. Works even when STATE.md is missing.
 
     Args:
         project_dir: Absolute path to the project root directory.
@@ -140,7 +140,7 @@ def get_progress(project_dir: str) -> dict:
         return stable_mcp_error("project_dir must be an absolute path")
     with gpd_span("mcp.state.progress"):
         try:
-            return stable_mcp_response(state_update_progress(cwd).model_dump())
+            return stable_mcp_response(progress_render(cwd, "json").model_dump())
         except (GPDError, OSError, ValueError, TimeoutError) as exc:
             return stable_mcp_error(exc)
         except Exception as exc:  # pragma: no cover - defensive envelope

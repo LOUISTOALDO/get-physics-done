@@ -26,10 +26,9 @@ from gpd.adapters.install_utils import (
     HOOKS_DIR_NAME,
     build_runtime_install_repair_command,
 )
-from gpd.adapters.runtime_catalog import resolve_global_config_dir
 from gpd.core.cli_args import resolve_root_global_cli_cwd_from_argv as _resolve_cli_cwd_from_argv
 from gpd.core.constants import ENV_GPD_ACTIVE_RUNTIME, ENV_GPD_DISABLE_CHECKOUT_REEXEC
-from gpd.hooks.install_metadata import load_install_manifest_state
+from gpd.hooks.install_metadata import load_install_manifest_runtime_status
 from gpd.hooks.runtime_detect import normalize_runtime_name
 
 
@@ -67,33 +66,10 @@ def _parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     return options, gpd_args
 
 
-def _load_install_manifest(config_dir: Path) -> dict[str, object]:
-    """Return install metadata for *config_dir* when the manifest is valid JSON."""
-    manifest_state, payload = load_install_manifest_state(config_dir)
-    if manifest_state != "ok":
-        return {}
-    return payload
-
-
 def _manifest_runtime_status(config_dir: Path) -> tuple[str | None, str]:
     """Return the persisted runtime plus the manifest contract status."""
-    manifest_state, manifest = load_install_manifest_state(config_dir)
-    if manifest_state != "ok":
-        return None, manifest_state
-    if "runtime" not in manifest:
-        return None, "missing_runtime"
-
-    runtime = manifest.get("runtime")
-    if not isinstance(runtime, str):
-        return None, "malformed_runtime"
-
-    normalized = runtime.strip()
-    if not normalized:
-        return None, "malformed_runtime"
-    canonical_runtime = normalize_runtime_name(normalized)
-    if canonical_runtime is None:
-        return None, "malformed_runtime"
-    return canonical_runtime, "ok"
+    manifest_state, _manifest, runtime = load_install_manifest_runtime_status(config_dir)
+    return runtime, manifest_state
 
 
 def _runtime_display_name(runtime: str) -> str:
@@ -132,14 +108,13 @@ def _is_matching_local_install_candidate(candidate: Path, *, runtime: str, cli_c
     if not candidate.is_dir():
         return False
 
-    manifest_runtime, manifest_status = _manifest_runtime_status(candidate)
     adapter = get_adapter(runtime)
-    canonical_global_dir = resolve_global_config_dir(adapter.runtime_descriptor, home=Path.home(), environ={})
+    manifest_status, manifest, manifest_runtime = load_install_manifest_runtime_status(candidate)
+    canonical_global_dir = adapter.resolve_global_config_dir(home=Path.home())
     if manifest_status == "ok":
         if manifest_runtime != runtime:
             return False
 
-        manifest = _load_install_manifest(candidate)
         manifest_scope = manifest.get("install_scope")
         if manifest_scope == "global":
             return False
@@ -178,7 +153,7 @@ def _resolve_local_config_dir(raw_value: str, *, runtime: str, cli_cwd: Path) ->
         candidate = (base / relative).resolve(strict=False)
         if not _is_matching_local_install_candidate(candidate, runtime=runtime, cli_cwd=resolved_cwd):
             continue
-        manifest_runtime, manifest_status = _manifest_runtime_status(candidate)
+        _, manifest_status = _manifest_runtime_status(candidate)
         if manifest_status == "ok" and adapter.has_complete_install(candidate):
             return candidate
         if fallback is None:
@@ -220,7 +195,7 @@ def _uses_effective_explicit_target(
 
     adapter = get_adapter(runtime)
     if install_scope == "global":
-        canonical_global_dir = resolve_global_config_dir(adapter.runtime_descriptor, home=Path.home(), environ={})
+        canonical_global_dir = adapter.resolve_global_config_dir(home=Path.home())
         return not _paths_equal(config_dir, canonical_global_dir)
 
     default_local_config_dir = adapter.resolve_local_config_dir(cli_cwd).resolve(strict=False)
@@ -458,9 +433,8 @@ def main(argv: list[str] | None = None) -> int:
         explicit_target=bool(options.explicit_target),
         cli_cwd=cli_cwd,
     )
-    manifest_runtime, manifest_status = _manifest_runtime_status(config_dir)
-    manifest_payload = _load_install_manifest(config_dir) if manifest_status == "ok" else {}
-    manifest_install_scope = manifest_payload.get("install_scope")
+    manifest_status, manifest_payload, manifest_runtime = load_install_manifest_runtime_status(config_dir)
+    manifest_install_scope = manifest_payload.get("install_scope") if manifest_status == "ok" else None
     if not isinstance(manifest_install_scope, str):
         manifest_install_scope = None
     if manifest_status == "missing" and _has_managed_install_markers(config_dir):

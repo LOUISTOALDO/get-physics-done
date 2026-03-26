@@ -52,6 +52,7 @@ from gpd.core.contract_validation import (
     validate_project_contract,
 )
 from gpd.core.errors import ValidationError
+from gpd.core.phases import _milestone_completion_snapshot
 from gpd.core.protocol_bundles import render_protocol_bundle_context, select_protocol_bundles
 from gpd.core.reference_ingestion import ingest_reference_artifacts
 from gpd.core.state import EM_DASH, _current_machine_identity, _load_state_json_with_integrity_issues
@@ -1848,30 +1849,17 @@ def init_milestone_op(cwd: Path) -> dict:
     """Assemble context for milestone operations (complete, archive, etc.)."""
     config = load_config(cwd)
     milestone = _try_get_milestone_info(cwd)
+    reference_runtime_context = _build_reference_runtime_context(cwd)
 
-    # Count phases
-    layout = ProjectLayout(cwd)
-    phases_dir = layout.phases_dir
-    phase_count = 0
-    completed_phases = 0
-    try:
-        for d in sorted(phases_dir.iterdir()):
-            if not d.is_dir():
-                continue
-            phase_count += 1
-            phase_files = [f.name for f in d.iterdir() if f.is_file()]
-            plans = [f for f in phase_files if f.endswith(PLAN_SUFFIX) or f == STANDALONE_PLAN]
-            summaries = [f for f in phase_files if layout.is_summary_file(f)]
-            if _is_phase_complete(len(plans), _matching_phase_artifact_count(plans, summaries)):
-                completed_phases += 1
-    except FileNotFoundError:
-        pass
+    milestone_snapshot = _milestone_completion_snapshot(cwd)
 
     # Check archived milestones
     milestones_dir = cwd / PLANNING_DIR_NAME / MILESTONES_DIR_NAME
     archived_milestones: list[str] = []
     try:
-        archived_milestones = sorted(d.name for d in milestones_dir.iterdir() if d.is_dir())
+        archived_milestones = sorted(
+            entry.name for entry in milestones_dir.iterdir() if entry.is_dir() or entry.is_file()
+        )
     except FileNotFoundError:
         pass
 
@@ -1888,9 +1876,9 @@ def init_milestone_op(cwd: Path) -> dict:
         "milestone_name": milestone["name"],
         "milestone_slug": _generate_slug(milestone["name"]),
         # Phase counts
-        "phase_count": phase_count,
-        "completed_phases": completed_phases,
-        "all_phases_complete": phase_count > 0 and phase_count == completed_phases,
+        "phase_count": milestone_snapshot.phase_count,
+        "completed_phases": milestone_snapshot.completed_phases,
+        "all_phases_complete": milestone_snapshot.all_phases_complete,
         # Archive
         "archived_milestones": archived_milestones,
         "archive_count": len(archived_milestones),
@@ -1902,6 +1890,7 @@ def init_milestone_op(cwd: Path) -> dict:
         "phases_dir_exists": _path_exists(cwd, f"{PLANNING_DIR_NAME}/{PHASES_DIR_NAME}"),
         # Platform
         "platform": _detect_platform(cwd),
+        **reference_runtime_context,
     }
 
 

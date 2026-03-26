@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from gpd.contracts import ContractResults, ResearchContract, normalize_contract_results_input
+from gpd.contracts import (
+    ContractResults,
+    ResearchContract,
+    contract_from_data,
+    normalize_contract_results_input,
+)
 from gpd.core.contract_validation import validate_project_contract
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "stage0"
@@ -44,6 +49,40 @@ def test_validate_project_contract_accepts_stage0_fixture() -> None:
     assert result.decisive_target_count > 0
     assert result.guidance_signal_count > 0
     assert result.reference_count > 0
+
+
+def test_research_contract_rejects_blank_observable_regime_and_units() -> None:
+    contract = _load_contract_fixture()
+    contract["observables"][0]["regime"] = " "
+    contract["observables"][0]["units"] = ""
+
+    with pytest.raises(ValidationError) as exc_info:
+        ResearchContract.model_validate(contract)
+
+    message = str(exc_info.value)
+    assert "observables.0.regime" in message
+    assert "must be a non-empty string" in message
+    assert "observables.0.units" in message
+
+
+def test_validate_project_contract_rejects_blank_observable_regime_and_units() -> None:
+    contract = _load_contract_fixture()
+    contract["observables"][0]["regime"] = " "
+    contract["observables"][0]["units"] = " "
+
+    result = validate_project_contract(contract)
+
+    assert result.valid is False
+    assert "observables.0.regime must be a non-empty string" in result.errors
+    assert "observables.0.units must be a non-empty string" in result.errors
+
+
+def test_contract_from_data_rejects_blank_observable_regime_and_units() -> None:
+    contract = _load_contract_fixture()
+    contract["observables"][0]["regime"] = " "
+    contract["observables"][0]["units"] = " "
+
+    assert contract_from_data(contract) is None
 
 
 def test_validate_project_contract_rejects_missing_decisive_targets_and_skepticism() -> None:

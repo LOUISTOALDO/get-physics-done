@@ -11,15 +11,9 @@ import os
 import sys
 from pathlib import Path
 
-from gpd.adapters.install_utils import CACHE_DIR_NAME, UPDATE_CACHE_FILENAME
-from gpd.core.constants import ENV_GPD_DEBUG, PLANNING_DIR_NAME, STATE_JSON_FILENAME, TODOS_DIR_NAME
+import gpd.hooks.install_context as hook_layout
+from gpd.core.constants import ENV_GPD_DEBUG, PLANNING_DIR_NAME, STATE_JSON_FILENAME
 from gpd.core.observability import resolve_project_root
-from gpd.hooks.install_metadata import (
-    config_dir_has_complete_install,
-    install_scope_from_manifest,
-    installed_runtime,
-    installed_update_command,
-)
 
 # Context bar thresholds (percentage of scaled usage)
 _CONTEXT_REAL_LIMIT_PCT = 80
@@ -192,24 +186,6 @@ def _read_position(workspace_dir: str) -> str:
         return ""
 
 
-def _self_config_dir() -> Path | None:
-    """Return the installed runtime config dir when this hook runs from one."""
-    candidate = Path(__file__).resolve().parent.parent
-    if config_dir_has_complete_install(candidate):
-        return candidate
-    return None
-
-
-def _self_install_scope(config_dir: Path) -> str | None:
-    """Return the persisted install scope for the hook's own config dir."""
-    return install_scope_from_manifest(config_dir)
-
-
-def _self_update_command(config_dir: Path) -> str | None:
-    """Return the public update command for the installed runtime."""
-    return installed_update_command(config_dir)
-
-
 def _matching_todo_files(todos_dir: Path, session_id: str) -> list[tuple[float, Path]]:
     """Return matching todo files for a session ordered newest-first within one directory."""
     matches: list[tuple[float, Path]] = []
@@ -252,7 +228,6 @@ def _read_current_task(session_id: str, workspace_dir: str | None = None) -> str
 
     from gpd.hooks.runtime_detect import (
         RUNTIME_UNKNOWN,
-        TodoCandidate,
         detect_active_runtime_with_gpd_install,
         detect_runtime_for_gpd_use,
         detect_runtime_install_target,
@@ -264,23 +239,18 @@ def _read_current_task(session_id: str, workspace_dir: str | None = None) -> str
     active_installed_runtime = detect_active_runtime_with_gpd_install(cwd=workspace_path)
     preferred_runtime = detect_runtime_for_gpd_use(cwd=workspace_path)
     todo_candidates = get_todo_candidates(cwd=workspace_path, preferred_runtime=preferred_runtime)
-    self_config_dir = _self_config_dir()
+    self_install = hook_layout.detect_self_owned_install(__file__)
     active_install_target = (
         detect_runtime_install_target(active_installed_runtime, cwd=workspace_path)
         if active_installed_runtime not in (None, "", RUNTIME_UNKNOWN)
         else None
     )
-    prefer_self_todos = self_config_dir is not None
-    if self_config_dir is not None and active_install_target is not None and self_config_dir != active_install_target.config_dir:
-        prefer_self_todos = not (
-            workspace_path is not None and getattr(active_install_target, "install_scope", None) == "local"
-    )
-    if self_config_dir is not None and prefer_self_todos:
-        self_candidate = TodoCandidate(
-            self_config_dir / TODOS_DIR_NAME,
-            runtime=installed_runtime(self_config_dir),
-            scope=_self_install_scope(self_config_dir),
-        )
+    if hook_layout.should_prefer_self_owned_install(
+        self_install,
+        active_install_target=active_install_target,
+        workspace_path=workspace_path,
+    ):
+        self_candidate = hook_layout.self_owned_todo_candidate(self_install)
         if all(candidate.path != self_candidate.path for candidate in todo_candidates):
             todo_candidates = [self_candidate, *todo_candidates]
 
@@ -455,8 +425,6 @@ def _execution_artifact_label(snapshot: dict[str, object]) -> str:
 
 def _latest_update_cache(workspace_dir: str | None = None) -> tuple[dict[str, object] | None, object | None]:
     """Return the highest-priority valid update cache and its candidate metadata."""
-    from types import SimpleNamespace
-
     from gpd.hooks.runtime_detect import (
         RUNTIME_UNKNOWN,
         detect_active_runtime_with_gpd_install,
@@ -467,19 +435,18 @@ def _latest_update_cache(workspace_dir: str | None = None) -> tuple[dict[str, ob
 
     workspace_path = resolve_project_root(workspace_dir) if workspace_dir else None
     active_installed_runtime = detect_active_runtime_with_gpd_install(cwd=workspace_path)
-    self_config_dir = _self_config_dir()
+    self_install = hook_layout.detect_self_owned_install(__file__)
     active_install_target = (
         detect_runtime_install_target(active_installed_runtime, cwd=workspace_path)
         if active_installed_runtime not in (None, "", RUNTIME_UNKNOWN)
         else None
     )
-    prefer_self_cache = self_config_dir is not None
-    if self_config_dir is not None and active_install_target is not None and self_config_dir != active_install_target.config_dir:
-        prefer_self_cache = not (
-            workspace_path is not None and getattr(active_install_target, "install_scope", None) == "local"
-        )
-    if self_config_dir is not None and prefer_self_cache:
-        cache_file = self_config_dir / CACHE_DIR_NAME / UPDATE_CACHE_FILENAME
+    if hook_layout.should_prefer_self_owned_install(
+        self_install,
+        active_install_target=active_install_target,
+        workspace_path=workspace_path,
+    ):
+        cache_file = self_install.cache_file
         if cache_file.exists():
             try:
                 cache = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -487,12 +454,7 @@ def _latest_update_cache(workspace_dir: str | None = None) -> tuple[dict[str, ob
                 _debug(f"Failed to parse update cache {cache_file}: {exc}")
             else:
                 if isinstance(cache, dict):
-                    candidate = SimpleNamespace(
-                        path=cache_file,
-                        runtime=None,
-                        scope=_self_install_scope(self_config_dir),
-                        config_dir=self_config_dir,
-                    )
+                    candidate = hook_layout.self_owned_update_cache_candidate(self_install)
                     return cache, candidate
 
     preferred_runtime = active_installed_runtime if workspace_path is not None else None
@@ -529,9 +491,9 @@ def _check_update(workspace_dir: str | None = None) -> str:
     """Check GPD update cache files for available updates."""
     cache, cache_candidate = _latest_update_cache(workspace_dir)
     if cache and cache.get("update_available"):
-        config_dir = getattr(cache_candidate, "config_dir", None)
-        if isinstance(config_dir, Path):
-            command = _self_update_command(config_dir)
+        self_install = hook_layout.detect_self_owned_install(__file__)
+        if self_install is not None and cache_candidate is not None and cache_candidate.path == self_install.cache_file:
+            command = self_install.update_command
             if command is None:
                 return ""
             return f"\x1b[33m\u2b06 {command}\x1b[0m \u2502 "

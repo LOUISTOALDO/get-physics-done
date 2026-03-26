@@ -343,6 +343,7 @@ def test_referee_response_round_suffix_convention_is_consistent() -> None:
     assert "REFEREE_RESPONSE-R2.md" in template
     assert "REFEREE_RESPONSE_R2.md" not in respond
     assert "REFEREE_RESPONSE_R2.md" not in template
+    assert "paper/referee-reports" not in respond
 
 
 def test_bibliography_template_tracks_live_references_bib_path() -> None:

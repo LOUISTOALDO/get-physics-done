@@ -8,8 +8,8 @@ review-contract:
   schema_version: 1
   required_outputs:
     - paper/main.tex
-    - "GPD/REFEREE-REPORT.md"
-    - "GPD/REFEREE-REPORT.tex"
+    - "GPD/REFEREE-REPORT{round_suffix}.md"
+    - "GPD/REFEREE-REPORT{round_suffix}.tex"
   required_evidence:
     - manuscript scaffold target (existing draft or bootstrap target)
     - phase summaries or milestone digest
@@ -89,7 +89,7 @@ Load research context:
 
 ```bash
 cat GPD/ROADMAP.md 2>/dev/null
-ls GPD/phases/*/*-SUMMARY.md 2>/dev/null
+ls GPD/phases/*/*SUMMARY.md 2>/dev/null
 cat GPD/research-map/FORMALISM.md 2>/dev/null
 ```
 

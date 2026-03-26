@@ -1252,6 +1252,30 @@ class TestInitMilestoneOp:
         assert ctx["completed_phases"] == 0
         assert ctx["all_phases_complete"] is False
 
+    def test_counts_roadmap_phases_and_disk_completion(self, tmp_path: Path) -> None:
+        _setup_project(tmp_path)
+        _create_roadmap(
+            tmp_path,
+            """\
+            ## Milestone v1.0: Test
+
+            ### Phase 1: Setup
+            **Goal:** setup
+
+            ### Phase 2: Build
+            **Goal:** build
+            """,
+        )
+        p1 = _create_phase_dir(tmp_path, "01-setup")
+        (p1 / "a-PLAN.md").write_text("plan")
+        (p1 / "a-SUMMARY.md").write_text("summary")
+
+        ctx = init_milestone_op(tmp_path)
+
+        assert ctx["phase_count"] == 2
+        assert ctx["completed_phases"] == 1
+        assert ctx["all_phases_complete"] is False
+
     def test_counts_phases(self, tmp_path: Path) -> None:
         _setup_project(tmp_path)
         # Complete phase
@@ -1266,6 +1290,35 @@ class TestInitMilestoneOp:
         assert ctx["phase_count"] == 2
         assert ctx["completed_phases"] == 1
         assert ctx["all_phases_complete"] is False
+
+    def test_archive_inventory_counts_top_level_files(self, tmp_path: Path) -> None:
+        _setup_project(tmp_path)
+        archive_dir = tmp_path / "GPD" / "milestones"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("v1.0-ROADMAP.md", "v1.0-REQUIREMENTS.md", "v1.0-MILESTONE-AUDIT.md"):
+            (archive_dir / name).write_text("archive")
+
+        ctx = init_milestone_op(tmp_path)
+
+        assert ctx["archive_count"] == 3
+        assert ctx["archived_milestones"] == [
+            "v1.0-MILESTONE-AUDIT.md",
+            "v1.0-REQUIREMENTS.md",
+            "v1.0-ROADMAP.md",
+        ]
+
+    def test_surfaces_project_contract_gate_and_active_reference_context(self, tmp_path: Path) -> None:
+        _setup_project(tmp_path)
+        _write_project_contract_state(tmp_path)
+
+        ctx = init_milestone_op(tmp_path)
+
+        assert ctx["project_contract"] is not None
+        assert ctx["project_contract"]["scope"]["question"] == "What benchmark must the project recover?"
+        assert ctx["project_contract_load_info"]["status"] in {"loaded", "loaded_with_approval_blockers"}
+        assert ctx["project_contract_validation"] is not None
+        assert "valid" in ctx["project_contract_validation"]
+        assert "[ref-benchmark]" in ctx["active_reference_context"]
 
 
 # ─── init_map_research ────────────────────────────────────────────────────────

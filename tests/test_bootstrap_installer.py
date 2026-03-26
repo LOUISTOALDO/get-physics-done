@@ -566,7 +566,7 @@ def test_bootstrap_forwards_target_dir_to_runtime_install(tmp_path: Path) -> Non
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is required for bootstrap installer tests")
 def test_bootstrap_preserves_global_scope_for_canonical_global_target_dir(tmp_path: Path) -> None:
     home = tmp_path / "home"
-    target_dir = home / ".codex"
+    target_dir = home / _RUNTIME_ADAPTERS[_CODEX_RUNTIME_NAME].config_dir_name
     result, _home, log_path = _run_bootstrap_with_fake_python(
         tmp_path,
         installer_args=[_CODEX_INSTALL_FLAG, "--target-dir", str(target_dir)],

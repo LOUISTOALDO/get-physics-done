@@ -39,7 +39,7 @@ Version: $ARGUMENTS (optional — defaults to current milestone)
 @GPD/config.json (if exists)
 
 **Completed Work:**
-find_files: GPD/phases/*/*-SUMMARY.md
+find_files: GPD/phases/*/*SUMMARY.md
 find_files: GPD/phases/*/*-VERIFICATION.md
 </context>
 

@@ -20,23 +20,44 @@ from gpd.adapters import get_adapter
 from gpd.adapters.runtime_catalog import iter_runtime_descriptors
 from gpd.cli import app
 from gpd.core.state import default_state_dict, generate_state_markdown
+from tests.runtime_install_helpers import seed_complete_runtime_install
 
 runner = CliRunner()
 _RUNTIME_DESCRIPTORS = iter_runtime_descriptors()
+_DOLLAR_COMMAND_DESCRIPTOR = next(descriptor for descriptor in _RUNTIME_DESCRIPTORS if descriptor.command_prefix.startswith("$"))
+_SLASH_COMMAND_DESCRIPTOR = next(
+    descriptor
+    for descriptor in _RUNTIME_DESCRIPTORS
+    if descriptor.command_prefix.startswith("/") and descriptor.runtime_name != _DOLLAR_COMMAND_DESCRIPTOR.runtime_name
+)
+_ENV_OVERRIDE_DESCRIPTOR = next(
+    descriptor
+    for descriptor in _RUNTIME_DESCRIPTORS
+    if (
+        descriptor.global_config.env_var
+        or descriptor.global_config.env_dir_var
+        or descriptor.global_config.env_file_var
+    )
+)
+_SECONDARY_PERMISSIONS_DESCRIPTOR = next(
+    descriptor
+    for descriptor in _RUNTIME_DESCRIPTORS
+    if descriptor.runtime_name != _ENV_OVERRIDE_DESCRIPTOR.runtime_name
+)
 
 
 @pytest.fixture()
 def codex_command_prefix(monkeypatch: pytest.MonkeyPatch) -> str:
     """Force the integration preflight surface to resolve the Codex runtime."""
-    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: "codex")
-    return get_adapter("codex").command_prefix
+    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: _DOLLAR_COMMAND_DESCRIPTOR.runtime_name)
+    return get_adapter(_DOLLAR_COMMAND_DESCRIPTOR.runtime_name).command_prefix
 
 
 @pytest.fixture()
 def claude_code_command_prefix(monkeypatch: pytest.MonkeyPatch) -> str:
     """Force the integration preflight surface to resolve the Claude Code runtime."""
-    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: "claude-code")
-    return get_adapter("claude-code").command_prefix
+    monkeypatch.setattr("gpd.cli.detect_runtime_for_gpd_use", lambda cwd=None: _SLASH_COMMAND_DESCRIPTOR.runtime_name)
+    return get_adapter(_SLASH_COMMAND_DESCRIPTOR.runtime_name).command_prefix
 
 def _runtime_env_prefixes() -> tuple[str, ...]:
     prefixes: set[str] = set()
@@ -69,6 +90,45 @@ def _reset_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in list(os.environ):
         if key.startswith(_RUNTIME_ENV_PREFIXES) or key in _RUNTIME_ENV_VARS_TO_CLEAR:
             monkeypatch.delenv(key, raising=False)
+
+def _install_runtime(
+    project_root: Path,
+    descriptor,
+    *,
+    target: Path | None = None,
+    is_global: bool = False,
+    explicit_target: bool = False,
+):
+    adapter = get_adapter(descriptor.runtime_name)
+    install_target = target or (project_root / descriptor.config_dir_name)
+    install_target.mkdir(parents=True, exist_ok=True)
+    gpd_root = Path(__file__).resolve().parents[1] / "src" / "gpd"
+    adapter.install(gpd_root, install_target, is_global=is_global, explicit_target=explicit_target)
+    return adapter, install_target
+
+
+def _set_runtime_config_override(monkeypatch: pytest.MonkeyPatch, descriptor, target: Path) -> None:
+    env_var = (
+        descriptor.global_config.env_var
+        or descriptor.global_config.env_dir_var
+        or descriptor.global_config.env_file_var
+    )
+    assert env_var is not None
+    env_value = str(target / "config.json") if env_var == descriptor.global_config.env_file_var else str(target)
+    monkeypatch.setenv(env_var, env_value)
+
+
+def _target_file_snapshot(target: Path) -> dict[str, bytes]:
+    snapshot: dict[str, bytes] = {}
+    for path in sorted(target.rglob("*")):
+        if path.is_file():
+            snapshot[str(path.relative_to(target))] = path.read_bytes()
+    return snapshot
+
+
+def _activate_runtime(monkeypatch: pytest.MonkeyPatch, descriptor, value: str = "active") -> None:
+    assert descriptor.activation_env_vars
+    monkeypatch.setenv(descriptor.activation_env_vars[0], value)
 
 
 # ---------------------------------------------------------------------------
@@ -170,36 +230,6 @@ def _invoke(*args: str, expect_ok: bool = True) -> object:
             f"gpd {' '.join(args)} failed (exit {result.exit_code}):\n{result.output}"
         )
     return result
-
-
-def _mark_complete_runtime_install(config_dir: Path, *, runtime: str, install_scope: str = "local") -> None:
-    """Create the concrete install markers real runtime installs write."""
-    adapter = get_adapter(runtime)
-    config_dir.mkdir(parents=True, exist_ok=True)
-    for relpath in adapter.install_completeness_relpaths():
-        if relpath == "gpd-file-manifest.json":
-            continue
-        artifact = config_dir / relpath
-        artifact.parent.mkdir(parents=True, exist_ok=True)
-        if artifact.suffix:
-            artifact.write_text("{}\n" if artifact.suffix == ".json" else "# test\n", encoding="utf-8")
-        else:
-            artifact.mkdir(parents=True, exist_ok=True)
-    explicit_target = config_dir.name != adapter.config_dir_name
-    manifest: dict[str, object] = {
-        "runtime": runtime,
-        "install_scope": install_scope,
-        "explicit_target": explicit_target,
-        "install_target_dir": str(config_dir),
-    }
-    if runtime == "codex":
-        skills_dir = config_dir.parent / ".agents" / "skills"
-        help_skill_dir = skills_dir / "gpd-help"
-        help_skill_dir.mkdir(parents=True, exist_ok=True)
-        (help_skill_dir / "SKILL.md").write_text("# test\n", encoding="utf-8")
-        manifest["codex_skills_dir"] = str(skills_dir)
-        manifest["codex_generated_skill_dirs"] = ["gpd-help"]
-    (config_dir / "gpd-file-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -731,80 +761,64 @@ class TestConfigCommands:
         assert "search_gitignored" not in config
 
     def test_permissions_sync_updates_installed_runtime(self, gpd_project: Path) -> None:
-        from gpd.adapters.claude_code import ClaudeCodeAdapter
+        adapter, target = _install_runtime(gpd_project, _ENV_OVERRIDE_DESCRIPTOR)
 
-        target = gpd_project / ".claude"
-        target.mkdir()
-        gpd_root = Path(__file__).resolve().parents[1] / "src" / "gpd"
-        ClaudeCodeAdapter().install(gpd_root, target)
-
-        result = _invoke("--raw", "permissions", "sync", "--runtime", "claude-code", "--autonomy", "yolo")
+        result = _invoke("--raw", "permissions", "sync", "--runtime", _ENV_OVERRIDE_DESCRIPTOR.runtime_name, "--autonomy", "yolo")
         parsed = json.loads(result.output)
-        settings = json.loads((target / "settings.json").read_text(encoding="utf-8"))
+        status = adapter.runtime_permissions_status(target, autonomy="yolo")
 
-        assert parsed["runtime"] == "claude-code"
+        assert parsed["runtime"] == _ENV_OVERRIDE_DESCRIPTOR.runtime_name
         assert parsed["sync_applied"] is True
-        assert settings["permissions"]["defaultMode"] == "bypassPermissions"
+        assert status["config_aligned"] is True
 
     def test_permissions_sync_accepts_display_name_runtime(self, gpd_project: Path) -> None:
-        from gpd.adapters.claude_code import ClaudeCodeAdapter
+        adapter, target = _install_runtime(gpd_project, _ENV_OVERRIDE_DESCRIPTOR)
 
-        target = gpd_project / ".claude"
-        target.mkdir()
-        gpd_root = Path(__file__).resolve().parents[1] / "src" / "gpd"
-        ClaudeCodeAdapter().install(gpd_root, target)
-
-        result = _invoke("--raw", "permissions", "sync", "--runtime", "Claude Code", "--autonomy", "yolo")
+        result = _invoke("--raw", "permissions", "sync", "--runtime", _ENV_OVERRIDE_DESCRIPTOR.display_name, "--autonomy", "yolo")
         parsed = json.loads(result.output)
-        settings = json.loads((target / "settings.json").read_text(encoding="utf-8"))
+        status = adapter.runtime_permissions_status(target, autonomy="yolo")
 
-        assert parsed["runtime"] == "claude-code"
+        assert parsed["runtime"] == _ENV_OVERRIDE_DESCRIPTOR.runtime_name
         assert parsed["sync_applied"] is True
-        assert settings["permissions"]["defaultMode"] == "bypassPermissions"
+        assert status["config_aligned"] is True
 
     def test_permissions_sync_accepts_alias_runtime(self, gpd_project: Path) -> None:
-        from gpd.adapters.claude_code import ClaudeCodeAdapter
+        adapter, target = _install_runtime(gpd_project, _ENV_OVERRIDE_DESCRIPTOR)
+        alias = _ENV_OVERRIDE_DESCRIPTOR.selection_aliases[0]
 
-        target = gpd_project / ".claude"
-        target.mkdir()
-        gpd_root = Path(__file__).resolve().parents[1] / "src" / "gpd"
-        ClaudeCodeAdapter().install(gpd_root, target)
-
-        result = _invoke("--raw", "permissions", "sync", "--runtime", "claude", "--autonomy", "yolo")
+        result = _invoke("--raw", "permissions", "sync", "--runtime", alias, "--autonomy", "yolo")
         parsed = json.loads(result.output)
-        settings = json.loads((target / "settings.json").read_text(encoding="utf-8"))
+        status = adapter.runtime_permissions_status(target, autonomy="yolo")
 
-        assert parsed["runtime"] == "claude-code"
+        assert parsed["runtime"] == _ENV_OVERRIDE_DESCRIPTOR.runtime_name
         assert parsed["sync_applied"] is True
-        assert settings["permissions"]["defaultMode"] == "bypassPermissions"
+        assert status["config_aligned"] is True
 
     def test_permissions_status_and_sync_use_explicit_local_install_target(
         self,
         gpd_project: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from gpd.adapters.claude_code import ClaudeCodeAdapter
+        target = gpd_project / "external" / f"{_ENV_OVERRIDE_DESCRIPTOR.config_dir_name.lstrip('.')}-config"
+        adapter, target = _install_runtime(gpd_project, _ENV_OVERRIDE_DESCRIPTOR, target=target, explicit_target=True)
+        _set_runtime_config_override(monkeypatch, _ENV_OVERRIDE_DESCRIPTOR, target)
 
-        target = gpd_project / "external" / "claude-config"
-        target.mkdir(parents=True)
-        gpd_root = Path(__file__).resolve().parents[1] / "src" / "gpd"
-        ClaudeCodeAdapter().install(gpd_root, target, is_global=False, explicit_target=True)
-        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(target))
-
-        status_result = _invoke("--raw", "permissions", "status", "--runtime", "claude-code")
+        status_result = _invoke("--raw", "permissions", "status", "--runtime", _ENV_OVERRIDE_DESCRIPTOR.runtime_name)
         parsed_status = json.loads(status_result.output)
-        assert parsed_status["runtime"] == "claude-code"
+        expected_status = adapter.runtime_permissions_status(target, autonomy="yolo")
+
+        assert parsed_status["runtime"] == _ENV_OVERRIDE_DESCRIPTOR.runtime_name
         assert parsed_status["target"] == str(target)
-        assert parsed_status["settings_path"] == str(target / "settings.json")
+        assert parsed_status["settings_path"] == expected_status["settings_path"]
 
-        sync_result = _invoke("--raw", "permissions", "sync", "--runtime", "claude-code", "--autonomy", "yolo")
+        sync_result = _invoke("--raw", "permissions", "sync", "--runtime", _ENV_OVERRIDE_DESCRIPTOR.runtime_name, "--autonomy", "yolo")
         parsed_sync = json.loads(sync_result.output)
-        settings = json.loads((target / "settings.json").read_text(encoding="utf-8"))
+        synced_status = adapter.runtime_permissions_status(target, autonomy="yolo")
 
-        assert parsed_sync["runtime"] == "claude-code"
+        assert parsed_sync["runtime"] == _ENV_OVERRIDE_DESCRIPTOR.runtime_name
         assert parsed_sync["target"] == str(target)
         assert parsed_sync["sync_applied"] is True
-        assert settings["permissions"]["defaultMode"] == "bypassPermissions"
+        assert synced_status["config_aligned"] is True
 
     def test_permissions_status_uses_public_adapter_target_validation_contract(
         self,
@@ -813,13 +827,14 @@ class TestConfigCommands:
     ) -> None:
         import gpd.adapters as adapters_module
 
-        target = gpd_project / "external" / "codex-config"
+        descriptor = _DOLLAR_COMMAND_DESCRIPTOR
+        target = gpd_project / "external" / f"{descriptor.runtime_name}-config"
         target.mkdir(parents=True)
         validation_calls: list[tuple[Path, str]] = []
 
         class _FakeAdapter:
-            runtime_name = "codex"
-            display_name = "Codex"
+            runtime_name = descriptor.runtime_name
+            display_name = descriptor.display_name
 
             def validate_target_runtime(self, target_dir: Path, *, action: str) -> None:
                 validation_calls.append((target_dir, action))
@@ -829,7 +844,7 @@ class TestConfigCommands:
 
             def runtime_permissions_status(self, target_dir: Path, *, autonomy: str) -> dict[str, object]:
                 return {
-                    "runtime": "codex",
+                    "runtime": descriptor.runtime_name,
                     "desired_mode": "default",
                     "configured_mode": "default",
                     "config_aligned": True,
@@ -845,7 +860,7 @@ class TestConfigCommands:
             "permissions",
             "status",
             "--runtime",
-            "codex",
+            descriptor.runtime_name,
             "--target-dir",
             str(target),
             "--autonomy",
@@ -854,9 +869,9 @@ class TestConfigCommands:
         parsed = json.loads(result.output)
 
         assert validation_calls == [(target.resolve(strict=False), "inspect runtime permissions on")]
-        assert parsed["runtime"] == "codex"
+        assert parsed["runtime"] == descriptor.runtime_name
         assert parsed["target"] == str(target.resolve(strict=False))
-        assert parsed["message"] == "validated codex-config for balanced"
+        assert parsed["message"] == f"validated {target.name} for balanced"
 
     @pytest.mark.parametrize("command", ["status", "sync"])
     def test_permissions_reject_foreign_manifest_target(
@@ -864,16 +879,8 @@ class TestConfigCommands:
         gpd_project: Path,
         command: str,
     ) -> None:
-        from gpd.adapters.claude_code import ClaudeCodeAdapter
-
-        target = gpd_project / ".claude"
-        target.mkdir()
-        gpd_root = Path(__file__).resolve().parents[1] / "src" / "gpd"
-        ClaudeCodeAdapter().install(gpd_root, target)
-
-        manifest_before = (target / "gpd-file-manifest.json").read_text(encoding="utf-8")
-        config_toml = target / "config.toml"
-        config_toml_existed_before = config_toml.exists()
+        _, target = _install_runtime(gpd_project, _ENV_OVERRIDE_DESCRIPTOR)
+        snapshot_before = _target_file_snapshot(target)
         action = "sync" if command == "sync" else "inspect"
 
         result = _invoke(
@@ -881,7 +888,7 @@ class TestConfigCommands:
             "permissions",
             command,
             "--runtime",
-            "codex",
+            _SECONDARY_PERMISSIONS_DESCRIPTOR.runtime_name,
             "--target-dir",
             str(target),
             "--autonomy",
@@ -892,94 +899,75 @@ class TestConfigCommands:
 
         assert result.exit_code == 1
         assert parsed["error"].startswith(f"Refusing to {action} runtime permissions on")
-        assert "`claude-code`" in parsed["error"]
-        assert "`codex`" in parsed["error"]
-        assert (target / "gpd-file-manifest.json").read_text(encoding="utf-8") == manifest_before
-        assert config_toml.exists() == config_toml_existed_before
+        assert f"`{_ENV_OVERRIDE_DESCRIPTOR.runtime_name}`" in parsed["error"]
+        assert f"`{_SECONDARY_PERMISSIONS_DESCRIPTOR.runtime_name}`" in parsed["error"]
+        assert _target_file_snapshot(target) == snapshot_before
 
     def test_config_set_autonomy_attempts_runtime_permission_sync(
         self,
         gpd_project: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from gpd.adapters.claude_code import ClaudeCodeAdapter
-
-        target = gpd_project / ".claude"
-        target.mkdir()
-        gpd_root = Path(__file__).resolve().parents[1] / "src" / "gpd"
-        adapter = ClaudeCodeAdapter()
-        adapter.install(gpd_root, target)
+        adapter, target = _install_runtime(gpd_project, _ENV_OVERRIDE_DESCRIPTOR)
         adapter.sync_runtime_permissions(target, autonomy="yolo")
-        monkeypatch.setenv("GPD_ACTIVE_RUNTIME", "claude-code")
+        monkeypatch.setenv("GPD_ACTIVE_RUNTIME", _ENV_OVERRIDE_DESCRIPTOR.runtime_name)
 
         result = _invoke("--raw", "config", "set", "autonomy", "balanced")
         parsed = json.loads(result.output)
-        settings = json.loads((target / "settings.json").read_text(encoding="utf-8"))
+        status = adapter.runtime_permissions_status(target, autonomy="balanced")
 
         assert parsed["value"] == "balanced"
-        assert parsed["runtime_permissions"]["runtime"] == "claude-code"
+        assert parsed["runtime_permissions"]["runtime"] == _ENV_OVERRIDE_DESCRIPTOR.runtime_name
         assert parsed["runtime_permissions"]["sync_applied"] is True
-        assert settings.get("permissions", {}).get("defaultMode") != "bypassPermissions"
+        assert status["config_aligned"] is True
 
     def test_permissions_sync_prefers_active_runtime_over_other_installed_runtime(
         self,
         gpd_project: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from gpd.adapters.codex import CodexAdapter
-
-        target = gpd_project / ".codex"
-        target.mkdir()
-        gpd_root = Path(__file__).resolve().parents[1] / "src" / "gpd"
-        CodexAdapter().install(gpd_root, target)
+        _, target = _install_runtime(gpd_project, _SECONDARY_PERMISSIONS_DESCRIPTOR)
         fake_home = gpd_project / "_fake_home_permissions"
         fake_home.mkdir()
-        monkeypatch.setenv("CLAUDE_CODE_SESSION", "active")
+        _activate_runtime(monkeypatch, _ENV_OVERRIDE_DESCRIPTOR)
+        snapshot_before = _target_file_snapshot(target)
 
         with patch("pathlib.Path.home", return_value=fake_home):
             result = _invoke("--raw", "permissions", "sync", "--autonomy", "yolo", expect_ok=False)
 
         parsed = json.loads(result.output)
-        manifest = json.loads((target / "gpd-file-manifest.json").read_text(encoding="utf-8"))
-        config_toml = (target / "config.toml").read_text(encoding="utf-8")
 
-        assert parsed["error"] == "No GPD install found for runtime 'claude-code'. Run `gpd install claude-code` first."
-        assert "gpd_runtime_permissions" not in manifest
-        assert 'approval_policy = "never"' not in config_toml
-        assert 'sandbox_mode = "danger-full-access"' not in config_toml
+        assert parsed["error"] == (
+            f"No GPD install found for runtime '{_ENV_OVERRIDE_DESCRIPTOR.runtime_name}'. "
+            f"Run `gpd install {_ENV_OVERRIDE_DESCRIPTOR.runtime_name}` first."
+        )
+        assert _target_file_snapshot(target) == snapshot_before
 
     def test_config_set_autonomy_does_not_sync_other_installed_runtime(
         self,
         gpd_project: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from gpd.adapters.codex import CodexAdapter
-
-        target = gpd_project / ".codex"
-        target.mkdir()
-        gpd_root = Path(__file__).resolve().parents[1] / "src" / "gpd"
-        CodexAdapter().install(gpd_root, target)
+        _, target = _install_runtime(gpd_project, _SECONDARY_PERMISSIONS_DESCRIPTOR)
         fake_home = gpd_project / "_fake_home_config_set"
         fake_home.mkdir()
-        monkeypatch.setenv("CLAUDE_CODE_SESSION", "active")
+        _activate_runtime(monkeypatch, _ENV_OVERRIDE_DESCRIPTOR)
+        snapshot_before = _target_file_snapshot(target)
 
         with patch("pathlib.Path.home", return_value=fake_home):
             result = _invoke("--raw", "config", "set", "autonomy", "yolo")
 
         parsed = json.loads(result.output)
-        manifest = json.loads((target / "gpd-file-manifest.json").read_text(encoding="utf-8"))
-        config_toml = (target / "config.toml").read_text(encoding="utf-8")
 
         assert parsed["value"] == "yolo"
-        assert parsed["runtime_permissions"]["runtime"] == "claude-code"
+        assert parsed["runtime_permissions"]["runtime"] == _ENV_OVERRIDE_DESCRIPTOR.runtime_name
         assert parsed["runtime_permissions"]["sync_applied"] is False
         assert parsed["runtime_permissions"]["changed"] is False
         assert parsed["runtime_permissions"]["message"] == (
-            "No GPD install found for runtime 'claude-code'. Run `gpd install claude-code` first."
+            f"No GPD install found for runtime '{_ENV_OVERRIDE_DESCRIPTOR.runtime_name}'. "
+            f"Run `gpd install {_ENV_OVERRIDE_DESCRIPTOR.runtime_name}` first."
         )
-        assert "gpd_runtime_permissions" not in manifest
-        assert 'approval_policy = "never"' not in config_toml
-        assert 'sandbox_mode = "danger-full-access"' not in config_toml
+        assert _target_file_snapshot(target) == snapshot_before
 
     def test_config_help(self) -> None:
         result = _invoke("config", "--help")
@@ -1173,7 +1161,7 @@ class TestResolveModelCommand:
             }
         }
         config_path.write_text(json.dumps(config), encoding="utf-8")
-        _mark_complete_runtime_install(gpd_project / descriptor.config_dir_name, runtime=descriptor.runtime_name)
+        seed_complete_runtime_install(gpd_project / descriptor.config_dir_name, runtime=descriptor.runtime_name)
         fake_home = gpd_project / "_fake_home"
         fake_home.mkdir()
         with patch("pathlib.Path.home", return_value=fake_home):
@@ -1198,7 +1186,7 @@ class TestResolveModelCommand:
             }
         }
         config_path.write_text(json.dumps(config), encoding="utf-8")
-        _mark_complete_runtime_install(gpd_project / descriptor.config_dir_name, runtime=descriptor.runtime_name)
+        seed_complete_runtime_install(gpd_project / descriptor.config_dir_name, runtime=descriptor.runtime_name)
 
         fake_home = gpd_project / "_fake_home"
         fake_home.mkdir()

@@ -29,6 +29,7 @@ from gpd.core.constants import (
     TODOS_DIR_NAME,
     VERIFICATION_SUFFIX,
 )
+from gpd.core.phases import _milestone_completion_snapshot
 from gpd.core.utils import (
     is_phase_complete as _is_phase_complete,
 )
@@ -361,20 +362,12 @@ def _has_literature_review(cwd: Path) -> bool:
 
 
 def _has_referee_report(cwd: Path) -> bool:
-    """Check if any referee report files exist."""
-    candidate_dirs = (
-        _planning_dir(cwd),
-        _planning_dir(cwd) / "paper",
-        cwd / "paper" / "referee-reports",
-    )
-    for directory in candidate_dirs:
-        if directory.is_dir() and any(
-            f.name.casefold().startswith("referee-report") and f.name.casefold().endswith(".md")
-            for f in directory.iterdir()
-            if f.is_file()
-        ):
-            return True
-    return False
+    """Check for canonical referee report files in `GPD/` only."""
+
+    reports_dir = _planning_dir(cwd)
+    if not reports_dir.is_dir():
+        return False
+    return any(f.is_file() for f in reports_dir.glob("REFEREE-REPORT*.md"))
 
 
 def _has_paper(cwd: Path) -> bool:
@@ -548,11 +541,8 @@ def suggest_next(cwd: Path, *, limit: int = 5) -> SuggestResult:
     current_phase: _PhaseAnalysis | None = None
     next_unplanned: _PhaseAnalysis | None = None
     next_pending: _PhaseAnalysis | None = None
-    all_complete = True
 
     for pa in phase_analysis:
-        if pa.status != "complete":
-            all_complete = False
         if not current_phase and pa.status == "in_progress":
             current_phase = pa
         if not next_unplanned and pa.status == "researched":
@@ -560,11 +550,10 @@ def suggest_next(cwd: Path, *, limit: int = 5) -> SuggestResult:
         if not next_pending and pa.status == "pending":
             next_pending = pa
 
-    if not phase_analysis:
-        all_complete = False
-
-    ctx_kwargs["phase_count"] = len(phase_analysis)
-    ctx_kwargs["completed_phases"] = sum(1 for p in phase_analysis if p.status == "complete")
+    milestone_snapshot = _milestone_completion_snapshot(cwd)
+    all_complete = milestone_snapshot.all_phases_complete
+    ctx_kwargs["phase_count"] = milestone_snapshot.phase_count
+    ctx_kwargs["completed_phases"] = milestone_snapshot.completed_phases
 
     # ── 5. Phase-based suggestions ──────────────────────────────────────
 

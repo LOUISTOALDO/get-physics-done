@@ -232,6 +232,58 @@ def test_runtime_cli_preserves_custom_global_target_in_incomplete_install_repair
     assert f"--target-dir {config_dir}" in captured.err
 
 
+@pytest.mark.parametrize(
+    "descriptor",
+    [
+        descriptor
+        for descriptor in _RUNTIME_DESCRIPTORS
+        if descriptor.global_config.env_var or descriptor.global_config.env_dir_var or descriptor.global_config.env_file_var
+    ],
+    ids=lambda descriptor: descriptor.runtime_name,
+)
+def test_runtime_cli_treats_env_overridden_global_target_as_global_repair_target(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+    descriptor,
+) -> None:
+    adapter = get_adapter(descriptor.runtime_name)
+    home = tmp_path / "home"
+    home.mkdir()
+    override_dir = tmp_path / "override-global"
+    override_dir.mkdir()
+    env_var = descriptor.global_config.env_var or descriptor.global_config.env_dir_var or descriptor.global_config.env_file_var
+    assert env_var is not None
+    monkeypatch.setenv(env_var, str(override_dir))
+    config_dir = adapter.resolve_global_config_dir(home=home)
+    _mark_incomplete_install(config_dir, runtime=descriptor.runtime_name, install_scope="global")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("gpd.version.checkout_root", lambda start=None: None)
+    monkeypatch.setattr(
+        "gpd.cli.entrypoint",
+        lambda: (_ for _ in ()).throw(AssertionError("entrypoint should not run for env-global manifests")),
+    )
+
+    exit_code = main(
+        [
+            "--runtime",
+            descriptor.runtime_name,
+            "--config-dir",
+            str(config_dir),
+            "--install-scope",
+            "global",
+            "state",
+            "load",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 127
+    assert f"GPD runtime install incomplete for {adapter.display_name}" in captured.err
+    assert "--global" in captured.err
+    assert f"--target-dir {config_dir}" not in captured.err
+
+
 @pytest.mark.parametrize("runtime_value", ["", 123, "not-a-runtime"])
 @pytest.mark.parametrize("descriptor", _RUNTIME_DESCRIPTORS, ids=lambda descriptor: descriptor.runtime_name)
 def test_runtime_cli_fails_when_manifest_runtime_is_missing_or_unrecognized(

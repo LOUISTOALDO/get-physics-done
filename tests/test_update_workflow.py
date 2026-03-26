@@ -19,6 +19,13 @@ def _install_and_finalize(adapter, gpd_root: Path, target: Path, **install_kwarg
     return result
 
 
+def _install_kwargs_for_descriptor(descriptor, tmp_path: Path) -> dict[str, object]:
+    install_kwargs: dict[str, object] = {}
+    if "skills/" in descriptor.manifest_file_prefixes:
+        install_kwargs["skills_dir"] = tmp_path / "shared-skills"
+    return install_kwargs
+
+
 def test_update_workflow_uses_current_runtime_agnostic_contract() -> None:
     content = (GPD_ROOT / "specs" / "workflows" / "update.md").read_text(encoding="utf-8")
 
@@ -58,10 +65,7 @@ def test_default_local_install_keeps_local_update_scope_and_manifest(
     target = tmp_path / adapter.config_dir_name
     target.mkdir(parents=True)
 
-    if "skills/" in descriptor.manifest_file_prefixes:
-        monkeypatch.setenv("CODEX_SKILLS_DIR", str(tmp_path / "shared-skills"))
-
-    _install_and_finalize(adapter, GPD_ROOT, target, is_global=False)
+    _install_and_finalize(adapter, GPD_ROOT, target, is_global=False, **_install_kwargs_for_descriptor(descriptor, tmp_path))
 
     update_content = (target / "get-physics-done" / "workflows" / "update.md").read_text(encoding="utf-8")
     reapply_content = (target / "get-physics-done" / "workflows" / "reapply-patches.md").read_text(
@@ -92,10 +96,7 @@ def test_installed_update_command_is_derived_from_adapter_metadata(
     target = tmp_path / adapter.config_dir_name
     target.mkdir(parents=True)
 
-    if "skills/" in descriptor.manifest_file_prefixes:
-        monkeypatch.setenv("CODEX_SKILLS_DIR", str(tmp_path / "shared-skills"))
-
-    _install_and_finalize(adapter, GPD_ROOT, target, is_global=False)
+    _install_and_finalize(adapter, GPD_ROOT, target, is_global=False, **_install_kwargs_for_descriptor(descriptor, tmp_path))
 
     assert installed_update_command(target) == f"{adapter.update_command} --local"
 
@@ -110,10 +111,7 @@ def test_legacy_local_install_without_install_scope_keeps_local_update_scope(
     target = tmp_path / adapter.config_dir_name
     target.mkdir(parents=True)
 
-    if "skills/" in descriptor.manifest_file_prefixes:
-        monkeypatch.setenv("CODEX_SKILLS_DIR", str(tmp_path / "shared-skills"))
-
-    _install_and_finalize(adapter, GPD_ROOT, target, is_global=False)
+    _install_and_finalize(adapter, GPD_ROOT, target, is_global=False, **_install_kwargs_for_descriptor(descriptor, tmp_path))
 
     manifest_path = target / "gpd-file-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

@@ -462,7 +462,8 @@ def test_review_commands_expose_typed_contracts() -> None:
     assert "manuscript scaffold target (existing draft or bootstrap target)" in write_paper.review_contract.required_evidence
     assert "artifact manifest" in write_paper.review_contract.required_evidence
     assert "reproducibility manifest" in write_paper.review_contract.required_evidence
-    assert "GPD/REFEREE-REPORT.tex" in write_paper.review_contract.required_outputs
+    assert "GPD/REFEREE-REPORT{round_suffix}.md" in write_paper.review_contract.required_outputs
+    assert "GPD/REFEREE-REPORT{round_suffix}.tex" in write_paper.review_contract.required_outputs
     assert "manuscript" in write_paper.review_contract.preflight_checks
 
     assert peer_review.review_contract is not None
@@ -962,11 +963,26 @@ def test_revision_and_audit_workflows_verify_artifacts_before_trusting_success_t
     assert "Use `**Evidence:**` blocks for rebuttals" in respond
     assert "verify the promised artifacts before trusting the handoff text" in respond
     assert "If the agent claimed success but the files did not change, treat that section as failed" in respond
-    assert "Re-open `AUTHOR-RESPONSE{round_suffix}.md` and `REFEREE_RESPONSE{round_suffix}.md`" in respond
+    assert "Re-open `GPD/AUTHOR-RESPONSE{round_suffix}.md` and `GPD/paper/REFEREE_RESPONSE{round_suffix}.md`" in respond
 
     assert "Verify the promised referee artifacts before trusting the handoff text" in audit
-    assert "Confirm `GPD/REFEREE-REPORT.md` exists" in audit
+    assert "Confirm `GPD/v{milestone_version}-MILESTONE-REFEREE-REPORT.md` exists" in audit
     assert "If the agent reported success but either artifact is missing, treat peer review as failed" in audit
+
+
+def test_audit_milestone_surfaces_contract_gate_and_milestone_review_namespace() -> None:
+    audit = (WORKFLOWS_DIR / "audit-milestone.md").read_text(encoding="utf-8")
+
+    assert "project_contract_load_info" in audit
+    assert "project_contract_validation" in audit
+    assert "active_reference_context" in audit
+    assert "Treat `project_contract` as authoritative only when `project_contract_load_info` is clean and `project_contract_validation` passes." in audit
+    assert "skip mock peer review and note that the contract gate must be repaired before milestone publishability review" in audit
+    assert "GPD/v{milestone_version}-MILESTONE-REFEREE-REPORT.md" in audit
+    assert "GPD/v{milestone_version}-MILESTONE-REFEREE-REPORT.tex" in audit
+    assert "Project contract load info: {project_contract_load_info}" in audit
+    assert "Project contract validation: {project_contract_validation}" in audit
+    assert "Active references: {active_reference_context}" in audit
 
 
 def test_phase_research_and_verification_surfaces_keep_anchor_checks_mandatory() -> None:

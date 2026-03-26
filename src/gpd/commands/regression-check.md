@@ -18,7 +18,7 @@ Run the lightweight regression audit implemented by `gpd regression-check`.
 
 This command does **not** re-run physics, numerical, dimensional, or contract verification. It scans already-recorded phase artifacts for regressions in verification state:
 
-1. Convention conflicts across completed `*-SUMMARY.md` frontmatter
+1. Convention conflicts across completed summary frontmatter (`SUMMARY.md` and `*-SUMMARY.md`)
 2. Missing, invalid, or non-canonical `*-VERIFICATION.md` statuses
 3. Completed phases whose `*-VERIFICATION.md` still reports unresolved gaps
 
@@ -47,7 +47,7 @@ Preserve the workflow gates that mirror the shipped implementation:
 
 1. Validate command context and determine phase scope
 2. Discover completed phases from plan + summary artifacts
-3. Scan `*-SUMMARY.md` frontmatter for conflicting convention definitions
+3. Scan completed summary frontmatter (`SUMMARY.md` and `*-SUMMARY.md`) for conflicting convention definitions
 4. Scan `*-VERIFICATION.md` frontmatter for parse failures, invalid statuses, or unresolved gaps
 5. Return the structured issue list without inventing a synthetic report file or claiming physics was re-verified
 </process>

@@ -6,7 +6,6 @@ env-var activation signals, and config-directory layout.
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +14,6 @@ from gpd.adapters import get_adapter, list_runtimes
 from gpd.adapters.install_utils import (
     CACHE_DIR_NAME,
     GPD_INSTALL_DIR_NAME,
-    MANIFEST_NAME,
     UPDATE_CACHE_FILENAME,
 )
 from gpd.adapters.runtime_catalog import (
@@ -25,6 +23,7 @@ from gpd.adapters.runtime_catalog import (
     resolve_global_config_dir as _resolve_global_config_dir,
 )
 from gpd.core.constants import ENV_GPD_ACTIVE_RUNTIME, PLANNING_DIR_NAME, TODOS_DIR_NAME
+from gpd.hooks.install_metadata import install_scope_from_manifest, load_install_manifest_runtime_status
 
 RUNTIME_UNKNOWN = "unknown"
 SCOPE_GLOBAL = "global"
@@ -126,52 +125,10 @@ def _local_runtime_dir(runtime: str, cwd: Path | None = None) -> Path:
     return adapter.resolve_local_config_dir(cwd)
 
 
-def _manifest_install_scope(config_dir: Path) -> str | None:
-    """Return persisted install scope from a runtime manifest, if present."""
-    manifest_path = config_dir / MANIFEST_NAME
-    if not manifest_path.exists():
-        return None
-
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-
-    if not isinstance(manifest, dict):
-        return None
-
-    scope = manifest.get("install_scope")
-    return scope if scope in (SCOPE_LOCAL, SCOPE_GLOBAL) else None
-
-
 def _manifest_runtime_status(config_dir: Path) -> tuple[str, str | None]:
     """Return the manifest parse state and normalized runtime when available."""
-    manifest_path = config_dir / MANIFEST_NAME
-    if not manifest_path.exists():
-        return "missing", None
-
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return "corrupt", None
-
-    if not isinstance(manifest, dict):
-        return "invalid", None
-
-    if "runtime" not in manifest:
-        return "invalid", None
-
-    runtime = manifest.get("runtime")
-    if not isinstance(runtime, str):
-        return "invalid", None
-
-    normalized = runtime.strip()
-    if not normalized:
-        return "invalid", None
-    normalized_runtime = normalize_runtime_name(normalized)
-    if normalized_runtime is None:
-        return "invalid", None
-    return "ok", normalized_runtime
+    manifest_state, _manifest, runtime = load_install_manifest_runtime_status(config_dir)
+    return manifest_state, runtime
 
 
 def _runtime_from_manifest_or_path(
@@ -248,14 +205,14 @@ def _detect_runtime_install_target(
     if _has_gpd_install(local_dir, cwd=resolved_cwd, home=resolved_home):
         return RuntimeInstallTarget(
             config_dir=local_dir,
-            install_scope=_manifest_install_scope(local_dir) or SCOPE_LOCAL,
+            install_scope=install_scope_from_manifest(local_dir) or SCOPE_LOCAL,
         )
 
     global_dir = _global_runtime_dir(runtime, home=resolved_home)
     if _has_gpd_install(global_dir, cwd=resolved_cwd, home=resolved_home):
         return RuntimeInstallTarget(
             config_dir=global_dir,
-            install_scope=_manifest_install_scope(global_dir) or SCOPE_GLOBAL,
+            install_scope=install_scope_from_manifest(global_dir) or SCOPE_GLOBAL,
         )
 
     return None
@@ -317,7 +274,7 @@ def resolve_effective_runtime(
                 runtime=runtime,
                 source=SOURCE_LOCAL,
                 has_gpd_install=True,
-                install_scope=_manifest_install_scope(local_dir) or SCOPE_LOCAL,
+                install_scope=install_scope_from_manifest(local_dir) or SCOPE_LOCAL,
             )
 
         global_dir = _global_runtime_dir(runtime, home=resolved_home)
@@ -326,7 +283,7 @@ def resolve_effective_runtime(
                 runtime=runtime,
                 source=SOURCE_GLOBAL,
                 has_gpd_install=True,
-                install_scope=_manifest_install_scope(global_dir) or SCOPE_GLOBAL,
+                install_scope=install_scope_from_manifest(global_dir) or SCOPE_GLOBAL,
             )
 
     if require_gpd_install:

@@ -1298,14 +1298,14 @@ class TestStateServer:
         from gpd.core.errors import GPDError
         from gpd.mcp.servers.state_server import get_progress
 
-        with patch("gpd.mcp.servers.state_server.state_update_progress", side_effect=GPDError("no state")):
+        with patch("gpd.mcp.servers.state_server.progress_render", side_effect=GPDError("no state")):
             result = get_progress("/fake/project")
         assert result == {"error": "no state", "schema_version": 1}
 
     def test_get_progress_os_error(self):
         from gpd.mcp.servers.state_server import get_progress
 
-        with patch("gpd.mcp.servers.state_server.state_update_progress", side_effect=OSError("read only")):
+        with patch("gpd.mcp.servers.state_server.progress_render", side_effect=OSError("read only")):
             result = get_progress("/fake/project")
         assert result == {"error": "read only", "schema_version": 1}
 
@@ -1386,11 +1386,11 @@ class TestStateServer:
         from gpd.mcp.servers.state_server import get_progress
 
         mock_result = MagicMock()
-        mock_result.model_dump.return_value = {"updated": True, "progress_percent": 50}
+        mock_result.model_dump.return_value = {"milestone_version": "v1.0", "milestone_name": "Test", "percent": 50}
 
-        with patch("gpd.mcp.servers.state_server.state_update_progress", return_value=mock_result):
+        with patch("gpd.mcp.servers.state_server.progress_render", return_value=mock_result):
             result = get_progress("/fake/project")
-        assert result["progress_percent"] == 50
+        assert result["percent"] == 50
 
     def test_validate_state(self):
         from gpd.mcp.servers.state_server import validate_state

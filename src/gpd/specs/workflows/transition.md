@@ -5,8 +5,8 @@
 1. `GPD/STATE.md`
 2. `GPD/PROJECT.md`
 3. `GPD/ROADMAP.md`
-4. Current phase's plan files (`*-PLAN.md`)
-5. Current phase's summary files (`*-SUMMARY.md`)
+4. Current phase's plan files (`PLAN.md` and `*-PLAN.md`)
+5. Current phase's summary files (`SUMMARY.md` and `*-SUMMARY.md`)
 
 </required_reading>
 
@@ -57,14 +57,14 @@ Exit without further action. This prevents duplicate entries in DECISIONS.md and
 Check current phase has all plan summaries:
 
 ```bash
-ls ${PHASE_DIR}/*-PLAN.md 2>/dev/null | sort
-ls ${PHASE_DIR}/*-SUMMARY.md 2>/dev/null | sort
+ls "${PHASE_DIR}"/PLAN.md "${PHASE_DIR}"/*-PLAN.md 2>/dev/null | sort
+ls "${PHASE_DIR}"/SUMMARY.md "${PHASE_DIR}"/*-SUMMARY.md 2>/dev/null | sort
 ```
 
 **Verification logic:**
 
-- Count PLAN files
-- Count SUMMARY files
+- Count standalone and numbered PLAN files
+- Count standalone and numbered SUMMARY files
 - If counts match: all plans complete
 - If counts don't match: incomplete
 
@@ -155,6 +155,7 @@ The tool handles:
 - Updating the Progress table (Status -> Complete, adding date)
 - Advancing STATE.md to next phase (Current Phase, Status -> Ready to plan, Current Plan -> Not started)
 - Detecting if this is the last phase in the milestone
+- Counting standalone `PLAN.md` / `SUMMARY.md` alongside numbered `*-PLAN.md` / `*-SUMMARY.md` artifacts
 
 Extract from result: `completed_phase`, `plans_executed`, `next_phase`, `next_phase_name`, `is_last_phase`.
 
@@ -173,7 +174,7 @@ Evolve PROJECT.md to reflect learnings from completed phase.
 **Read phase summaries:**
 
 ```bash
-cat ${PHASE_DIR}/*-SUMMARY.md
+cat ${PHASE_DIR}/SUMMARY.md ${PHASE_DIR}/*-SUMMARY.md 2>/dev/null
 ```
 
 **Assess research question changes:**
@@ -275,13 +276,13 @@ This step captures decisions in the cumulative decision log (separate from the P
 **1. Extract decisions from phase summaries:**
 
 ```bash
-cat ${PHASE_DIR}/*-SUMMARY.md
+cat ${PHASE_DIR}/SUMMARY.md ${PHASE_DIR}/*-SUMMARY.md 2>/dev/null
 ```
 
 Look for the `key-decisions` field in SUMMARY.md frontmatter. Also check CONTEXT.md for decisions made during planning:
 
 ```bash
-cat ${PHASE_DIR}/*-CONTEXT.md 2>/dev/null
+cat ${PHASE_DIR}/CONTEXT.md ${PHASE_DIR}/*-CONTEXT.md 2>/dev/null
 ```
 
 Collect all decisions: convention choices, method selections, approximation schemes, algorithm choices, parameter values with rationale.
@@ -559,7 +560,7 @@ This ensures derivation state is captured even without explicit `/gpd:pause-work
 **1. Read phase summaries:**
 
 ```bash
-cat ${PHASE_DIR}/*-SUMMARY.md
+cat ${PHASE_DIR}/SUMMARY.md ${PHASE_DIR}/*-SUMMARY.md 2>/dev/null
 ```
 
 **2. Extract from SUMMARYs:**

@@ -194,8 +194,8 @@ CONTEXT: [done if has_context | - if not]
 List files in the current phase directory:
 
 ```bash
-ls -1 GPD/phases/[current-phase-dir]/*-PLAN.md 2>/dev/null | wc -l
-ls -1 GPD/phases/[current-phase-dir]/*-SUMMARY.md 2>/dev/null | wc -l
+ls -1 GPD/phases/[current-phase-dir]/PLAN.md GPD/phases/[current-phase-dir]/*-PLAN.md 2>/dev/null | wc -l
+ls -1 GPD/phases/[current-phase-dir]/SUMMARY.md GPD/phases/[current-phase-dir]/*-SUMMARY.md 2>/dev/null | wc -l
 ls -1 GPD/phases/[current-phase-dir]/*-VERIFICATION.md 2>/dev/null | wc -l
 ```
 
@@ -221,9 +221,14 @@ If `validation_with_gaps > 0`, check whether gap-closure plans already exist but
 ```bash
 # Check for gap_closure plans without matching SUMMARYs
 GAP_PLANS_UNEXECUTED=0
-for plan in GPD/phases/[current-phase-dir]/*-PLAN.md; do
+for plan in GPD/phases/[current-phase-dir]/PLAN.md GPD/phases/[current-phase-dir]/*-PLAN.md; do
+  [ -f "$plan" ] || continue
   if grep -q "gap_closure: true" "$plan" 2>/dev/null; then
-    SUMMARY="${plan%-PLAN.md}-SUMMARY.md"
+    if [ "$(basename "$plan")" = "PLAN.md" ]; then
+      SUMMARY="$(dirname "$plan")/SUMMARY.md"
+    else
+      SUMMARY="${plan%-PLAN.md}-SUMMARY.md"
+    fi
     if [ ! -f "$SUMMARY" ]; then
       GAP_PLANS_UNEXECUTED=$((GAP_PLANS_UNEXECUTED + 1))
     fi

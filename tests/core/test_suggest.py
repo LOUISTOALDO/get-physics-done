@@ -17,6 +17,7 @@ from gpd.core.suggest import (
     SuggestResult,
     suggest_next,
 )
+from tests.runtime_install_helpers import seed_complete_runtime_install
 
 _RUNTIME_NAMES = tuple(list_runtimes())
 _SUPPORTED_RUNTIME_DESCRIPTORS = tuple(get_runtime_descriptor(runtime) for runtime in _RUNTIME_NAMES)
@@ -101,42 +102,25 @@ def _create_phase(
     return phase_dir
 
 
+def _create_roadmap_with_phases(tmp_path: Path, phases: list[tuple[str, str]]) -> None:
+    lines = ["# Roadmap", ""]
+    for number, name in phases:
+        lines.extend(
+            [
+                f"### Phase {number}: {name}",
+                "**Goal:** planned",
+                "",
+            ]
+        )
+    _create_roadmap(tmp_path, "\n".join(lines).strip() + "\n")
+
+
 def _create_todos(tmp_path: Path, count: int) -> None:
     """Create pending todo files."""
     pending = tmp_path / "GPD" / "todos" / "pending"
     pending.mkdir(parents=True, exist_ok=True)
     for i in range(count):
         (pending / f"todo-{i}.md").write_text(f"Todo {i}\n")
-
-
-def _mark_complete_runtime_install(config_dir: Path, *, runtime: str, install_scope: str = "local") -> None:
-    """Create the concrete install markers real runtime installs write."""
-    adapter = get_adapter(runtime)
-    config_dir.mkdir(parents=True, exist_ok=True)
-    for relpath in adapter.install_completeness_relpaths():
-        if relpath == "gpd-file-manifest.json":
-            continue
-        artifact = config_dir / relpath
-        artifact.parent.mkdir(parents=True, exist_ok=True)
-        if artifact.suffix:
-            artifact.write_text("{}\n" if artifact.suffix == ".json" else "# test\n", encoding="utf-8")
-        else:
-            artifact.mkdir(parents=True, exist_ok=True)
-    explicit_target = config_dir.name != adapter.config_dir_name
-    manifest: dict[str, object] = {
-        "runtime": runtime,
-        "install_scope": install_scope,
-        "explicit_target": explicit_target,
-        "install_target_dir": str(config_dir),
-    }
-    if runtime == "codex":
-        skills_dir = config_dir.parent / ".agents" / "skills"
-        help_skill_dir = skills_dir / "gpd-help"
-        help_skill_dir.mkdir(parents=True, exist_ok=True)
-        (help_skill_dir / "SKILL.md").write_text("# test\n", encoding="utf-8")
-        manifest["codex_skills_dir"] = str(skills_dir)
-        manifest["codex_generated_skill_dirs"] = ["gpd-help"]
-    (config_dir / "gpd-file-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
 # ─── No Project ────────────────────────────────────────────────────────────────
@@ -159,11 +143,11 @@ def test_no_project_uses_workspace_runtime_install_for_command_formatting(tmp_pa
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    _mark_complete_runtime_install(workspace / workspace_adapter.local_config_dir_name, runtime=workspace_runtime)
+    seed_complete_runtime_install(workspace / workspace_adapter.local_config_dir_name, runtime=workspace_runtime)
 
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    _mark_complete_runtime_install(elsewhere / elsewhere_adapter.local_config_dir_name, runtime=elsewhere_runtime)
+    seed_complete_runtime_install(elsewhere / elsewhere_adapter.local_config_dir_name, runtime=elsewhere_runtime)
 
     with (
         patch("gpd.hooks.runtime_detect.Path.cwd", return_value=elsewhere),
@@ -185,7 +169,10 @@ def test_no_project_with_runtime_dir_but_no_install_uses_plain_gpd_command(tmp_p
 
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    _mark_complete_runtime_install(elsewhere / get_adapter(elsewhere_runtime).local_config_dir_name, runtime=elsewhere_runtime)
+    seed_complete_runtime_install(
+        elsewhere / get_adapter(elsewhere_runtime).local_config_dir_name,
+        runtime=elsewhere_runtime,
+    )
 
     with (
         patch("gpd.hooks.runtime_detect.Path.cwd", return_value=elsewhere),
@@ -362,6 +349,20 @@ def test_all_complete_suggests_audit(tmp_path: Path) -> None:
     assert "write-paper" in actions  # all verified too
 
 
+def test_roadmap_only_phase_blocks_milestone_audit(tmp_path: Path) -> None:
+    """Roadmap phases without matching disk work must keep the milestone open."""
+    root = _setup_project(tmp_path)
+    _create_roadmap_with_phases(root, [("1", "Setup"), ("2", "Build")])
+    _create_phase(root, "01-setup", plans=1, summaries=1, verification=True)
+
+    result = suggest_next(root)
+
+    assert result.context.phase_count == 2
+    assert result.context.completed_phases == 1
+    assert all(s.action != "audit-milestone" for s in result.suggestions)
+    assert all(s.action != "write-paper" for s in result.suggestions)
+
+
 # ─── Unverified Results ────────────────────────────────────────────────────────
 
 
@@ -514,13 +515,12 @@ def test_referee_report_in_planning_root_suggests_response(tmp_path: Path) -> No
     assert "arxiv-submission" not in actions  # referee response takes precedence
 
 
-def test_referee_report_in_paper_referee_reports_dir_suggests_response(tmp_path: Path) -> None:
+def test_referee_report_in_canonical_gpd_root_suggests_response(tmp_path: Path) -> None:
     root = _setup_project(tmp_path)
     _create_roadmap(root)
-    reports_dir = root / "paper" / "referee-reports"
-    reports_dir.mkdir(parents=True)
+    (root / "paper").mkdir()
     (root / "paper" / "main.tex").write_text("\\documentclass{article}\n")
-    (reports_dir / "REFEREE-REPORT-1.md").write_text("Major revision needed.\n")
+    (root / "GPD" / "REFEREE-REPORT.md").write_text("Major revision needed.\n")
 
     result = suggest_next(root)
     actions = [s.action for s in result.suggestions]
@@ -529,7 +529,21 @@ def test_referee_report_in_paper_referee_reports_dir_suggests_response(tmp_path:
     assert "peer-review" not in actions
 
 
-def test_referee_report_in_paper_dir_lowercase_filename_suggests_response(tmp_path: Path) -> None:
+def test_milestone_referee_report_namespace_does_not_trigger_response(tmp_path: Path) -> None:
+    root = _setup_project(tmp_path)
+    _create_roadmap(root)
+    (root / "paper").mkdir()
+    (root / "paper" / "main.tex").write_text("\\documentclass{article}\n")
+    (root / "GPD" / "v1-MILESTONE-REFEREE-REPORT.md").write_text("Milestone review only.\n")
+
+    result = suggest_next(root)
+    actions = [s.action for s in result.suggestions]
+
+    assert "respond-to-referees" not in actions
+    assert "peer-review" in actions
+
+
+def test_legacy_lowercase_referee_report_locations_no_longer_trigger_response(tmp_path: Path) -> None:
     root = _setup_project(tmp_path)
     _create_roadmap(root)
     paper_dir = root / "GPD" / "paper"
@@ -541,8 +555,8 @@ def test_referee_report_in_paper_dir_lowercase_filename_suggests_response(tmp_pa
     result = suggest_next(root)
     actions = [s.action for s in result.suggestions]
 
-    assert "respond-to-referees" in actions
-    assert "peer-review" not in actions
+    assert "respond-to-referees" not in actions
+    assert "peer-review" in actions
 
 
 def test_non_markdown_referee_report_does_not_trigger_response(tmp_path: Path) -> None:

@@ -37,17 +37,18 @@ When a research milestone completes:
 
 <step name="verify_readiness">
 
-**Use `roadmap analyze` for comprehensive readiness check:**
+**Use `roadmap analyze` plus the on-disk phase inventory for the same readiness semantics as `gpd milestone complete`:**
 
 ```bash
 ROADMAP=$(gpd roadmap analyze)
 ```
 
-This returns all phases with plan/summary counts and disk status. Use this to verify:
+`roadmap analyze` returns the roadmap-backed phase view. Compare that with the on-disk phase directories so the milestone gate sees the same roadmap-plus-disk union that `gpd milestone complete` uses. Use this to verify:
 
-- Which phases belong to this milestone?
-- All phases complete (all plans have summaries)? Check `disk_status == 'complete'` for each.
-- `progress_percent` should be 100%.
+- Which phases belong to this milestone, including any disk-only phase directories?
+- All phases complete? Check that every roadmap phase and every on-disk phase directory reaches `complete`.
+- Standalone `PLAN.md` / `SUMMARY.md` artifacts count the same as numbered `*-PLAN.md` / `*-SUMMARY.md` artifacts.
+- `progress_percent` should be 100% once the roadmap-plus-disk union is fully complete.
 
 Present:
 

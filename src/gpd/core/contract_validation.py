@@ -219,6 +219,9 @@ def _format_schema_error(error: dict[str, object]) -> str:
         actual_type = type(input_value).__name__
         return f"{location} must be an object, not {actual_type}"
 
+    if message in {"Value error, must be a non-empty string", "Value error, value must not be blank"}:
+        return f"{location} must be a non-empty string"
+
     return f"{location}: {message}"
 
 

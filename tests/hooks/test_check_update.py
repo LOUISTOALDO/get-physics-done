@@ -289,6 +289,15 @@ class TestReadInstalledVersion:
         assert "get_gpd_install_dirs" in source
 
 
+def test_worker_cache_file_arg_runs_do_check_directly(tmp_path: Path) -> None:
+    cache_file = tmp_path / "cache.json"
+
+    with patch("gpd.hooks.check_update._do_check") as mock_do_check:
+        main(["--cache-file", str(cache_file)])
+
+    mock_do_check.assert_called_once_with(cache_file)
+
+
 # ─── _do_check — npm registry unreachable ────────────────────────────────
 
 

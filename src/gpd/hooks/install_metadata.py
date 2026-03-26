@@ -7,7 +7,6 @@ from pathlib import Path
 
 from gpd.adapters import get_adapter
 from gpd.adapters.install_utils import MANIFEST_NAME, build_runtime_install_repair_command
-from gpd.hooks.runtime_detect import normalize_runtime_name
 
 
 def _load_manifest_payload(config_dir: Path) -> dict[str, object] | None:
@@ -52,6 +51,32 @@ def load_install_manifest_state(config_dir: Path) -> tuple[str, dict[str, object
     return "ok", payload
 
 
+def load_install_manifest_runtime_status(config_dir: Path) -> tuple[str, dict[str, object], str | None]:
+    """Return the manifest parse state, payload, and canonical runtime when available."""
+
+    state, payload = load_install_manifest_state(config_dir)
+    if state != "ok":
+        return state, payload, None
+
+    if "runtime" not in payload:
+        return "missing_runtime", payload, None
+
+    runtime = payload.get("runtime")
+    if not isinstance(runtime, str):
+        return "malformed_runtime", payload, None
+
+    normalized_runtime = runtime.strip()
+    if not normalized_runtime:
+        return "malformed_runtime", payload, None
+
+    from gpd.hooks.runtime_detect import normalize_runtime_name
+
+    canonical_runtime = normalize_runtime_name(normalized_runtime)
+    if canonical_runtime is None:
+        return "malformed_runtime", payload, None
+    return "ok", payload, canonical_runtime
+
+
 def install_scope_from_manifest(config_dir: Path) -> str | None:
     """Return the persisted install scope for *config_dir*."""
 
@@ -65,18 +90,8 @@ def install_scope_from_manifest(config_dir: Path) -> str | None:
 
 def _manifest_runtime(config_dir: Path) -> str | None:
     """Return the authoritative runtime declared in *config_dir*'s manifest."""
-    manifest = _load_manifest_payload(config_dir)
-    if manifest is None:
-        return None
-
-    runtime = manifest.get("runtime")
-    if not isinstance(runtime, str):
-        return None
-
-    normalized_runtime = runtime.strip()
-    if not normalized_runtime:
-        return None
-    return normalize_runtime_name(normalized_runtime)
+    manifest_state, _payload, runtime = load_install_manifest_runtime_status(config_dir)
+    return runtime if manifest_state == "ok" else None
 
 
 def installed_runtime(config_dir: Path) -> str | None:
@@ -98,15 +113,8 @@ def config_dir_has_complete_install(config_dir: Path) -> bool:
 def installed_update_command(config_dir: Path) -> str | None:
     """Return the bootstrap update command for the install in *config_dir*."""
 
-    manifest = _load_manifest_payload(config_dir)
-    if manifest is None:
-        return None
-
-    runtime = manifest.get("runtime")
-    if not isinstance(runtime, str) or not runtime.strip():
-        return None
-    normalized_runtime = normalize_runtime_name(runtime.strip())
-    if normalized_runtime is None:
+    manifest_state, manifest, runtime = load_install_manifest_runtime_status(config_dir)
+    if manifest_state != "ok" or runtime is None:
         return None
 
     scope = manifest.get("install_scope")
@@ -125,12 +133,12 @@ def installed_update_command(config_dir: Path) -> str | None:
         install_target = Path(install_target_value)
 
     try:
-        get_adapter(normalized_runtime)
+        get_adapter(runtime)
     except KeyError:
         return None
 
     return build_runtime_install_repair_command(
-        normalized_runtime,
+        runtime,
         install_scope=scope,
         target_dir=install_target,
         explicit_target=explicit_target,

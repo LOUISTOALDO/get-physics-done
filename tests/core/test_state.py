@@ -912,6 +912,35 @@ def test_save_state_markdown_preserves_backup_project_contract_in_canonical_form
     assert "notes" not in saved["project_contract"]["claims"][0]
 
 
+def test_save_state_markdown_preserves_backup_project_contract_when_primary_json_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    state = default_state_dict()
+    state["position"]["status"] = "Executing"
+    save_state_json(tmp_path, state)
+
+    layout = ProjectLayout(tmp_path)
+    backup_state = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    backup_state["project_contract"] = json.loads((FIXTURES_DIR / "project_contract.json").read_text(encoding="utf-8"))
+    backup_state["project_contract"]["scope"]["question"] = "Recovered during markdown save"
+    layout.state_json_backup.write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
+    layout.state_json.write_text("{not-json", encoding="utf-8")
+
+    md_content = layout.state_md.read_text(encoding="utf-8").replace("**Status:** Executing", "**Status:** Paused", 1)
+    result = save_state_markdown(tmp_path, md_content)
+
+    persisted = json.loads(layout.state_json.read_text(encoding="utf-8"))
+    backup = json.loads(layout.state_json_backup.read_text(encoding="utf-8"))
+
+    assert result["project_contract"] is not None
+    assert result["project_contract"]["scope"]["question"] == "Recovered during markdown save"
+    assert persisted["project_contract"] is not None
+    assert persisted["project_contract"]["scope"]["question"] == "Recovered during markdown save"
+    assert persisted["position"]["status"] == "Paused"
+    assert backup["project_contract"] is not None
+    assert backup["project_contract"]["scope"]["question"] == "Recovered during markdown save"
+
+
 def test_save_state_markdown_does_not_promote_backup_project_contract_when_primary_contract_is_blocked(
     tmp_path: Path,
 ):
@@ -1217,7 +1246,7 @@ def test_state_validate_keeps_normalized_primary_when_unrelated_section_is_schem
     assert not any("state.json root was recovered from state.json.bak" in warning for warning in result.warnings)
 
 
-def test_state_snapshot_does_not_consume_intent_marker(tmp_path: Path) -> None:
+def test_state_snapshot_recovers_intent_marker_and_reports_current_state(tmp_path: Path) -> None:
     stale_state = default_state_dict()
     stale_state["position"]["current_phase"] = "01"
 
@@ -1227,14 +1256,13 @@ def test_state_snapshot_does_not_consume_intent_marker(tmp_path: Path) -> None:
 
     layout = _write_intent_recovery_state(tmp_path, stale_state=stale_state, recovered_state=recovered_state)
     before_state = layout.state_json.read_text(encoding="utf-8")
-    before_intent = layout.state_intent.read_text(encoding="utf-8")
 
     snapshot = state_snapshot(tmp_path)
 
-    assert snapshot.current_phase == "01"
-    assert layout.state_json.read_text(encoding="utf-8") == before_state
-    assert layout.state_intent.exists()
-    assert layout.state_intent.read_text(encoding="utf-8") == before_intent
+    assert snapshot.current_phase == "05"
+    assert layout.state_json.read_text(encoding="utf-8") != before_state
+    assert json.loads(layout.state_json.read_text(encoding="utf-8"))["position"]["current_phase"] == "05"
+    assert not layout.state_intent.exists()
 
 
 def test_load_state_json_discards_stale_intent_when_current_state_files_are_newer(tmp_path: Path) -> None:
@@ -1292,7 +1320,9 @@ def test_peek_state_json_fallback_does_not_consume_intent_marker(tmp_path: Path)
     assert layout.state_intent.read_text(encoding="utf-8") == before_intent
 
 
-def test_save_state_markdown_does_not_resurrect_backup_only_json_fields_when_primary_is_unreadable(tmp_path: Path) -> None:
+def test_save_state_markdown_preserves_backup_project_contract_without_resurrecting_other_backup_only_json_fields(
+    tmp_path: Path,
+) -> None:
     baseline = default_state_dict()
     save_state_json(tmp_path, baseline)
     layout = ProjectLayout(tmp_path)
@@ -1310,10 +1340,37 @@ def test_save_state_markdown_does_not_resurrect_backup_only_json_fields_when_pri
     result = save_state_markdown(tmp_path, generate_state_markdown(md_state))
     stored = json.loads(layout.state_json.read_text(encoding="utf-8"))
 
-    assert result["project_contract"] is None
+    assert result["project_contract"] is not None
+    assert result["project_contract"]["scope"]["question"] == "backup-only contract"
     assert result["session"]["resume_file"] is None
-    assert stored["project_contract"] is None
+    assert stored["project_contract"] is not None
+    assert stored["project_contract"]["scope"]["question"] == "backup-only contract"
     assert stored["session"]["resume_file"] is None
+
+
+def test_save_state_markdown_preserves_backup_project_contract_when_primary_root_is_not_an_object(
+    tmp_path: Path,
+) -> None:
+    baseline = default_state_dict()
+    save_state_json(tmp_path, baseline)
+    layout = ProjectLayout(tmp_path)
+
+    backup_state = default_state_dict()
+    backup_state["project_contract"] = _project_contract_with_question("backup-only contract")
+    layout.state_json_backup.write_text(json.dumps(backup_state, indent=2) + "\n", encoding="utf-8")
+    layout.state_json.write_text("[]\n", encoding="utf-8")
+
+    md_state = default_state_dict()
+    md_state["position"]["current_phase"] = "06"
+    md_state["position"]["status"] = "Paused"
+
+    result = save_state_markdown(tmp_path, generate_state_markdown(md_state))
+    stored = json.loads(layout.state_json.read_text(encoding="utf-8"))
+
+    assert result["project_contract"] is not None
+    assert result["project_contract"]["scope"]["question"] == "backup-only contract"
+    assert stored["project_contract"] is not None
+    assert stored["project_contract"]["scope"]["question"] == "backup-only contract"
 
 
 def test_save_state_markdown_recovers_pending_intent_before_merging_existing_state(tmp_path: Path) -> None:

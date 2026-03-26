@@ -321,7 +321,7 @@ def _is_gpd_token_end(line: str, end_index: int) -> bool:
     """Return whether the token ending at *end_index* is a standalone ``gpd``."""
     if end_index >= len(line):
         return True
-    return line[end_index].isspace() or line[end_index] in {'"', "'", "`"}
+    return line[end_index].isspace() or line[end_index] in {'"', "'", "`", ";", "|", "&", ")", "<", ">"}
 
 
 # ---------------------------------------------------------------------------

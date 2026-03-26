@@ -4826,21 +4826,14 @@ def _target_dir_matches_global(runtime_name: str, target_dir: str, *, action: st
     """Return whether an explicit target-dir names the runtime's canonical global dir."""
     adapter = _get_adapter_or_error(runtime_name, action=action)
     resolved_target = _resolve_cli_target_dir(target_dir)
-    runtime_descriptor = getattr(adapter, "runtime_descriptor", None)
-    if runtime_descriptor is not None:
-        from gpd.adapters.runtime_catalog import resolve_global_config_dir
-
-        try:
-            canonical_global_target = resolve_global_config_dir(runtime_descriptor, home=Path.home(), environ={})
-        except (AttributeError, TypeError, ValueError):
-            canonical_global_target = None
-        if canonical_global_target is not None:
-            return resolved_target == canonical_global_target.expanduser().resolve(strict=False)
-
     resolve_target_dir = getattr(adapter, "resolve_target_dir", None)
     if not callable(resolve_target_dir):
         return False
-    return resolved_target == resolve_target_dir(True, _get_cwd()).expanduser().resolve(strict=False)
+    try:
+        canonical_global_target = resolve_target_dir(True, _get_cwd())
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return resolved_target == canonical_global_target.expanduser().resolve(strict=False)
 
 
 @app.command("install")

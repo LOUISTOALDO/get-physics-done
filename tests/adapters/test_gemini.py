@@ -1077,6 +1077,29 @@ class TestRewriteWindowsPathEscape:
     """Regression: Windows paths with backslashes must not be interpreted as
     escape sequences by ``re.sub``.  See discussion #12."""
 
+    def test_rewrite_gpd_cli_invocations_preserves_prose_and_quotes(self) -> None:
+        bridge_command = "/runtime/gpd-cli"
+        content = (
+            'Prose mentions gpd and "gpd status" without changing.\n'
+            "Use `gpd status` for a quick check.\n"
+            "```bash\n"
+            'echo "gpd status"\n'
+            "echo 'gpd commit'\n"
+            "gpd status\n"
+            "gpd commit\n"
+            "  printf 'done'\n"
+            "```\n"
+        )
+
+        result = _rewrite_gpd_cli_invocations(content, bridge_command)
+
+        assert 'Prose mentions gpd and "gpd status" without changing.' in result
+        assert f"`{bridge_command} status`" in result
+        assert 'echo "gpd status"' in result
+        assert "echo 'gpd commit'" in result
+        assert f"{bridge_command} status" in result
+        assert f"{bridge_command} commit" in result
+
     @pytest.mark.parametrize(
         "bridge_command",
         [

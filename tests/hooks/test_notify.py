@@ -16,6 +16,7 @@ import gpd.hooks.notify as notify_module
 from gpd.adapters import get_adapter
 from gpd.adapters.install_utils import build_runtime_install_repair_command
 from gpd.adapters.runtime_catalog import iter_runtime_descriptors
+from gpd.core.constants import ProjectLayout
 from gpd.hooks.notify import _check_and_notify_update, _emit_execution_notification, _hook_payload_policy, main
 
 _RUNTIME_DESCRIPTORS = iter_runtime_descriptors()
@@ -279,7 +280,7 @@ def test_latest_update_cache_uses_runtime_unknown_constant_not_literal(tmp_path:
     runtime_unknown = "runtime-unknown"
 
     with (
-        patch("gpd.hooks.notify._self_config_dir", return_value=None),
+        patch("gpd.hooks.install_context.detect_self_owned_install", return_value=None),
         patch("gpd.hooks.notify.resolve_project_root", return_value=workspace),
         patch("gpd.hooks.runtime_detect.RUNTIME_UNKNOWN", runtime_unknown),
         patch("gpd.hooks.runtime_detect.detect_active_runtime_with_gpd_install", return_value=runtime_unknown),
@@ -287,6 +288,21 @@ def test_latest_update_cache_uses_runtime_unknown_constant_not_literal(tmp_path:
         patch("gpd.hooks.runtime_detect.get_update_cache_candidates", return_value=[]),
     ):
         assert notify_module._latest_update_cache(str(workspace)) == (None, None)
+
+
+def test_trigger_update_check_uses_sibling_check_update_script(tmp_path: Path) -> None:
+    hook_path = tmp_path / "hooks" / "notify.py"
+    hook_path.parent.mkdir(parents=True)
+    hook_path.write_text("# hook\n", encoding="utf-8")
+
+    with (
+        patch("gpd.hooks.notify.__file__", str(hook_path)),
+        patch("gpd.hooks.notify.subprocess.Popen") as mock_popen,
+    ):
+        notify_module._trigger_update_check(str(tmp_path))
+
+    args = mock_popen.call_args[0][0]
+    assert args[1] == str(hook_path.with_name("check_update.py"))
 
 
 def test_notify_prefers_explicit_target_hook_cache_and_target_dir_command(tmp_path: Path) -> None:
@@ -547,6 +563,17 @@ def test_notify_ignores_stale_uninstalled_runtime_cache_when_other_runtime_is_in
         _check_and_notify_update(str(workspace))
 
     assert stderr.getvalue() == ""
+
+
+def test_notification_state_path_uses_project_layout_observability_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "GPD").mkdir(parents=True)
+    nested = workspace / "src" / "notes"
+    nested.mkdir(parents=True)
+
+    from gpd.hooks.notify import _notification_state_path
+
+    assert _notification_state_path(str(nested)) == ProjectLayout(workspace).last_observability_notification
 
 
 def test_hook_payload_policy_prefers_installed_runtime_over_stale_local_runtime_dir(tmp_path: Path) -> None:
@@ -912,5 +939,5 @@ def test_emit_execution_notification_dedupes_concurrent_resume_state(tmp_path: P
 
     assert errors == []
     assert stderr.getvalue().count("Resume ready for 04-02") == 1
-    state = json.loads((workspace / "GPD" / "observability" / "last-notify.json").read_text(encoding="utf-8"))
+    state = json.loads(ProjectLayout(workspace).last_observability_notification.read_text(encoding="utf-8"))
     assert state["fingerprint"] == "resume:seg-2"

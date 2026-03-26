@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +15,7 @@ from gpd.adapters import get_adapter, list_runtimes
 from gpd.adapters.install_utils import GPD_INSTALL_DIR_NAME
 from gpd.adapters.runtime_catalog import get_runtime_descriptor
 from gpd.core.constants import ENV_GPD_ACTIVE_RUNTIME
+from tests.runtime_install_helpers import seed_complete_runtime_install
 
 _RUNTIME_NAMES = tuple(list_runtimes())
 _SUPPORTED_RUNTIME_DESCRIPTORS = tuple(get_runtime_descriptor(runtime) for runtime in _RUNTIME_NAMES)
@@ -34,36 +34,6 @@ _RUNTIME_ENV_KEYS = {
         if env_var
     ),
 }
-
-
-def _mark_complete_runtime_install(config_dir: Path, *, runtime: str, install_scope: str = "local") -> None:
-    """Create the concrete install markers the fallback detector should trust."""
-    adapter = get_adapter(runtime)
-    config_dir.mkdir(parents=True, exist_ok=True)
-    for relpath in adapter.install_completeness_relpaths():
-        if relpath == "gpd-file-manifest.json":
-            continue
-        artifact = config_dir / relpath
-        artifact.parent.mkdir(parents=True, exist_ok=True)
-        if artifact.suffix:
-            artifact.write_text("{}\n" if artifact.suffix == ".json" else "# test\n", encoding="utf-8")
-        else:
-            artifact.mkdir(parents=True, exist_ok=True)
-    explicit_target = config_dir.name != adapter.config_dir_name
-    manifest: dict[str, object] = {
-        "runtime": runtime,
-        "install_scope": install_scope,
-        "explicit_target": explicit_target,
-        "install_target_dir": str(config_dir),
-    }
-    if runtime == "codex":
-        skills_dir = config_dir.parent / ".agents" / "skills"
-        help_skill_dir = skills_dir / "gpd-help"
-        help_skill_dir.mkdir(parents=True, exist_ok=True)
-        (help_skill_dir / "SKILL.md").write_text("# test\n", encoding="utf-8")
-        manifest["codex_skills_dir"] = str(skills_dir)
-        manifest["codex_generated_skill_dirs"] = ["gpd-help"]
-    (config_dir / "gpd-file-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
 def _runtime_pair() -> tuple[str, str]:
@@ -102,7 +72,7 @@ def test_init_context_uses_runtime_detect_directory_fallback(monkeypatch: pytest
 
     with monkeypatch.context() as runtime_env:
         _clear_runtime_env(runtime_env)
-        _mark_complete_runtime_install(tmp_path / adapter.local_config_dir_name, runtime=runtime)
+        seed_complete_runtime_install(tmp_path / adapter.local_config_dir_name, runtime=runtime)
 
         with (
             patch("gpd.core.context.Path.home", return_value=tmp_path),
@@ -127,7 +97,7 @@ def test_detect_platform_fallback_ignores_incomplete_local_runtime_dirs(
     with monkeypatch.context() as runtime_env:
         _clear_runtime_env(runtime_env)
         (tmp_path / stray_adapter.local_config_dir_name).mkdir()
-        _mark_complete_runtime_install(tmp_path / installed_adapter.local_config_dir_name, runtime=installed_runtime)
+        seed_complete_runtime_install(tmp_path / installed_adapter.local_config_dir_name, runtime=installed_runtime)
 
         with (
             patch("gpd.hooks.runtime_detect.detect_runtime_for_gpd_use", return_value="unknown"),
@@ -149,7 +119,12 @@ def test_detect_platform_fallback_ignores_incomplete_global_runtime_dirs(
         stray_global = stray_adapter.resolve_global_config_dir(home=tmp_path)
         stray_global.mkdir(parents=True, exist_ok=True)
         installed_global = installed_adapter.resolve_global_config_dir(home=tmp_path)
-        _mark_complete_runtime_install(installed_global, runtime=installed_runtime, install_scope="global")
+        seed_complete_runtime_install(
+            installed_global,
+            runtime=installed_runtime,
+            install_scope="global",
+            home=tmp_path,
+        )
 
         with (
             patch("gpd.core.context.Path.home", return_value=tmp_path),

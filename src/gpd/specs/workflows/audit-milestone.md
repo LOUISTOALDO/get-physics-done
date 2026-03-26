@@ -20,7 +20,13 @@ if [ $? -ne 0 ]; then
 fi
 ```
 
-Extract from init JSON: `milestone_version`, `milestone_name`, `phase_count`, `completed_phases`, `commit_docs`, `project_exists`.
+Extract from init JSON: `milestone_version`, `milestone_name`, `phase_count`, `completed_phases`, `commit_docs`, `project_exists`, `project_contract`, `project_contract_load_info`, `project_contract_validation`, `active_reference_context`.
+
+Keep `project_contract`, `project_contract_load_info`, `project_contract_validation`, and `active_reference_context` visible while auditing:
+
+- Treat `project_contract` as authoritative only when `project_contract_load_info` is clean and `project_contract_validation` passes.
+- If that contract gate is blocked, keep the contract visible as context but record contract repair as a blocker in the audit instead of silently substituting prose-only scope.
+- If contract repair is still pending, do not mark the milestone `passed` and do not trust mock peer-review publishability judgments as approval to submit.
 
 **Read mode settings:**
 
@@ -129,6 +135,7 @@ Combine:
 
 - Phase-level gaps and open questions (from step 2)
 - Consistency checker's report (notation conflicts, parameter mismatches, broken reasoning chains) — or note "skipped" if agent failed
+- Contract-gate blockers from step 0 (if `project_contract_load_info` is blocked or `project_contract_validation` fails)
 
 ## 5. Check Requirements Coverage
 
@@ -178,7 +185,9 @@ Plus full markdown report with tables for requirements, phases, consistency, ope
 
 ## 7. Optional: Mock Peer Review
 
-If enabled in config (`referee_review: true` in `GPD/config.json`) or if the user requests it, spawn the referee agent for a simulated peer review of the milestone's research outputs. This provides an independent critical assessment before the researcher decides on next steps, with a canonical Markdown report plus a polished LaTeX companion artifact.
+If enabled in config (`referee_review: true` in `GPD/config.json`) or if the user requests it, spawn the referee agent for a simulated peer review of the milestone's research outputs. This provides an independent critical assessment before the researcher decides on next steps, with a milestone-scoped Markdown report plus a polished LaTeX companion artifact.
+
+If `project_contract_load_info.status` starts with `blocked` or `project_contract_validation.valid` is false, skip mock peer review and note that the contract gate must be repaired before milestone publishability review.
 
 **Check config or ask user:**
 
@@ -218,6 +227,10 @@ Conduct a mock peer review of milestone {milestone_version} research outputs.
 
 Scope: Full milestone review
 Milestone: {milestone_version} -- {milestone_name}
+Project contract load info: {project_contract_load_info}
+Project contract validation: {project_contract_validation}
+Project contract: {project_contract}
+Active references: {active_reference_context}
 
 Files to read:
 - ROADMAP.md (research goals and phase structure)
@@ -239,7 +252,9 @@ Evaluate across all 10 dimensions:
 9. Presentation quality -- organization, figures
 10. Publishability -- overall assessment
 
-Write `GPD/REFEREE-REPORT.md` and the matching `GPD/REFEREE-REPORT.tex` companion.
+Treat `project_contract` as approved milestone scope only when `project_contract_load_info` is clean and `project_contract_validation` passes. If the contract gate is blocked, keep it visible as context but call out the blocker explicitly instead of relying on it as approved scope.
+
+Write `GPD/v{milestone_version}-MILESTONE-REFEREE-REPORT.md` and the matching `GPD/v{milestone_version}-MILESTONE-REFEREE-REPORT.tex` companion.
 
 Return REVIEW COMPLETE with recommendation and issue counts."
 )
@@ -250,8 +265,8 @@ Return REVIEW COMPLETE with recommendation and issue counts."
 **After referee report:**
 
 Verify the promised referee artifacts before trusting the handoff text:
-- Confirm `GPD/REFEREE-REPORT.md` exists and contains a recommendation plus issue counts.
-- Confirm `GPD/REFEREE-REPORT.tex` exists as the matching companion artifact.
+- Confirm `GPD/v{milestone_version}-MILESTONE-REFEREE-REPORT.md` exists and contains a recommendation plus issue counts.
+- Confirm `GPD/v{milestone_version}-MILESTONE-REFEREE-REPORT.tex` exists as the matching companion artifact.
 - If the agent reported success but either artifact is missing, treat peer review as failed, note the failure in the audit report, and do not summarize imaginary review findings.
 
 Read the report and include a summary in the presented results:
@@ -262,8 +277,8 @@ Read the report and include a summary in the presented results:
 **Recommendation:** {accept | minor_revision | major_revision | reject}
 **Major issues:** {N}
 **Minor issues:** {N}
-**Report:** GPD/REFEREE-REPORT.md
-**LaTeX report:** GPD/REFEREE-REPORT.tex
+**Report:** GPD/v{milestone_version}-MILESTONE-REFEREE-REPORT.md
+**LaTeX report:** GPD/v{milestone_version}-MILESTONE-REFEREE-REPORT.tex
 
 {2-3 sentence summary of key findings}
 ```
